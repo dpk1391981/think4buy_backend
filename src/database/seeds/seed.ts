@@ -1102,6 +1102,25 @@ async function seed() {
 
   console.log('All properties seeded successfully');
 
+  // ── Link properties to city/state FK records by matching city name string ──
+  // This ensures stateId and cityId are populated so navbar state-filter works.
+  // Pass 1: match by city name → set cityId + stateId
+  await dataSource.query(`
+    UPDATE properties p
+    JOIN cities c ON LOWER(c.name) = LOWER(p.city)
+    SET p.cityId = c.id, p.stateId = c.state_id
+    WHERE p.cityId IS NULL OR p.stateId IS NULL
+  `);
+
+  // Pass 2: for properties whose city isn't in cities table, at least set stateId by state name
+  await dataSource.query(`
+    UPDATE properties p
+    JOIN states s ON LOWER(s.name) = LOWER(p.state)
+    SET p.stateId = s.id
+    WHERE p.stateId IS NULL
+  `);
+  console.log('Linked properties → cities/states (stateId + cityId populated)');
+
   await dataSource.destroy();
   console.log('\nSeeding complete!');
   console.log('─────────────────────────────────────────');
