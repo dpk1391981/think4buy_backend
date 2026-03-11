@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config();
+
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User, UserRole } from '../../modules/users/entities/user.entity';
@@ -23,6 +26,8 @@ import { SubscriptionPlan, PlanType } from '../../modules/wallet/entities/subscr
 import { State } from '../../modules/locations/entities/state.entity';
 import { City } from '../../modules/locations/entities/city.entity';
 import { Country } from '../../modules/locations/entities/country.entity';
+
+console.log("DB USER:", process.env.DB_USERNAME);
 
 const dataSource = new DataSource({
   type: 'mysql',
