@@ -7,7 +7,7 @@ import { User, UserRole } from '../users/entities/user.entity';
 
 export class CreateInquiryDto {
   name: string;
-  email: string;
+  email?: string;
   phone: string;
   message?: string;
   type?: string;
@@ -40,18 +40,17 @@ export class InquiriesService {
     return this.inquiryRepo.save(inquiry);
   }
 
-  async contactAgent(agentId: string, dto: CreateInquiryDto, userId?: string) {
+  async contactAgent(agentId: string, dto: CreateInquiryDto) {
     const agent = await this.userRepo.findOne({ where: { id: agentId, role: UserRole.AGENT } });
     if (!agent) throw new NotFoundException('Agent not found');
 
     const inquiry = this.inquiryRepo.create({
       name:    dto.name,
-      email:   dto.email || '',
-      phone:   dto.phone || '',
+      email:   dto.email ?? '',
+      phone:   dto.phone ?? '',
       message: dto.message,
       type:    (dto.type as any) ?? 'general',
       agentId,
-      userId,
     } as any);
     return this.inquiryRepo.save(inquiry);
   }

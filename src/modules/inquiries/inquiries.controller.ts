@@ -29,15 +29,12 @@ export class InquiriesController {
   }
 
   @Post('agent/:agentId')
-  @UseGuards(AuthGuard('jwt'))
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Send a direct inquiry to an agent (no property needed)' })
+  @ApiOperation({ summary: 'Send a direct inquiry to an agent — public, no login required' })
   contactAgent(
     @Param('agentId') agentId: string,
     @Body() dto: CreateInquiryDto,
-    @Request() req,
   ) {
-    return this.inquiriesService.contactAgent(agentId, dto, req.user.id);
+    return this.inquiriesService.contactAgent(agentId, dto);
   }
 
   @Get('property/:propertyId')

@@ -313,8 +313,6 @@ export class AdminService {
   async updateProperty(id: string, data: Partial<Property>): Promise<Property> {
     const property = await this.propertyRepo.findOne({ where: { id } });
     if (!property) throw new NotFoundException('Property not found');
-    // Never override approval status via this endpoint (use approve/reject)
-    delete data['approvalStatus'];
     Object.assign(property, data);
     return this.propertyRepo.save(property);
   }

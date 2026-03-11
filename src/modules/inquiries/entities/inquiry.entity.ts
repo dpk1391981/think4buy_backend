@@ -30,7 +30,7 @@ export class Inquiry {
   @Column({ length: 100 })
   name: string;
 
-  @Column({ length: 150 })
+  @Column({ length: 150, nullable: true })
   email: string;
 
   @Column({ length: 15 })
