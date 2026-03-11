@@ -387,6 +387,11 @@ export class PropertiesService {
         isVerified: filters.isVerified,
       });
     }
+    if (filters.isNewProject !== undefined) {
+      qb.andWhere('property.isNewProject = :isNewProject', {
+        isNewProject: filters.isNewProject,
+      });
+    }
     if (filters.search) {
       qb.andWhere(
         '(property.title LIKE :search OR property.locality LIKE :search OR property.society LIKE :search OR property.city LIKE :search)',

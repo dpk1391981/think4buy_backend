@@ -25,4 +25,7 @@ export class Amenity {
     default: AmenityCategory.BASIC,
   })
   category: AmenityCategory;
+
+  @Column({ default: true })
+  status: boolean;
 }

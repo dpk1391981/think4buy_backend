@@ -26,6 +26,10 @@ import { SubscriptionPlan, PlanType } from '../../modules/wallet/entities/subscr
 import { State } from '../../modules/locations/entities/state.entity';
 import { City } from '../../modules/locations/entities/city.entity';
 import { Country } from '../../modules/locations/entities/country.entity';
+import { PropCategory } from '../../modules/property-config/entities/prop-category.entity';
+import { PropType } from '../../modules/property-config/entities/prop-type.entity';
+import { PropTypeAmenity } from '../../modules/property-config/entities/prop-type-amenity.entity';
+import { PropTypeField, FieldType } from '../../modules/property-config/entities/prop-type-field.entity';
 
 console.log("DB USER:", process.env.DB_USERNAME);
 
@@ -36,7 +40,7 @@ const dataSource = new DataSource({
   username: process.env.DB_USERNAME || 'dpk1391981',
   password: process.env.DB_PASSWORD || 'Dpk1391981!',
   database: process.env.DB_NAME || 'realestate_db',
-  entities: [User, Amenity, Property, PropertyImage, Location, Inquiry, ServiceCatalog, Wallet, WalletTransaction, BoostPlan, SubscriptionPlan, State, City, Country],
+  entities: [User, Amenity, Property, PropertyImage, Location, Inquiry, ServiceCatalog, Wallet, WalletTransaction, BoostPlan, SubscriptionPlan, State, City, Country, PropCategory, PropType, PropTypeAmenity, PropTypeField],
   synchronize: true,
 });
 
@@ -136,7 +140,7 @@ async function seed() {
   // ─── Users ────────────────────────────────────────────────────────────────────
   const userRepo = dataSource.getRepository(User);
 
-  const admin = await userRepo.save({ name: 'Admin User', email: 'admin@realestate.com', password: await bcrypt.hash('Admin@123', 10), role: UserRole.ADMIN, isVerified: true });
+  const admin = await userRepo.save({ name: 'Admin User', email: 'admin@realestate.com', password: await bcrypt.hash('Admin@123', 10), role: UserRole.ADMIN, isVerified: true, phone: '9958023001' });
   const seller = await userRepo.save({ name: 'Rajesh Kumar', email: 'seller@example.com', phone: '9876543210', password: await bcrypt.hash('Seller@123', 10), role: UserRole.SELLER, city: 'Mumbai', isVerified: true });
   const seller2 = await userRepo.save({ name: 'Priya Sharma', email: 'seller2@example.com', phone: '9845123456', password: await bcrypt.hash('Seller2@123', 10), role: UserRole.SELLER, city: 'Bangalore', isVerified: true });
   const seller3 = await userRepo.save({ name: 'Mohammed Aziz', email: 'seller3@example.com', phone: '9712345678', password: await bcrypt.hash('Seller3@123', 10), role: UserRole.SELLER, city: 'Hyderabad', isVerified: true });
@@ -1120,6 +1124,316 @@ async function seed() {
     WHERE p.stateId IS NULL
   `);
   console.log('Linked properties → cities/states (stateId + cityId populated)');
+
+  // ─── Property Config: clear + reseed ────────────────────────────────────────
+  await dataSource.query('SET FOREIGN_KEY_CHECKS = 0');
+  for (const t of ['prop_type_fields', 'prop_type_amenities', 'prop_types', 'prop_categories']) {
+    await dataSource.query(`TRUNCATE TABLE \`${t}\``);
+  }
+  await dataSource.query('SET FOREIGN_KEY_CHECKS = 1');
+
+  const catRepo  = dataSource.getRepository(PropCategory);
+  const typeRepo = dataSource.getRepository(PropType);
+  const ptaRepo  = dataSource.getRepository(PropTypeAmenity);
+  const fldRepo  = dataSource.getRepository(PropTypeField);
+
+  // ─── prop_categories — mirrors PROPERTY_CATEGORIES from constants.ts ─────────
+  const [buyCat, rentCat, pgCat, comCat, indCat, bpCat, invCat] = await catRepo.save([
+    { name: 'Buy',           slug: 'buy',            icon: '🏠', description: 'Properties for outright purchase',           status: true, sortOrder: 1 },
+    { name: 'Rent',          slug: 'rent',           icon: '🔑', description: 'Properties available for rent',              status: true, sortOrder: 2 },
+    { name: 'PG / Co-Living',slug: 'pg',             icon: '🛏️', description: 'PG accommodations and co-living spaces',      status: true, sortOrder: 3 },
+    { name: 'Commercial',    slug: 'commercial',     icon: '🏢', description: 'Offices, shops, warehouses, showrooms',       status: true, sortOrder: 4 },
+    { name: 'Industrial',    slug: 'industrial',     icon: '🏭', description: 'Factories, sheds, industrial plots',          status: true, sortOrder: 5 },
+    { name: 'New Projects',  slug: 'builder_project',icon: '🏗️', description: 'Under-construction builder projects',         status: true, sortOrder: 6 },
+    { name: 'Investment',    slug: 'investment',     icon: '📈', description: 'High-yield investment properties',            status: true, sortOrder: 7 },
+  ]);
+  console.log('Seeded prop_categories (aligned with listing categories)');
+
+  // ─── prop_types — slugs mirror PropertyType enum values ──────────────────────
+  // buy: residential types
+  const [apt, villa, house, builderFloor, penthouse, studio, farmHouse, plot] = await typeRepo.save([
+    { name: 'Apartment',         slug: 'apartment',         icon: '🏙️', categoryId: buyCat.id, status: true, sortOrder: 1 },
+    { name: 'Villa',             slug: 'villa',             icon: '🏡', categoryId: buyCat.id, status: true, sortOrder: 2 },
+    { name: 'Independent House', slug: 'house',             icon: '🏠', categoryId: buyCat.id, status: true, sortOrder: 3 },
+    { name: 'Builder Floor',     slug: 'builder_floor',     icon: '🏗️', categoryId: buyCat.id, status: true, sortOrder: 4 },
+    { name: 'Penthouse',         slug: 'penthouse',         icon: '🌆', categoryId: buyCat.id, status: true, sortOrder: 5 },
+    { name: 'Studio Apartment',  slug: 'studio',            icon: '🛋️', categoryId: buyCat.id, status: true, sortOrder: 6 },
+    { name: 'Farm House',        slug: 'farm_house',        icon: '🌾', categoryId: buyCat.id, status: true, sortOrder: 7 },
+    { name: 'Residential Plot',  slug: 'plot',              icon: '📐', categoryId: buyCat.id, status: true, sortOrder: 8 },
+  ]);
+  // rent: same types
+  const [rApt, rVilla, rHouse, rBuilderFloor, rPenthouse, rStudio] = await typeRepo.save([
+    { name: 'Apartment',         slug: 'apartment',         icon: '🏙️', categoryId: rentCat.id, status: true, sortOrder: 1 },
+    { name: 'Villa',             slug: 'villa',             icon: '🏡', categoryId: rentCat.id, status: true, sortOrder: 2 },
+    { name: 'Independent House', slug: 'house',             icon: '🏠', categoryId: rentCat.id, status: true, sortOrder: 3 },
+    { name: 'Builder Floor',     slug: 'builder_floor',     icon: '🏗️', categoryId: rentCat.id, status: true, sortOrder: 4 },
+    { name: 'Penthouse',         slug: 'penthouse',         icon: '🌆', categoryId: rentCat.id, status: true, sortOrder: 5 },
+    { name: 'Studio Apartment',  slug: 'studio',            icon: '🛋️', categoryId: rentCat.id, status: true, sortOrder: 6 },
+  ]);
+  // pg
+  const [pgType, coLiving] = await typeRepo.save([
+    { name: 'PG / Hostel',       slug: 'pg',                icon: '🛏️', categoryId: pgCat.id,  status: true, sortOrder: 1 },
+    { name: 'Co-Living Space',   slug: 'co_living',         icon: '🏘️', categoryId: pgCat.id,  status: true, sortOrder: 2 },
+  ]);
+  // commercial
+  const [office, shop, showroom] = await typeRepo.save([
+    { name: 'Office Space',      slug: 'commercial_office', icon: '💼', categoryId: comCat.id, status: true, sortOrder: 1 },
+    { name: 'Shop / Showroom',   slug: 'commercial_shop',   icon: '🏪', categoryId: comCat.id, status: true, sortOrder: 2 },
+    { name: 'Showroom',          slug: 'showroom',          icon: '🏪', categoryId: comCat.id, status: true, sortOrder: 3 },
+  ]);
+  // industrial
+  const [warehouse, factory, indShed] = await typeRepo.save([
+    { name: 'Warehouse',         slug: 'commercial_warehouse', icon: '🏭', categoryId: indCat.id, status: true, sortOrder: 1 },
+    { name: 'Factory',           slug: 'factory',              icon: '⚙️', categoryId: indCat.id, status: true, sortOrder: 2 },
+    { name: 'Industrial Shed',   slug: 'industrial_shed',      icon: '🏚️', categoryId: indCat.id, status: true, sortOrder: 3 },
+  ]);
+  // builder_project (same residential types for new construction)
+  const [bpApt, bpVilla] = await typeRepo.save([
+    { name: 'Apartment',         slug: 'apartment',         icon: '🏙️', categoryId: bpCat.id, status: true, sortOrder: 1 },
+    { name: 'Villa / Plots',     slug: 'villa',             icon: '🏡', categoryId: bpCat.id, status: true, sortOrder: 2 },
+  ]);
+  // investment
+  const [invPlot, invLand] = await typeRepo.save([
+    { name: 'Residential Plot',  slug: 'plot',              icon: '📐', categoryId: invCat.id, status: true, sortOrder: 1 },
+    { name: 'Agricultural Land', slug: 'land',              icon: '🌱', categoryId: invCat.id, status: true, sortOrder: 2 },
+  ]);
+  console.log('Seeded prop_types (slugs match PropertyType enum)');
+
+  // ─── prop_type_amenities — map amenities to each property type ────────────────
+  const allAmenities = await dataSource.getRepository(Amenity).find();
+  const byName = (n: string) => allAmenities.find(a => a.name.toLowerCase().includes(n.toLowerCase()));
+
+  const lift     = byName('Lift');
+  const parking  = byName('Parking');
+  const gym      = byName('Gym');
+  const pool     = byName('Swimming');
+  const security = byName('Security');
+  const power    = byName('Power');
+  const club     = byName('Clubhouse');
+  const garden   = byName('Garden');
+  const wifi     = byName('WiFi');
+  const intercom = byName('Intercom');
+  const play     = byName('Play');
+  const terrace  = byName('Terrace') || byName('Rooftop');
+  const gas      = byName('Gas');
+  const jogging  = byName('Jogging');
+  const indoor   = byName('Indoor');
+  const water    = byName('Water Supply');
+  const spa      = byName('Spa');
+  const shop2    = byName('Shopping');
+
+  const mapAmenities = async (typeId: string, list: (typeof lift)[]) => {
+    const rows = list.filter(Boolean).map(a => ptaRepo.create({ propTypeId: typeId, amenityId: a!.id }));
+    if (rows.length) await ptaRepo.save(rows);
+  };
+
+  // Residential — Buy
+  await mapAmenities(apt.id,         [lift, parking, gym, pool, security, power, club, garden, intercom, play, jogging, indoor, gas, water, terrace]);
+  await mapAmenities(villa.id,       [garden, parking, pool, security, power, club, terrace, gas, water, gym, spa]);
+  await mapAmenities(house.id,       [parking, security, power, garden, water]);
+  await mapAmenities(builderFloor.id,[parking, security, power, intercom, lift]);
+  await mapAmenities(penthouse.id,   [lift, parking, gym, pool, security, power, terrace, club, gas, water]);
+  await mapAmenities(studio.id,      [lift, parking, security, power, wifi, water]);
+  await mapAmenities(farmHouse.id,   [garden, parking, pool, security, power, water]);
+  await mapAmenities(plot.id,        [security]);
+  // Residential — Rent (same amenity sets)
+  await mapAmenities(rApt.id,        [lift, parking, gym, pool, security, power, club, garden, intercom, play, jogging, indoor, gas, water, terrace]);
+  await mapAmenities(rVilla.id,      [garden, parking, pool, security, power, club, terrace, gas, water, gym]);
+  await mapAmenities(rHouse.id,      [parking, security, power, garden, water]);
+  await mapAmenities(rBuilderFloor.id,[parking, security, power, intercom, lift]);
+  await mapAmenities(rPenthouse.id,  [lift, parking, gym, pool, security, power, terrace, club]);
+  await mapAmenities(rStudio.id,     [lift, parking, security, power, wifi, water]);
+  // PG
+  await mapAmenities(pgType.id,      [wifi, security, power, water, intercom]);
+  await mapAmenities(coLiving.id,    [wifi, security, power, water, gym, intercom, terrace]);
+  // Commercial
+  await mapAmenities(office.id,      [lift, parking, security, power, wifi, water]);
+  await mapAmenities(shop.id,        [parking, security, power]);
+  await mapAmenities(showroom.id,    [parking, security, power, lift]);
+  // Industrial
+  await mapAmenities(warehouse.id,   [parking, security, power]);
+  await mapAmenities(factory.id,     [parking, security, power, water]);
+  await mapAmenities(indShed.id,     [parking, security, power]);
+  // Builder Projects
+  await mapAmenities(bpApt.id,       [lift, parking, gym, pool, security, power, club, garden, intercom, play, jogging, terrace]);
+  await mapAmenities(bpVilla.id,     [garden, parking, pool, security, power, club, terrace]);
+  // Investment
+  await mapAmenities(invPlot.id,     [security]);
+  await mapAmenities(invLand.id,     []);
+  console.log('Seeded prop_type_amenities');
+
+  // ─── prop_type_fields — dynamic form fields per type ─────────────────────────
+  const F = FieldType;
+
+  // Helper: field factory
+  const field = (propTypeId: string, fieldName: string, fieldLabel: string, fieldType: FieldType,
+    opts: string[] | null, placeholder: string | null, isRequired: boolean, sortOrder: number,
+  ) => ({ propTypeId, fieldName, fieldLabel, fieldType, optionsJson: opts, placeholder, isRequired, sortOrder });
+
+  const FURNISHING_OPTS = ['Unfurnished', 'Semi Furnished', 'Fully Furnished'];
+  const FACING_OPTS     = ['East', 'West', 'North', 'South', 'North-East', 'North-West', 'South-East', 'South-West'];
+  const YES_NO          = ['Yes', 'No'];
+
+  // Helper to duplicate same fields for multiple typeIds (rent mirrors buy)
+  const fieldsFor = (typeId: string, defs: ReturnType<typeof field>[]) =>
+    defs.map(d => ({ ...d, propTypeId: typeId }));
+
+  const aptFields = (id: string) => [
+    field(id, 'bedrooms',     'Bedrooms',               F.NUMBER,   null,          'e.g. 2',    true,  1),
+    field(id, 'bathrooms',    'Bathrooms',               F.NUMBER,   null,          'e.g. 2',    false, 2),
+    field(id, 'balconies',    'Balconies',               F.NUMBER,   null,          'e.g. 1',    false, 3),
+    field(id, 'carpet_area',  'Carpet Area (sqft)',      F.NUMBER,   null,          'e.g. 950',  true,  4),
+    field(id, 'total_floors', 'Total Floors',            F.NUMBER,   null,          'e.g. 15',   false, 5),
+    field(id, 'floor_number', 'Floor Number',            F.NUMBER,   null,          'e.g. 5',    false, 6),
+    field(id, 'furnishing',   'Furnishing Status',       F.DROPDOWN, FURNISHING_OPTS, null,      true,  7),
+    field(id, 'facing',       'Facing Direction',        F.DROPDOWN, FACING_OPTS,   null,        false, 8),
+  ];
+  const villaFields = (id: string) => [
+    field(id, 'bedrooms',     'Bedrooms',               F.NUMBER,   null,          'e.g. 4',    true,  1),
+    field(id, 'bathrooms',    'Bathrooms',               F.NUMBER,   null,          'e.g. 3',    false, 2),
+    field(id, 'carpet_area',  'Built-up Area (sqft)',   F.NUMBER,   null,          'e.g. 2400', true,  3),
+    field(id, 'plot_area',    'Plot Area (sqft)',        F.NUMBER,   null,          'e.g. 3000', false, 4),
+    field(id, 'total_floors', 'Floors',                 F.NUMBER,   null,          'e.g. 2',    false, 5),
+    field(id, 'furnishing',   'Furnishing Status',       F.DROPDOWN, FURNISHING_OPTS, null,      false, 6),
+    field(id, 'has_garden',   'Garden / Lawn',           F.RADIO,    YES_NO,        null,        false, 7),
+  ];
+  const houseFields = (id: string) => [
+    field(id, 'bedrooms',     'Bedrooms',               F.NUMBER,   null,          'e.g. 3',    true,  1),
+    field(id, 'bathrooms',    'Bathrooms',               F.NUMBER,   null,          'e.g. 2',    false, 2),
+    field(id, 'total_floors', 'Number of Floors',        F.NUMBER,   null,          'e.g. 2',    false, 3),
+    field(id, 'plot_area',    'Plot Area (sqft)',        F.NUMBER,   null,          'e.g. 2000', true,  4),
+    field(id, 'built_up_area','Built-up Area (sqft)',   F.NUMBER,   null,          'e.g. 1800', false, 5),
+    field(id, 'furnishing',   'Furnishing',              F.DROPDOWN, FURNISHING_OPTS, null,      false, 6),
+  ];
+  const bfFields = (id: string) => [
+    field(id, 'bedrooms',     'Bedrooms',               F.NUMBER,   null,          'e.g. 3',    true,  1),
+    field(id, 'bathrooms',    'Bathrooms',               F.NUMBER,   null,          'e.g. 2',    false, 2),
+    field(id, 'carpet_area',  'Carpet Area (sqft)',      F.NUMBER,   null,          'e.g. 1200', true,  3),
+    field(id, 'floor_number', 'Floor Number',            F.NUMBER,   null,          'e.g. 2',    false, 4),
+    field(id, 'furnishing',   'Furnishing',              F.DROPDOWN, FURNISHING_OPTS, null,      false, 5),
+  ];
+  const phFields = (id: string) => [
+    field(id, 'bedrooms',     'Bedrooms',               F.NUMBER,   null,          'e.g. 3',    true,  1),
+    field(id, 'bathrooms',    'Bathrooms',               F.NUMBER,   null,          'e.g. 3',    false, 2),
+    field(id, 'carpet_area',  'Carpet Area (sqft)',      F.NUMBER,   null,          'e.g. 3500', true,  3),
+    field(id, 'floor_number', 'Floor',                   F.NUMBER,   null,          'e.g. 22',   false, 4),
+    field(id, 'has_terrace',  'Private Terrace',         F.RADIO,    YES_NO,        null,        false, 5),
+    field(id, 'furnishing',   'Furnishing',              F.DROPDOWN, FURNISHING_OPTS, null,      false, 6),
+  ];
+  const studioFields = (id: string) => [
+    field(id, 'carpet_area',  'Carpet Area (sqft)',      F.NUMBER,   null,          'e.g. 400',  true,  1),
+    field(id, 'floor_number', 'Floor Number',            F.NUMBER,   null,          'e.g. 3',    false, 2),
+    field(id, 'furnishing',   'Furnishing',              F.DROPDOWN, FURNISHING_OPTS, null,      true,  3),
+  ];
+
+  const allFields: any[] = [
+    // Buy
+    ...aptFields(apt.id),
+    ...villaFields(villa.id),
+    ...houseFields(house.id),
+    ...bfFields(builderFloor.id),
+    ...phFields(penthouse.id),
+    ...studioFields(studio.id),
+    // Farm House (buy)
+    field(farmHouse.id, 'bedrooms',    'Bedrooms',            F.NUMBER, null, 'e.g. 4',    true,  1),
+    field(farmHouse.id, 'land_area',   'Land Area (Acres)',   F.NUMBER, null, 'e.g. 2',    true,  2),
+    field(farmHouse.id, 'has_pool',    'Swimming Pool',       F.RADIO,  YES_NO, null,      false, 3),
+    // Plot (buy)
+    field(plot.id, 'plot_area',     'Plot Area (sqft)',       F.NUMBER,   null, 'e.g. 2000', true,  1),
+    field(plot.id, 'facing',        'Plot Facing',            F.DROPDOWN, FACING_OPTS, null, false, 2),
+    field(plot.id, 'boundary_wall', 'Boundary Wall',          F.RADIO,    YES_NO, null,      false, 3),
+    field(plot.id, 'is_corner',     'Corner Plot',            F.RADIO,    YES_NO, null,      false, 4),
+    // Rent
+    ...aptFields(rApt.id),
+    ...villaFields(rVilla.id),
+    ...houseFields(rHouse.id),
+    ...bfFields(rBuilderFloor.id),
+    ...phFields(rPenthouse.id),
+    ...studioFields(rStudio.id),
+    // PG
+    field(pgType.id, 'room_type',   'Room Type',              F.DROPDOWN, ['Single Sharing', 'Double Sharing', 'Triple Sharing', 'Private Room'], null, true, 1),
+    field(pgType.id, 'meals',       'Meals Included',         F.RADIO,    YES_NO, null, false, 2),
+    field(pgType.id, 'gender',      'For',                    F.RADIO,    ['Boys', 'Girls', 'Any'], null, true, 3),
+    field(coLiving.id, 'room_type', 'Room Type',              F.DROPDOWN, ['Private Room', 'Studio', 'Shared Room'], null, true, 1),
+    field(coLiving.id, 'seats',     'Available Beds',         F.NUMBER,   null, 'e.g. 10', true, 2),
+    field(coLiving.id, 'meals',     'Meals Included',         F.RADIO,    YES_NO, null, false, 3),
+    // Commercial
+    field(office.id, 'carpet_area', 'Carpet Area (sqft)',     F.NUMBER,   null, 'e.g. 1500', true,  1),
+    field(office.id, 'cabins',      'Cabins',                 F.NUMBER,   null, 'e.g. 5',    false, 2),
+    field(office.id, 'meeting_rooms','Meeting Rooms',         F.NUMBER,   null, 'e.g. 2',    false, 3),
+    field(office.id, 'washrooms',   'Washrooms',              F.NUMBER,   null, 'e.g. 2',    false, 4),
+    field(office.id, 'floor_number','Floor Number',           F.NUMBER,   null, 'e.g. 3',    false, 5),
+    field(office.id, 'furnishing',  'Furnishing',             F.DROPDOWN, ['Bare Shell', 'Semi Furnished', 'Fully Furnished'], null, false, 6),
+    field(shop.id, 'carpet_area',   'Carpet Area (sqft)',     F.NUMBER,   null, 'e.g. 300',  true,  1),
+    field(shop.id, 'floor_number',  'Floor',                  F.DROPDOWN, ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor+'], null, false, 2),
+    field(shop.id, 'frontage',      'Frontage (ft)',          F.NUMBER,   null, 'e.g. 15',   false, 3),
+    field(showroom.id, 'carpet_area','Carpet Area (sqft)',    F.NUMBER,   null, 'e.g. 1000', true,  1),
+    field(showroom.id, 'frontage',  'Frontage (ft)',          F.NUMBER,   null, 'e.g. 30',   false, 2),
+    field(showroom.id, 'ceiling_height','Ceiling Height (ft)',F.NUMBER,   null, 'e.g. 14',   false, 3),
+    // Industrial
+    field(warehouse.id, 'carpet_area',   'Carpet Area (sqft)',F.NUMBER,   null, 'e.g. 5000', true,  1),
+    field(warehouse.id, 'ceiling_height','Ceiling Height (ft)',F.NUMBER,  null, 'e.g. 20',   false, 2),
+    field(warehouse.id, 'loading_docks', 'Loading Docks',     F.NUMBER,   null, 'e.g. 2',    false, 3),
+    field(warehouse.id, 'has_ramp',      'Vehicle Ramp',      F.RADIO,    YES_NO, null,       false, 4),
+    field(factory.id, 'plot_area',       'Plot Area (sqft)',  F.NUMBER,   null, 'e.g. 10000',true,  1),
+    field(factory.id, 'built_up_area',   'Built-up Area (sqft)',F.NUMBER, null, 'e.g. 7000', false, 2),
+    field(factory.id, 'power_load',      'Power Load (KVA)',  F.NUMBER,   null, 'e.g. 100',  false, 3),
+    field(factory.id, 'ceiling_height',  'Ceiling Height (ft)',F.NUMBER,  null, 'e.g. 25',   false, 4),
+    field(factory.id, 'water_supply',    'Water Supply',      F.RADIO,    YES_NO, null,       false, 5),
+    field(indShed.id, 'carpet_area',     'Shed Area (sqft)',  F.NUMBER,   null, 'e.g. 3000', true,  1),
+    field(indShed.id, 'ceiling_height',  'Height (ft)',       F.NUMBER,   null, 'e.g. 20',   false, 2),
+    // Builder Projects
+    ...aptFields(bpApt.id).map(f => ({ ...f, propTypeId: bpApt.id })),
+    ...villaFields(bpVilla.id).map(f => ({ ...f, propTypeId: bpVilla.id })),
+    // Investment
+    field(invPlot.id, 'plot_area',   'Plot Area (sqft)',      F.NUMBER,   null, 'e.g. 2000', true,  1),
+    field(invPlot.id, 'facing',      'Facing',                F.DROPDOWN, FACING_OPTS, null,  false, 2),
+    field(invPlot.id, 'boundary_wall','Boundary Wall',        F.RADIO,    YES_NO, null,       false, 3),
+    field(invLand.id, 'land_area',   'Land Area (Acres)',     F.NUMBER,   null, 'e.g. 5',    true,  1),
+    field(invLand.id, 'water_source','Water Source',          F.DROPDOWN, ['Borewell', 'Canal', 'River', 'Rain-fed', 'None'], null, false, 2),
+    field(invLand.id, 'soil_type',   'Soil Type',             F.DROPDOWN, ['Black', 'Red', 'Sandy', 'Clay', 'Loamy'], null, false, 3),
+  ];
+
+  await fldRepo.save(allFields as any);
+  console.log('Seeded prop_type_fields');
+
+  // ─── Assign amenities to ALL existing properties based on their PropertyType ──
+  // Build a lookup: PropertyType enum slug → amenity IDs from prop_type_amenities
+  const typeAmenityMap: Record<string, string[]> = {};
+
+  // Load all prop_types (slug → id) and all prop_type_amenities
+  const allPropTypes = await typeRepo.find();
+  const ptSlugById: Record<string, string> = {};
+  for (const pt of allPropTypes) {
+    ptSlugById[pt.id] = pt.slug;
+  }
+  const allPTA = await ptaRepo.find();
+  for (const pta of allPTA) {
+    const slug = ptSlugById[pta.propTypeId];
+    if (!slug) continue;
+    if (!typeAmenityMap[slug]) typeAmenityMap[slug] = [];
+    if (!typeAmenityMap[slug].includes(pta.amenityId)) {
+      typeAmenityMap[slug].push(pta.amenityId);
+    }
+  }
+
+  // For each property type, bulk-insert property_amenities
+  const allProps = await propertyRepo.find({ select: ['id', 'type'] });
+  let amenityInserts = 0;
+  // Clear existing property_amenities first
+  await dataSource.query('DELETE FROM property_amenities');
+
+  for (const prop of allProps) {
+    const amenityIds = typeAmenityMap[prop.type] || [];
+    for (const amenityId of amenityIds) {
+      await dataSource.query(
+        'INSERT IGNORE INTO property_amenities (`propertiesId`, `amenitiesId`) VALUES (?, ?)',
+        [prop.id, amenityId],
+      );
+      amenityInserts++;
+    }
+  }
+  console.log(`Mapped ${amenityInserts} amenity links to ${allProps.length} properties`);
 
   await dataSource.destroy();
   console.log('\nSeeding complete!');

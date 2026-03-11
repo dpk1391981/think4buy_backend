@@ -13,6 +13,11 @@ import { WalletModule } from './modules/wallet/wallet.module';
 import { AgentModule } from './modules/agent/agent.module';
 import { SavedModule } from './modules/saved/saved.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
+import { PropertyConfigModule } from './modules/property-config/property-config.module';
+import { PropCategory } from './modules/property-config/entities/prop-category.entity';
+import { PropType } from './modules/property-config/entities/prop-type.entity';
+import { PropTypeAmenity } from './modules/property-config/entities/prop-type-amenity.entity';
+import { PropTypeField } from './modules/property-config/entities/prop-type-field.entity';
 import { User } from './modules/users/entities/user.entity';
 import { Property } from './modules/properties/entities/property.entity';
 import { PropertyImage } from './modules/properties/entities/property-image.entity';
@@ -64,6 +69,10 @@ import { PropertyAlert } from './modules/alerts/entities/property-alert.entity';
           AgentSubscription,
           SavedProperty,
           PropertyAlert,
+          PropCategory,
+          PropType,
+          PropTypeAmenity,
+          PropTypeField,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -83,6 +92,7 @@ import { PropertyAlert } from './modules/alerts/entities/property-alert.entity';
     AgentModule,
     SavedModule,
     AlertsModule,
+    PropertyConfigModule,
   ],
 })
 export class AppModule {}

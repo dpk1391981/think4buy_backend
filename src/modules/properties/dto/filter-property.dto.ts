@@ -82,6 +82,11 @@ export class FilterPropertyDto {
   @Transform(({ value }) => value === 'true')
   isVerified?: boolean;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ value }) => value === 'true')
+  isNewProject?: boolean;
+
   @ApiPropertyOptional({ enum: PropertyStatus })
   @IsOptional()
   @IsEnum(PropertyStatus)

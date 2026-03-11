@@ -190,6 +190,9 @@ export class Property {
   @Column({ default: false })
   isVerified: boolean;
 
+  @Column({ default: false })
+  isNewProject: boolean;
+
   @Column({ type: 'int', default: 0 })
   viewCount: number;
 
