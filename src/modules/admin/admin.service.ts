@@ -9,7 +9,7 @@ import * as bcrypt from 'bcryptjs';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Property, ApprovalStatus, PropertyStatus } from '../properties/entities/property.entity';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
-import { CreateAgentDto, UpdateAgentQuotaDto } from './dto/admin.dto';
+import { CreateAgentDto, UpdateAgentDto, UpdateAgentQuotaDto } from './dto/admin.dto';
 import { WalletService } from '../wallet/wallet.service';
 import { LocationsService } from '../locations/locations.service';
 import { SubscriptionPlan } from '../wallet/entities/subscription-plan.entity';
@@ -145,6 +145,25 @@ export class AdminService {
     });
 
     return this.userRepo.save(agent);
+  }
+
+  async getAgentById(id: string): Promise<User> {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
+    if (!user) throw new NotFoundException('Agent not found');
+    return user;
+  }
+
+  async updateAgent(id: string, dto: UpdateAgentDto): Promise<User> {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
+    if (!user) throw new NotFoundException('Agent not found');
+
+    if (dto.email && dto.email !== user.email) {
+      const existing = await this.userRepo.findOne({ where: { email: dto.email } });
+      if (existing) throw new ConflictException('Email already in use');
+    }
+
+    Object.assign(user, dto);
+    return this.userRepo.save(user);
   }
 
   async updateAgentQuota(id: string, dto: UpdateAgentQuotaDto): Promise<User> {

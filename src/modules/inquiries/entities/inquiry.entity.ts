@@ -54,13 +54,22 @@ export class Inquiry {
   status: InquiryStatus;
 
   @ManyToOne(() => Property, (property) => property.inquiries, {
+    nullable: true,
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'property_id' })
   property: Property;
 
-  @Column()
+  @Column({ nullable: true })
   propertyId: string;
+
+  // For direct agent inquiries (no property context)
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'agent_id' })
+  agent: User;
+
+  @Column({ nullable: true })
+  agentId: string;
 
   @ManyToOne(() => User, (user) => user.inquiries, {
     nullable: true,

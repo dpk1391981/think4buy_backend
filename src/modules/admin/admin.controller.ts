@@ -29,6 +29,7 @@ import {
 import { AdminService } from './admin.service';
 import {
   CreateAgentDto,
+  UpdateAgentDto,
   UpdateAgentQuotaDto,
   RejectPropertyDto,
 } from './dto/admin.dto';
@@ -115,6 +116,20 @@ export class AdminController {
   createAgent(@Request() req, @Body() dto: CreateAgentDto) {
     this.assertAdmin(req);
     return this.adminService.createAgent(dto);
+  }
+
+  @Get('agents/:id')
+  @ApiOperation({ summary: 'Get single agent (admin)' })
+  getAgent(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.getAgentById(id);
+  }
+
+  @Patch('agents/:id')
+  @ApiOperation({ summary: 'Update agent profile (admin)' })
+  updateAgent(@Request() req, @Param('id') id: string, @Body() dto: UpdateAgentDto) {
+    this.assertAdmin(req);
+    return this.adminService.updateAgent(id, dto);
   }
 
   @Patch('agents/:id/quota')

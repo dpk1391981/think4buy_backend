@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Inquiry } from './entities/inquiry.entity';
 import { Property } from '../properties/entities/property.entity';
+import { User, UserRole } from '../users/entities/user.entity';
 
 export class CreateInquiryDto {
   name: string;
@@ -19,6 +20,8 @@ export class InquiriesService {
     private inquiryRepo: Repository<Inquiry>,
     @InjectRepository(Property)
     private propertyRepo: Repository<Property>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
   ) {}
 
   async create(propertyId: string, dto: CreateInquiryDto, userId?: string) {
@@ -35,6 +38,29 @@ export class InquiriesService {
       userId,
     } as any);
     return this.inquiryRepo.save(inquiry);
+  }
+
+  async contactAgent(agentId: string, dto: CreateInquiryDto, userId?: string) {
+    const agent = await this.userRepo.findOne({ where: { id: agentId, role: UserRole.AGENT } });
+    if (!agent) throw new NotFoundException('Agent not found');
+
+    const inquiry = this.inquiryRepo.create({
+      name:    dto.name,
+      email:   dto.email || '',
+      phone:   dto.phone || '',
+      message: dto.message,
+      type:    (dto.type as any) ?? 'general',
+      agentId,
+      userId,
+    } as any);
+    return this.inquiryRepo.save(inquiry);
+  }
+
+  async findByAgent(agentId: string) {
+    return this.inquiryRepo.find({
+      where: { agentId },
+      order: { createdAt: 'DESC' },
+    });
   }
 
   async findByProperty(propertyId: string) {
