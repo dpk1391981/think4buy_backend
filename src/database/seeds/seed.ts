@@ -30,6 +30,7 @@ import { PropCategory } from '../../modules/property-config/entities/prop-catego
 import { PropType } from '../../modules/property-config/entities/prop-type.entity';
 import { PropTypeAmenity } from '../../modules/property-config/entities/prop-type-amenity.entity';
 import { PropTypeField, FieldType } from '../../modules/property-config/entities/prop-type-field.entity';
+import { CategoryAnalytics } from '../../modules/analytics/entities/category-analytics.entity';
 
 console.log("DB USER:", process.env.DB_USERNAME);
 
@@ -40,7 +41,7 @@ const dataSource = new DataSource({
   username: process.env.DB_USERNAME || 'dpk1391981',
   password: process.env.DB_PASSWORD || 'Dpk1391981!',
   database: process.env.DB_NAME || 'realestate_db',
-  entities: [User, Amenity, Property, PropertyImage, Location, Inquiry, ServiceCatalog, Wallet, WalletTransaction, BoostPlan, SubscriptionPlan, State, City, Country, PropCategory, PropType, PropTypeAmenity, PropTypeField],
+  entities: [User, Amenity, Property, PropertyImage, Location, Inquiry, ServiceCatalog, Wallet, WalletTransaction, BoostPlan, SubscriptionPlan, State, City, Country, PropCategory, PropType, PropTypeAmenity, PropTypeField, CategoryAnalytics],
   synchronize: true,
 });
 
@@ -59,6 +60,7 @@ async function seed() {
     'property_amenities', 'property_images', 'inquiries', 'properties',
     'services_catalog', 'locations', 'wallet_transactions', 'wallets',
     'boost_plans', 'subscription_plans', 'cities', 'states', 'countries', 'users', 'amenities',
+    'category_analytics',
   ]) {
     await dataSource.query(`TRUNCATE TABLE \`${entity}\``);
   }
@@ -141,13 +143,13 @@ async function seed() {
   const userRepo = dataSource.getRepository(User);
 
   const admin = await userRepo.save({ name: 'Admin User', email: 'admin@realestate.com', password: await bcrypt.hash('Admin@123', 10), role: UserRole.ADMIN, isVerified: true, phone: '9958023001' });
-  const seller = await userRepo.save({ name: 'Rajesh Kumar', email: 'seller@example.com', phone: '9876543210', password: await bcrypt.hash('Seller@123', 10), role: UserRole.SELLER, city: 'Mumbai', isVerified: true });
-  const seller2 = await userRepo.save({ name: 'Priya Sharma', email: 'seller2@example.com', phone: '9845123456', password: await bcrypt.hash('Seller2@123', 10), role: UserRole.SELLER, city: 'Bangalore', isVerified: true });
-  const seller3 = await userRepo.save({ name: 'Mohammed Aziz', email: 'seller3@example.com', phone: '9712345678', password: await bcrypt.hash('Seller3@123', 10), role: UserRole.SELLER, city: 'Hyderabad', isVerified: true });
-  const agent1 = await userRepo.save({ name: 'Amit Verma', email: 'agent1@example.com', phone: '9811223344', password: await bcrypt.hash('Agent1@123', 10), role: UserRole.AGENT, city: 'Mumbai', company: 'PropElite Realty', isVerified: true, agentLicense: 'MH-RERA-A12345', agentBio: 'Senior consultant with 12 years in Mumbai luxury residential and commercial. Expert in Bandra, Juhu, Powai.', agentExperience: 12, agentRating: 4.8, totalDeals: 340, agentTick: 'gold' });
-  const agent2 = await userRepo.save({ name: 'Sunita Nair', email: 'agent2@example.com', phone: '9988776655', password: await bcrypt.hash('Agent2@123', 10), role: UserRole.AGENT, city: 'Bangalore', company: 'HomeFirst Properties', isVerified: true, agentLicense: 'KA-RERA-B67890', agentBio: 'Top-performing agent in Bangalore tech corridors. Expert in Whitefield, Koramangala, HSR Layout.', agentExperience: 8, agentRating: 4.6, totalDeals: 215, agentTick: 'blue' });
-  const agent3 = await userRepo.save({ name: 'Vikram Singh', email: 'agent3@example.com', phone: '9776655443', password: await bcrypt.hash('Agent3@123', 10), role: UserRole.AGENT, city: 'Delhi', company: 'Capital Estates', isVerified: true, agentLicense: 'DL-RERA-C11223', agentBio: 'NCR specialist covering Delhi, Gurgaon and Noida. 15 years expertise in luxury villas and commercial.', agentExperience: 15, agentRating: 4.9, totalDeals: 480, agentTick: 'diamond' });
-  const agent4 = await userRepo.save({ name: 'Deepa Menon', email: 'agent4@example.com', phone: '9944332211', password: await bcrypt.hash('Agent4@123', 10), role: UserRole.AGENT, city: 'Hyderabad', company: 'Saffron Realty', isVerified: true, agentLicense: 'TS-RERA-D44556', agentBio: 'Hyderabad specialist with 10 years. Expert in Gachibowli, Kondapur, and HITEC City. Helped 300+ IT professionals.', agentExperience: 10, agentRating: 4.7, totalDeals: 298, agentTick: 'gold' });
+  const seller = await userRepo.save({ name: 'Rajesh Kumar', email: 'seller@example.com', phone: '9876543210', password: await bcrypt.hash('Seller@123', 10), role: UserRole.SELLER, city: 'Mumbai', state: 'Maharashtra', isVerified: true });
+  const seller2 = await userRepo.save({ name: 'Priya Sharma', email: 'seller2@example.com', phone: '9845123456', password: await bcrypt.hash('Seller2@123', 10), role: UserRole.SELLER, city: 'Bangalore', state: 'Karnataka', isVerified: true });
+  const seller3 = await userRepo.save({ name: 'Mohammed Aziz', email: 'seller3@example.com', phone: '9712345678', password: await bcrypt.hash('Seller3@123', 10), role: UserRole.SELLER, city: 'Hyderabad', state: 'Telangana', isVerified: true });
+  const agent1 = await userRepo.save({ name: 'Amit Verma', email: 'agent1@example.com', phone: '9811223344', password: await bcrypt.hash('Agent1@123', 10), role: UserRole.AGENT, city: 'Mumbai', state: 'Maharashtra', company: 'PropElite Realty', isVerified: true, agentLicense: 'MH-RERA-A12345', agentBio: 'Senior consultant with 12 years in Mumbai luxury residential and commercial. Expert in Bandra, Juhu, Powai.', agentExperience: 12, agentRating: 4.8, totalDeals: 340, agentTick: 'gold' });
+  const agent2 = await userRepo.save({ name: 'Sunita Nair', email: 'agent2@example.com', phone: '9988776655', password: await bcrypt.hash('Agent2@123', 10), role: UserRole.AGENT, city: 'Bangalore', state: 'Karnataka', company: 'HomeFirst Properties', isVerified: true, agentLicense: 'KA-RERA-B67890', agentBio: 'Top-performing agent in Bangalore tech corridors. Expert in Whitefield, Koramangala, HSR Layout.', agentExperience: 8, agentRating: 4.6, totalDeals: 215, agentTick: 'blue' });
+  const agent3 = await userRepo.save({ name: 'Vikram Singh', email: 'agent3@example.com', phone: '9776655443', password: await bcrypt.hash('Agent3@123', 10), role: UserRole.AGENT, city: 'Delhi', state: 'Delhi', company: 'Capital Estates', isVerified: true, agentLicense: 'DL-RERA-C11223', agentBio: 'NCR specialist covering Delhi, Gurgaon and Noida. 15 years expertise in luxury villas and commercial.', agentExperience: 15, agentRating: 4.9, totalDeals: 480, agentTick: 'diamond' });
+  const agent4 = await userRepo.save({ name: 'Deepa Menon', email: 'agent4@example.com', phone: '9944332211', password: await bcrypt.hash('Agent4@123', 10), role: UserRole.AGENT, city: 'Hyderabad', state: 'Telangana', company: 'Saffron Realty', isVerified: true, agentLicense: 'TS-RERA-D44556', agentBio: 'Hyderabad specialist with 10 years. Expert in Gachibowli, Kondapur, and HITEC City. Helped 300+ IT professionals.', agentExperience: 10, agentRating: 4.7, totalDeals: 298, agentTick: 'gold' });
 
   console.log('Created users (admin, 3 sellers, 4 agents)');
 
@@ -1434,6 +1436,183 @@ async function seed() {
     }
   }
   console.log(`Mapped ${amenityInserts} amenity links to ${allProps.length} properties`);
+
+  // ─── Link agents/sellers → city/state FK records ─────────────────────────────
+  await dataSource.query(`
+    UPDATE users u
+    JOIN cities c ON LOWER(c.name) = LOWER(u.city)
+    JOIN states s ON s.id = c.state_id
+    SET u.cityId = c.id, u.stateId = s.id
+    WHERE u.role IN ('agent', 'seller') AND (u.cityId IS NULL OR u.stateId IS NULL)
+  `);
+  console.log('Linked agents & sellers → cityId / stateId');
+
+  // ─── Category Analytics Seed ─────────────────────────────────────────────────
+  // Pre-computed from seeded property data.
+  // Scores = listings*0.25 + views*0.30 + searches*0.20 (no searches in seed)
+  // Three scopes: global (state='',city=''), per-state, per-city for top 4 cities
+  const catAnalyticsRepo = dataSource.getRepository(CategoryAnalytics);
+
+  type RawCatItem = {
+    propertyType: string; label: string; icon: string;
+    totalListings: number; totalViews: number;
+  };
+
+  // Helper: score + ranked sort
+  const buildRows = (
+    rows: RawCatItem[],
+    state: string,
+    city: string,
+  ): Partial<CategoryAnalytics>[] =>
+    rows
+      .map(r => ({
+        ...r,
+        score:         r.totalListings * 0.25 + r.totalViews * 0.30,
+        trendingScore: 0,
+        isTrending:    false,
+        country:       'India',
+        state,
+        city,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .map((r, i) => ({ ...r, rank: i + 1 }));
+
+  // ── Global (no location filter) ──
+  const globalData: RawCatItem[] = [
+    { propertyType: 'apartment',            label: 'Apartments',       icon: '🏢', totalListings: 55, totalViews: 16200 },
+    { propertyType: 'villa',                label: 'Villas',           icon: '🏡', totalListings: 5,  totalViews: 6870  },
+    { propertyType: 'commercial_warehouse', label: 'Warehouses',       icon: '🏭', totalListings: 3,  totalViews: 4990  },
+    { propertyType: 'commercial_shop',      label: 'Retail Shops',     icon: '🏪', totalListings: 2,  totalViews: 4620  },
+    { propertyType: 'farm_house',           label: 'Farm Houses',      icon: '🌾', totalListings: 1,  totalViews: 3450  },
+    { propertyType: 'commercial_office',    label: 'Office Spaces',    icon: '🏢', totalListings: 4,  totalViews: 2790  },
+    { propertyType: 'pg',                   label: 'PG / Hostel',      icon: '🛏️', totalListings: 3,  totalViews: 2570  },
+    { propertyType: 'industrial_shed',      label: 'Industrial Sheds', icon: '⚙️', totalListings: 1,  totalViews: 2340  },
+    { propertyType: 'penthouse',            label: 'Penthouses',       icon: '🌆', totalListings: 1,  totalViews: 2100  },
+    { propertyType: 'plot',                 label: 'Plots / Land',     icon: '📐', totalListings: 2,  totalViews: 1960  },
+    { propertyType: 'house',                label: 'Houses',           icon: '🏠', totalListings: 3,  totalViews: 1920  },
+    { propertyType: 'builder_floor',        label: 'Builder Floors',   icon: '🏗️', totalListings: 1,  totalViews: 1680  },
+    { propertyType: 'co_living',            label: 'Co-Living',        icon: '🤝', totalListings: 2,  totalViews: 1320  },
+    { propertyType: 'factory',              label: 'Factories',        icon: '🏭', totalListings: 1,  totalViews: 980   },
+    { propertyType: 'showroom',             label: 'Showrooms',        icon: '🏬', totalListings: 1,  totalViews: 960   },
+    { propertyType: 'land',                 label: 'Land',             icon: '🗺️', totalListings: 1,  totalViews: 780   },
+    { propertyType: 'studio',               label: 'Studio Flats',     icon: '🛋️', totalListings: 1,  totalViews: 320   },
+  ];
+
+  // Mark top 2 global categories as trending for demo
+  const globalRows = buildRows(globalData, '', '');
+  globalRows[0].isTrending = true;  globalRows[0].trendingScore = 0.35;
+  globalRows[1].isTrending = true;  globalRows[1].trendingScore = 0.28;
+
+  // ── Per-state ──
+  const stateData: Record<string, RawCatItem[]> = {
+    Maharashtra: [
+      { propertyType: 'apartment',            label: 'Apartments',    icon: '🏢', totalListings: 20, totalViews: 6800 },
+      { propertyType: 'industrial_shed',      label: 'Industrial Sheds', icon: '⚙️', totalListings: 1, totalViews: 2340 },
+      { propertyType: 'commercial_office',    label: 'Office Spaces', icon: '🏢', totalListings: 1,  totalViews: 1230 },
+      { propertyType: 'penthouse',            label: 'Penthouses',    icon: '🌆', totalListings: 1,  totalViews: 2100 },
+      { propertyType: 'pg',                   label: 'PG / Hostel',   icon: '🛏️', totalListings: 1,  totalViews: 560  },
+      { propertyType: 'studio',               label: 'Studio Flats',  icon: '🛋️', totalListings: 1,  totalViews: 320  },
+      { propertyType: 'land',                 label: 'Land',          icon: '🗺️', totalListings: 1,  totalViews: 780  },
+      { propertyType: 'villa',                label: 'Villas',        icon: '🏡', totalListings: 1,  totalViews: 800  },
+    ],
+    Karnataka: [
+      { propertyType: 'apartment',         label: 'Apartments',    icon: '🏢', totalListings: 15, totalViews: 5400 },
+      { propertyType: 'pg',                label: 'PG / Hostel',   icon: '🛏️', totalListings: 2,  totalViews: 2010 },
+      { propertyType: 'commercial_office', label: 'Office Spaces', icon: '🏢', totalListings: 1,  totalViews: 670  },
+      { propertyType: 'villa',             label: 'Villas',        icon: '🏡', totalListings: 1,  totalViews: 500  },
+      { propertyType: 'co_living',         label: 'Co-Living',     icon: '🤝', totalListings: 1,  totalViews: 430  },
+    ],
+    Delhi: [
+      { propertyType: 'apartment',         label: 'Apartments',    icon: '🏢', totalListings: 8,  totalViews: 2900 },
+      { propertyType: 'villa',             label: 'Villas',        icon: '🏡', totalListings: 1,  totalViews: 2340 },
+      { propertyType: 'commercial_shop',   label: 'Retail Shops',  icon: '🏪', totalListings: 1,  totalViews: 4500 },
+      { propertyType: 'builder_floor',     label: 'Builder Floors',icon: '🏗️', totalListings: 1,  totalViews: 1680 },
+      { propertyType: 'farm_house',        label: 'Farm Houses',   icon: '🌾', totalListings: 1,  totalViews: 3450 },
+    ],
+    Telangana: [
+      { propertyType: 'apartment',            label: 'Apartments',    icon: '🏢', totalListings: 8,  totalViews: 2200 },
+      { propertyType: 'commercial_warehouse', label: 'Warehouses',    icon: '🏭', totalListings: 1,  totalViews: 760  },
+      { propertyType: 'showroom',             label: 'Showrooms',     icon: '🏬', totalListings: 1,  totalViews: 960  },
+      { propertyType: 'co_living',            label: 'Co-Living',     icon: '🤝', totalListings: 1,  totalViews: 430  },
+      { propertyType: 'villa',                label: 'Villas',        icon: '🏡', totalListings: 1,  totalViews: 600  },
+    ],
+  };
+
+  // ── Per-city ──
+  const cityData: Record<string, { state: string; rows: RawCatItem[] }> = {
+    Mumbai: {
+      state: 'Maharashtra',
+      rows: [
+        { propertyType: 'apartment',         label: 'Apartments',      icon: '🏢', totalListings: 12, totalViews: 4800 },
+        { propertyType: 'industrial_shed',   label: 'Industrial Sheds',icon: '⚙️', totalListings: 1,  totalViews: 2340 },
+        { propertyType: 'penthouse',         label: 'Penthouses',      icon: '🌆', totalListings: 1,  totalViews: 2100 },
+        { propertyType: 'commercial_office', label: 'Office Spaces',   icon: '🏢', totalListings: 1,  totalViews: 1230 },
+        { propertyType: 'pg',                label: 'PG / Hostel',     icon: '🛏️', totalListings: 1,  totalViews: 560  },
+        { propertyType: 'studio',            label: 'Studio Flats',    icon: '🛋️', totalListings: 1,  totalViews: 320  },
+      ],
+    },
+    Bangalore: {
+      state: 'Karnataka',
+      rows: [
+        { propertyType: 'apartment',         label: 'Apartments',    icon: '🏢', totalListings: 10, totalViews: 3800 },
+        { propertyType: 'pg',                label: 'PG / Hostel',   icon: '🛏️', totalListings: 2,  totalViews: 2010 },
+        { propertyType: 'commercial_office', label: 'Office Spaces', icon: '🏢', totalListings: 1,  totalViews: 670  },
+        { propertyType: 'co_living',         label: 'Co-Living',     icon: '🤝', totalListings: 1,  totalViews: 430  },
+      ],
+    },
+    Delhi: {
+      state: 'Delhi',
+      rows: [
+        { propertyType: 'commercial_shop',   label: 'Retail Shops',  icon: '🏪', totalListings: 1,  totalViews: 4500 },
+        { propertyType: 'farm_house',        label: 'Farm Houses',   icon: '🌾', totalListings: 1,  totalViews: 3450 },
+        { propertyType: 'apartment',         label: 'Apartments',    icon: '🏢', totalListings: 6,  totalViews: 2100 },
+        { propertyType: 'villa',             label: 'Villas',        icon: '🏡', totalListings: 1,  totalViews: 2340 },
+        { propertyType: 'builder_floor',     label: 'Builder Floors',icon: '🏗️', totalListings: 1,  totalViews: 1680 },
+      ],
+    },
+    Hyderabad: {
+      state: 'Telangana',
+      rows: [
+        { propertyType: 'apartment',            label: 'Apartments', icon: '🏢', totalListings: 6,  totalViews: 1800 },
+        { propertyType: 'showroom',             label: 'Showrooms',  icon: '🏬', totalListings: 1,  totalViews: 960  },
+        { propertyType: 'commercial_warehouse', label: 'Warehouses', icon: '🏭', totalListings: 1,  totalViews: 760  },
+        { propertyType: 'co_living',            label: 'Co-Living',  icon: '🤝', totalListings: 1,  totalViews: 430  },
+      ],
+    },
+    Noida: {
+      state: 'Uttar Pradesh',
+      rows: [
+        { propertyType: 'apartment',         label: 'Apartments',    icon: '🏢', totalListings: 5,  totalViews: 1800 },
+        { propertyType: 'commercial_office', label: 'Office Spaces', icon: '🏢', totalListings: 1,  totalViews: 890  },
+        { propertyType: 'plot',              label: 'Plots / Land',  icon: '📐', totalListings: 1,  totalViews: 1340 },
+        { propertyType: 'factory',           label: 'Factories',     icon: '🏭', totalListings: 1,  totalViews: 980  },
+      ],
+    },
+    Gurgaon: {
+      state: 'Haryana',
+      rows: [
+        { propertyType: 'apartment',  label: 'Apartments', icon: '🏢', totalListings: 4,  totalViews: 1500 },
+        { propertyType: 'co_living',  label: 'Co-Living',  icon: '🤝', totalListings: 1,  totalViews: 890  },
+      ],
+    },
+    Pune: {
+      state: 'Maharashtra',
+      rows: [
+        { propertyType: 'apartment', label: 'Apartments', icon: '🏢', totalListings: 5,  totalViews: 1920 },
+        { propertyType: 'house',     label: 'Houses',     icon: '🏠', totalListings: 1,  totalViews: 520  },
+        { propertyType: 'villa',     label: 'Villas',     icon: '🏡', totalListings: 1,  totalViews: 400  },
+      ],
+    },
+  };
+
+  const allCatRows: Partial<CategoryAnalytics>[] = [
+    ...globalRows,
+    ...Object.entries(stateData).flatMap(([state, rows]) => buildRows(rows, state, '')),
+    ...Object.entries(cityData).flatMap(([city, { state, rows }]) => buildRows(rows, state, city)),
+  ];
+
+  await catAnalyticsRepo.save(allCatRows as CategoryAnalytics[]);
+  console.log(`Category analytics seeded: ${allCatRows.length} records (global + ${Object.keys(stateData).length} states + ${Object.keys(cityData).length} cities)`);
 
   await dataSource.destroy();
   console.log('\nSeeding complete!');

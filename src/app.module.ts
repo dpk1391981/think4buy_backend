@@ -35,6 +35,13 @@ import { BoostPlan } from './modules/wallet/entities/boost-plan.entity';
 import { AgentSubscription } from './modules/wallet/entities/agent-subscription.entity';
 import { SavedProperty } from './modules/saved/entities/saved-property.entity';
 import { PropertyAlert } from './modules/alerts/entities/property-alert.entity';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { AnalyticsEvent } from './modules/analytics/entities/analytics-event.entity';
+import { TopPropertiesCache } from './modules/analytics/entities/top-properties-cache.entity';
+import { TopAgentsCache } from './modules/analytics/entities/top-agents-cache.entity';
+import { TopProjectsCache } from './modules/analytics/entities/top-projects-cache.entity';
+import { TopLocationsCache } from './modules/analytics/entities/top-locations-cache.entity';
+import { CategoryAnalytics } from './modules/analytics/entities/category-analytics.entity';
 
 @Module({
   imports: [
@@ -73,6 +80,12 @@ import { PropertyAlert } from './modules/alerts/entities/property-alert.entity';
           PropType,
           PropTypeAmenity,
           PropTypeField,
+          AnalyticsEvent,
+          TopPropertiesCache,
+          TopAgentsCache,
+          TopProjectsCache,
+          TopLocationsCache,
+          CategoryAnalytics,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -93,6 +106,7 @@ import { PropertyAlert } from './modules/alerts/entities/property-alert.entity';
     SavedModule,
     AlertsModule,
     PropertyConfigModule,
+    AnalyticsModule,
   ],
 })
 export class AppModule {}
