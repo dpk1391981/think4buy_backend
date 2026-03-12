@@ -44,6 +44,18 @@ export class PropertiesController {
     return this.propertiesService.findAll(filters);
   }
 
+  @Get('search/suggestions')
+  @ApiOperation({ summary: 'Get search suggestions (cities, localities, builders, projects)' })
+  getSearchSuggestions(@Query('q') q: string) {
+    return this.propertiesService.getSearchSuggestions(q);
+  }
+
+  @Get('map')
+  @ApiOperation({ summary: 'Get properties with lat/lng for map view' })
+  getForMap(@Query() filters: FilterPropertyDto) {
+    return this.propertiesService.findForMap(filters);
+  }
+
   @Get('featured')
   @ApiOperation({ summary: 'Get featured properties' })
   getFeatured(@Query('limit') limit?: number) {

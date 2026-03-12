@@ -32,7 +32,7 @@ export class UsersService {
   async getAgents(
     page = 1,
     limit = 12,
-    filters: { city?: string; state?: string; stateId?: string; locality?: string; search?: string } = {},
+    filters: { city?: string; cityId?: string; state?: string; stateId?: string; locality?: string; search?: string } = {},
   ): Promise<{ agents: Partial<User>[]; total: number }> {
     const qb = this.userRepo.createQueryBuilder('user')
       .where('user.role = :role', { role: UserRole.AGENT })
@@ -44,7 +44,10 @@ export class UsersService {
         'user.agentRating', 'user.totalDeals', 'user.agentTick',
       ]);
 
-    if (filters.city) {
+    // Prefer FK-based city filter, fallback to name match
+    if (filters.cityId) {
+      qb.andWhere('user.cityId = :cityId', { cityId: filters.cityId });
+    } else if (filters.city) {
       qb.andWhere('LOWER(user.city) LIKE LOWER(:city)', { city: `%${filters.city}%` });
     }
     // Prefer FK-based state filter, fallback to name match

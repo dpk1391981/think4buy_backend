@@ -13,6 +13,7 @@ import {
   PropertyStatus,
   PropertyCategory,
   ApprovalStatus,
+  PropertyType,
 } from './entities/property.entity';
 import { PropertyImage } from './entities/property-image.entity';
 import { Amenity } from './entities/amenity.entity';
@@ -21,6 +22,19 @@ import { FilterPropertyDto } from './dto/filter-property.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { TransactionReason } from '../wallet/entities/wallet-transaction.entity';
+
+/** Parsed result from smart keyword NLP */
+interface ParsedKeyword {
+  bedrooms?: number;
+  city?: string;
+  locality?: string;
+  maxPrice?: number;
+  minPrice?: number;
+  type?: string;
+  category?: string;
+  features?: string[];
+  remainder?: string;
+}
 
 @Injectable()
 export class PropertiesService {
@@ -34,21 +48,245 @@ export class PropertiesService {
     private walletService: WalletService,
   ) {}
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Smart NLP keyword parser
+  // ─────────────────────────────────────────────────────────────────────────────
+  private parseKeyword(keyword: string): ParsedKeyword {
+    const result: ParsedKeyword = {};
+    let text = keyword.toLowerCase().trim();
+
+    // Extract BHK / bedrooms: "2 bhk", "3 bedroom"
+    const bedroomMatch = text.match(/(\d+)\s*(?:bhk|bedroom|bed)/i);
+    if (bedroomMatch) {
+      result.bedrooms = parseInt(bedroomMatch[1]);
+      text = text.replace(bedroomMatch[0], '').trim();
+    }
+
+    // Extract budget "under X lakh/cr", "below X lakh", "upto X lakh", "less than X"
+    const budgetUnderMatch = text.match(
+      /(?:under|below|upto|up to|less than)\s*(?:rs\.?\s*)?(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore|k)?/i,
+    );
+    if (budgetUnderMatch) {
+      const amount = parseFloat(budgetUnderMatch[1]);
+      const unit = (budgetUnderMatch[2] || '').toLowerCase();
+      if (unit.startsWith('cr')) result.maxPrice = amount * 10000000;
+      else if (unit === 'k') result.maxPrice = amount * 1000;
+      else result.maxPrice = amount * 100000; // lakh default
+      text = text.replace(budgetUnderMatch[0], '').trim();
+    }
+
+    // Extract "X lakh to Y lakh" range
+    const budgetRangeMatch = text.match(
+      /(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore)?\s*(?:to|-)\s*(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore)/i,
+    );
+    if (budgetRangeMatch && !result.maxPrice) {
+      const minAmt = parseFloat(budgetRangeMatch[1]);
+      const minUnit = (budgetRangeMatch[2] || '').toLowerCase();
+      const maxAmt = parseFloat(budgetRangeMatch[3]);
+      const maxUnit = (budgetRangeMatch[4] || '').toLowerCase();
+      result.minPrice = minUnit.startsWith('cr') ? minAmt * 10000000 : minAmt * 100000;
+      result.maxPrice = maxUnit.startsWith('cr') ? maxAmt * 10000000 : maxAmt * 100000;
+      text = text.replace(budgetRangeMatch[0], '').trim();
+    }
+
+    // Extract property type
+    const typeMap: Record<string, string> = {
+      apartment: 'apartment', flat: 'apartment', 'builder floor': 'builder_floor',
+      villa: 'villa', bungalow: 'villa', house: 'house', independent: 'house',
+      plot: 'plot', land: 'land', penthouse: 'penthouse', studio: 'studio',
+      'office space': 'commercial_office', office: 'commercial_office',
+      shop: 'commercial_shop', showroom: 'showroom', warehouse: 'commercial_warehouse',
+      'farm house': 'farm_house', farmhouse: 'farm_house',
+      pg: 'pg', 'paying guest': 'pg', hostel: 'pg',
+      'co-living': 'co_living', coliving: 'co_living',
+    };
+    for (const [key, val] of Object.entries(typeMap)) {
+      if (text.includes(key)) {
+        result.type = val;
+        text = text.replace(new RegExp(key, 'gi'), '').trim();
+        break;
+      }
+    }
+
+    // Extract category from context
+    if (text.includes(' for rent') || text.includes(' on rent')) result.category = 'rent';
+    else if (text.includes(' for sale') || text.includes(' buy ') || text.includes(' purchase ')) result.category = 'buy';
+    else if (text.includes(' pg') || text.includes(' hostel')) result.category = 'pg';
+    else if (text.includes(' commercial')) result.category = 'commercial';
+
+    // Extract location after "in", "at", "near"
+    const locationMatch = text.match(/\b(?:in|at|near)\s+([a-z\s\-]+?)(?:\s+(?:under|below|upto|for|with|$))/i);
+    if (locationMatch) {
+      const loc = locationMatch[1].trim();
+      // Heuristic: if it looks like a locality/sector, set as locality; otherwise city
+      if (/sector|phase|block|nagar|vihar|enclave|colony|road|marg|street/i.test(loc)) {
+        result.locality = loc;
+      } else {
+        result.city = loc;
+      }
+      text = text.replace(locationMatch[0], '').trim();
+    }
+
+    // Special feature keywords
+    const featureMap: Record<string, string> = {
+      pool: 'Swimming Pool', 'swimming pool': 'Swimming Pool',
+      gym: 'Gym', 'fitness': 'Gym',
+      parking: 'Parking', garden: 'Garden',
+      security: 'Security', club: 'Clubhouse',
+      lift: 'Lift', elevator: 'Lift',
+      metro: 'metro_nearby', furnished: 'furnished',
+    };
+    result.features = [];
+    for (const [key, val] of Object.entries(featureMap)) {
+      if (text.includes(key)) {
+        result.features.push(val);
+        text = text.replace(new RegExp(key, 'gi'), '').trim();
+      }
+    }
+
+    result.remainder = text.replace(/\s+/g, ' ').trim();
+    return result;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Search Suggestions (for autocomplete)
+  // ─────────────────────────────────────────────────────────────────────────────
+  async getSearchSuggestions(q: string): Promise<{
+    type: string;
+    label: string;
+    subLabel?: string;
+    value: string;
+    extra?: string;
+    count?: number;
+  }[]> {
+    if (!q || q.trim().length < 2) return [];
+    const term = `%${q.trim()}%`;
+    const results: any[] = [];
+
+    // 1. Cities
+    const cities = await this.propertyRepo
+      .createQueryBuilder('p')
+      .select('p.city', 'city')
+      .addSelect('p.state', 'state')
+      .addSelect('COUNT(*)', 'count')
+      .where('p.status = :status', { status: PropertyStatus.ACTIVE })
+      .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+      .andWhere('p.city LIKE :term', { term })
+      .groupBy('p.city')
+      .addGroupBy('p.state')
+      .orderBy('count', 'DESC')
+      .limit(4)
+      .getRawMany();
+
+    for (const c of cities) {
+      results.push({
+        type: 'city',
+        label: c.city,
+        subLabel: c.state,
+        value: c.city,
+        count: parseInt(c.count),
+      });
+    }
+
+    // 2. Localities
+    const localities = await this.propertyRepo
+      .createQueryBuilder('p')
+      .select('p.locality', 'locality')
+      .addSelect('p.city', 'city')
+      .addSelect('COUNT(*)', 'count')
+      .where('p.status = :status', { status: PropertyStatus.ACTIVE })
+      .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+      .andWhere('p.locality LIKE :term', { term })
+      .andWhere('p.locality IS NOT NULL')
+      .andWhere("p.locality != ''")
+      .groupBy('p.locality')
+      .addGroupBy('p.city')
+      .orderBy('count', 'DESC')
+      .limit(4)
+      .getRawMany();
+
+    for (const l of localities) {
+      results.push({
+        type: 'locality',
+        label: l.locality,
+        subLabel: l.city,
+        value: `${l.locality}|${l.city}`,
+        count: parseInt(l.count),
+      });
+    }
+
+    // 3. Builders / Developers
+    const builders = await this.propertyRepo
+      .createQueryBuilder('p')
+      .select('p.builderName', 'builderName')
+      .addSelect('COUNT(*)', 'count')
+      .where('p.status = :status', { status: PropertyStatus.ACTIVE })
+      .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+      .andWhere('p.builderName LIKE :term', { term })
+      .andWhere('p.builderName IS NOT NULL')
+      .andWhere("p.builderName != ''")
+      .groupBy('p.builderName')
+      .orderBy('count', 'DESC')
+      .limit(3)
+      .getRawMany();
+
+    for (const b of builders) {
+      results.push({
+        type: 'builder',
+        label: b.builderName,
+        subLabel: 'Builder / Developer',
+        value: b.builderName,
+        extra: 'builder',
+        count: parseInt(b.count),
+      });
+    }
+
+    // 4. Projects / Society names
+    const projects = await this.propertyRepo
+      .createQueryBuilder('p')
+      .select('p.society', 'society')
+      .addSelect('p.city', 'city')
+      .addSelect('COUNT(*)', 'count')
+      .where('p.status = :status', { status: PropertyStatus.ACTIVE })
+      .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+      .andWhere('p.society LIKE :term', { term })
+      .andWhere('p.society IS NOT NULL')
+      .andWhere("p.society != ''")
+      .groupBy('p.society')
+      .addGroupBy('p.city')
+      .orderBy('count', 'DESC')
+      .limit(3)
+      .getRawMany();
+
+    for (const pr of projects) {
+      results.push({
+        type: 'project',
+        label: pr.society,
+        subLabel: pr.city,
+        value: pr.society,
+        extra: 'project',
+        count: parseInt(pr.count),
+      });
+    }
+
+    return results.slice(0, 10);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Create
+  // ─────────────────────────────────────────────────────────────────────────────
   async create(dto: CreatePropertyDto, owner: User): Promise<Property> {
-    // Agent quota enforcement
     if (owner.role === UserRole.AGENT) {
       if (owner.agentUsedQuota >= owner.agentFreeQuota) {
         throw new BadRequestException(
           `Free listing quota exhausted (${owner.agentFreeQuota} listings). Please upgrade to a paid plan.`,
         );
       }
-      // Increment quota usage
       await this.propertyRepo.manager
         .getRepository(User)
         .increment({ id: owner.id }, 'agentUsedQuota', 1);
     }
 
-    // Auto-generate title if not provided
     if (!dto.title || !dto.title.trim()) {
       const bedroomPrefix = dto.bedrooms ? `${dto.bedrooms} BHK ` : '';
       const typeMap: Record<string, string> = {
@@ -96,6 +334,9 @@ export class PropertiesService {
     return this.propertyRepo.save(property);
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Find All (search + filter)
+  // ─────────────────────────────────────────────────────────────────────────────
   async findAll(filters: FilterPropertyDto) {
     const {
       page = 1,
@@ -110,13 +351,28 @@ export class PropertiesService {
       .leftJoinAndSelect('property.amenities', 'amenities')
       .leftJoinAndSelect('property.owner', 'owner')
       .where('property.status = :status', { status: PropertyStatus.ACTIVE })
-      .andWhere('property.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED });
+      .andWhere('property.approvalStatus = :approvalStatus', {
+        approvalStatus: ApprovalStatus.APPROVED,
+      });
 
     this.applyFilters(qb, filters);
 
+    // Sorting
     const allowedSort = ['createdAt', 'price', 'area', 'viewCount'];
-    const safeSort = allowedSort.includes(sortBy) ? sortBy : 'createdAt';
-    qb.orderBy(`property.${safeSort}`, sortOrder === 'ASC' ? 'ASC' : 'DESC');
+    if (sortBy === 'relevance') {
+      // Relevance: featured first, then verified, then newest
+      qb.orderBy('property.isFeatured', 'DESC')
+        .addOrderBy('property.listingPlan', 'DESC')
+        .addOrderBy('property.isVerified', 'DESC')
+        .addOrderBy('property.createdAt', 'DESC');
+    } else {
+      const safeSort = allowedSort.includes(sortBy) ? sortBy : 'createdAt';
+      qb.orderBy(`property.${safeSort}`, sortOrder === 'ASC' ? 'ASC' : 'DESC');
+      // Always secondary-sort featured first
+      if (safeSort !== 'createdAt') {
+        qb.addOrderBy('property.isFeatured', 'DESC');
+      }
+    }
 
     const total = await qb.getCount();
     const items = await qb
@@ -135,6 +391,28 @@ export class PropertiesService {
     };
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Map properties (lightweight, no pagination, only lat/lng needed)
+  // ─────────────────────────────────────────────────────────────────────────────
+  async findForMap(filters: FilterPropertyDto): Promise<
+    Pick<Property, 'id' | 'title' | 'slug' | 'price' | 'latitude' | 'longitude' | 'type' | 'category' | 'city' | 'bedrooms'>[]
+  > {
+    const qb = this.propertyRepo
+      .createQueryBuilder('property')
+      .select([
+        'property.id', 'property.title', 'property.slug', 'property.price',
+        'property.latitude', 'property.longitude', 'property.type',
+        'property.category', 'property.city', 'property.bedrooms',
+      ])
+      .where('property.status = :status', { status: PropertyStatus.ACTIVE })
+      .andWhere('property.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+      .andWhere('property.latitude IS NOT NULL')
+      .andWhere('property.longitude IS NOT NULL');
+
+    this.applyFilters(qb, filters);
+    return qb.limit(200).getMany();
+  }
+
   async findFeatured(limit = 8): Promise<Property[]> {
     return this.propertyRepo.find({
       where: { isFeatured: true, status: PropertyStatus.ACTIVE },
@@ -150,8 +428,6 @@ export class PropertiesService {
       relations: ['images', 'amenities', 'owner'],
     });
     if (!property) throw new NotFoundException('Property not found');
-
-    // Increment view count
     await this.propertyRepo.increment({ id: property.id }, 'viewCount', 1);
     property.viewCount += 1;
     return property;
@@ -171,11 +447,9 @@ export class PropertiesService {
     if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
       throw new ForbiddenException('You can only edit your own properties');
     }
-
     if (dto.amenityIds) {
       property.amenities = await this.amenityRepo.findByIds(dto.amenityIds);
     }
-
     Object.assign(property, dto);
     return this.propertyRepo.save(property);
   }
@@ -193,7 +467,6 @@ export class PropertiesService {
     if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
       throw new ForbiddenException();
     }
-
     const images = files.map((file, index) =>
       this.imageRepo.create({
         url: `/uploads/${file.filename}`,
@@ -203,7 +476,6 @@ export class PropertiesService {
         alt: property.title,
       }),
     );
-
     return this.imageRepo.save(images);
   }
 
@@ -263,44 +535,24 @@ export class PropertiesService {
       .where('property.ownerId = :userId', { userId })
       .orderBy('property.createdAt', 'DESC');
 
-    if (status) {
-      qb.andWhere('property.status = :status', { status });
-    }
-    if (approvalStatus) {
-      qb.andWhere('property.approvalStatus = :approvalStatus', { approvalStatus });
-    }
+    if (status) qb.andWhere('property.status = :status', { status });
+    if (approvalStatus) qb.andWhere('property.approvalStatus = :approvalStatus', { approvalStatus });
 
     const total = await qb.getCount();
-    const items = await qb
-      .skip((+page - 1) * +limit)
-      .take(+limit)
-      .getMany();
+    const items = await qb.skip((+page - 1) * +limit).take(+limit).getMany();
 
     return {
       data: items,
-      meta: {
-        total,
-        page: +page,
-        limit: +limit,
-        totalPages: Math.ceil(total / +limit),
-      },
+      meta: { total, page: +page, limit: +limit, totalPages: Math.ceil(total / +limit) },
     };
   }
 
-  async boostProperty(
-    propertyId: string,
-    boostPlanId: string,
-    user: User,
-  ): Promise<Property> {
+  async boostProperty(propertyId: string, boostPlanId: string, user: User): Promise<Property> {
     const property = await this.findById(propertyId);
-
     if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
       throw new ForbiddenException('You can only boost your own properties');
     }
-
     const boostPlan = await this.walletService.getBoostPlanById(boostPlanId);
-
-    // Deduct tokens from wallet
     await this.walletService.debit(
       user.id,
       boostPlan.tokenCost,
@@ -309,24 +561,59 @@ export class PropertiesService {
       property.id,
       'property',
     );
-
-    // Calculate boost expiry: extend from current expiry if still active, else from now
     const now = new Date();
     const currentExpiry =
-      property.boostExpiresAt && property.boostExpiresAt > now
-        ? property.boostExpiresAt
-        : now;
-
+      property.boostExpiresAt && property.boostExpiresAt > now ? property.boostExpiresAt : now;
     const boostExpiresAt = new Date(currentExpiry);
     boostExpiresAt.setDate(boostExpiresAt.getDate() + boostPlan.durationDays);
-
     property.boostExpiresAt = boostExpiresAt;
     property.isFeatured = true;
-
     return this.propertyRepo.save(property);
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Apply Filters (core query builder logic)
+  // ─────────────────────────────────────────────────────────────────────────────
   private applyFilters(qb: SelectQueryBuilder<Property>, filters: FilterPropertyDto) {
+    // ── Smart keyword (NLP) ────────────────────────────────────────────────────
+    if (filters.keyword) {
+      const parsed = this.parseKeyword(filters.keyword);
+
+      if (parsed.bedrooms && !filters.bedrooms) {
+        qb.andWhere('property.bedrooms = :kwBedrooms', { kwBedrooms: parsed.bedrooms });
+      }
+      if (parsed.city && !filters.city) {
+        qb.andWhere('LOWER(property.city) LIKE LOWER(:kwCity)', {
+          kwCity: `%${parsed.city}%`,
+        });
+      }
+      if (parsed.locality && !filters.locality) {
+        qb.andWhere('LOWER(property.locality) LIKE LOWER(:kwLocality)', {
+          kwLocality: `%${parsed.locality}%`,
+        });
+      }
+      if (parsed.maxPrice && !filters.maxPrice) {
+        qb.andWhere('property.price <= :kwMaxPrice', { kwMaxPrice: parsed.maxPrice });
+      }
+      if (parsed.minPrice && !filters.minPrice) {
+        qb.andWhere('property.price >= :kwMinPrice', { kwMinPrice: parsed.minPrice });
+      }
+      if (parsed.type && !filters.type) {
+        qb.andWhere('property.type = :kwType', { kwType: parsed.type });
+      }
+      if (parsed.category && !filters.category) {
+        qb.andWhere('property.category = :kwCategory', { kwCategory: parsed.category });
+      }
+      // Remainder text as full-text search
+      if (parsed.remainder && parsed.remainder.length > 1) {
+        qb.andWhere(
+          '(property.title LIKE :kwRem OR property.society LIKE :kwRem OR property.locality LIKE :kwRem)',
+          { kwRem: `%${parsed.remainder}%` },
+        );
+      }
+    }
+
+    // ── Standard filters ───────────────────────────────────────────────────────
     if (filters.category) {
       qb.andWhere('property.category = :category', { category: filters.category });
     }
@@ -334,7 +621,16 @@ export class PropertiesService {
       const types = Array.isArray(filters.type) ? filters.type : [filters.type];
       qb.andWhere('property.type IN (:...types)', { types });
     }
-    if (filters.city) {
+
+    // Location hierarchy: stateId > state string > city > cityId > locality > pincode
+    if (filters.stateId) {
+      qb.andWhere('property.stateId = :stateId', { stateId: filters.stateId });
+    } else if (filters.state) {
+      qb.andWhere('LOWER(property.state) = LOWER(:state)', { state: filters.state });
+    }
+    if (filters.cityId) {
+      qb.andWhere('property.cityId = :cityId', { cityId: filters.cityId });
+    } else if (filters.city) {
       qb.andWhere('LOWER(property.city) = LOWER(:city)', { city: filters.city });
     }
     if (filters.locality) {
@@ -345,28 +641,39 @@ export class PropertiesService {
     if (filters.pincode) {
       qb.andWhere('property.pincode = :pincode', { pincode: filters.pincode });
     }
+
+    // Price
     if (filters.minPrice) {
       qb.andWhere('property.price >= :minPrice', { minPrice: filters.minPrice });
     }
     if (filters.maxPrice) {
       qb.andWhere('property.price <= :maxPrice', { maxPrice: filters.maxPrice });
     }
+
+    // Area
     if (filters.minArea) {
       qb.andWhere('property.area >= :minArea', { minArea: filters.minArea });
     }
     if (filters.maxArea) {
       qb.andWhere('property.area <= :maxArea', { maxArea: filters.maxArea });
     }
+
+    // Bedrooms
     if (filters.bedrooms) {
-      const beds = filters.bedrooms.split(',').map((b) => parseInt(b));
-      const hasPlus = filters.bedrooms.includes('+');
+      const bedsRaw = filters.bedrooms.split(',').map((b) => b.trim());
+      const hasPlus = bedsRaw.some((b) => b.includes('+'));
+      const beds = bedsRaw.map((b) => parseInt(b)).filter((b) => !isNaN(b));
       if (hasPlus) {
-        const maxBed = Math.max(...beds.filter((b) => !isNaN(b)));
+        const maxBed = Math.max(...beds);
         qb.andWhere('property.bedrooms >= :minBed', { minBed: maxBed });
-      } else {
+      } else if (beds.length === 1) {
+        qb.andWhere('property.bedrooms = :bedrooms', { bedrooms: beds[0] });
+      } else if (beds.length > 1) {
         qb.andWhere('property.bedrooms IN (:...beds)', { beds });
       }
     }
+
+    // Status filters
     if (filters.furnishingStatus) {
       qb.andWhere('property.furnishingStatus = :furnishingStatus', {
         furnishingStatus: filters.furnishingStatus,
@@ -378,40 +685,67 @@ export class PropertiesService {
       });
     }
     if (filters.isFeatured !== undefined) {
-      qb.andWhere('property.isFeatured = :isFeatured', {
-        isFeatured: filters.isFeatured,
-      });
+      qb.andWhere('property.isFeatured = :isFeatured', { isFeatured: filters.isFeatured });
     }
     if (filters.isVerified !== undefined) {
-      qb.andWhere('property.isVerified = :isVerified', {
-        isVerified: filters.isVerified,
-      });
+      qb.andWhere('property.isVerified = :isVerified', { isVerified: filters.isVerified });
     }
     if (filters.isNewProject !== undefined) {
-      qb.andWhere('property.isNewProject = :isNewProject', {
-        isNewProject: filters.isNewProject,
+      qb.andWhere('property.isNewProject = :isNewProject', { isNewProject: filters.isNewProject });
+    }
+
+    // Posted by (listedBy)
+    if (filters.listedBy) {
+      qb.andWhere('property.listedBy = :listedBy', { listedBy: filters.listedBy });
+    }
+
+    // Builder name
+    if (filters.builderName) {
+      qb.andWhere('LOWER(property.builderName) LIKE LOWER(:builderName)', {
+        builderName: `%${filters.builderName}%`,
       });
     }
+
+    // Full-text search
     if (filters.search) {
       qb.andWhere(
-        '(property.title LIKE :search OR property.locality LIKE :search OR property.society LIKE :search OR property.city LIKE :search)',
+        '(property.title LIKE :search OR property.locality LIKE :search OR property.society LIKE :search OR property.city LIKE :search OR property.builderName LIKE :search)',
         { search: `%${filters.search}%` },
       );
     }
+
+    // Owner / agent filter
     if (filters.agentId) {
       qb.andWhere('property.ownerId = :agentId', { agentId: filters.agentId });
     }
 
-    // State filter — prefer stateId FK match, fallback to string match
-    if ((filters as any).stateId) {
-      qb.andWhere('property.stateId = :stateId', { stateId: (filters as any).stateId });
-    } else if ((filters as any).state) {
-      qb.andWhere('LOWER(property.state) = LOWER(:state)', { state: (filters as any).state });
+    // Amenities filter — property must have each of the specified amenities
+    // Uses multiple INNER JOINs (one per required amenity) for AND semantics
+    if (filters.amenityIds) {
+      const ids = filters.amenityIds.split(',').map((id) => id.trim()).filter(Boolean);
+      for (let i = 0; i < ids.length; i++) {
+        // Each innerJoin ensures the property has THIS specific amenity
+        qb.innerJoin(
+          'property.amenities',
+          `reqAmenity${i}`,
+          `reqAmenity${i}.id = :reqAmenityId${i}`,
+          { [`reqAmenityId${i}`]: ids[i] },
+        );
+      }
     }
 
-    // City filter — prefer cityId FK match
-    if ((filters as any).cityId) {
-      qb.andWhere('property.cityId = :cityId', { cityId: (filters as any).cityId });
+    // Geo bounding box (for map search)
+    if (filters.minLat !== undefined && filters.maxLat !== undefined) {
+      qb.andWhere('property.latitude BETWEEN :minLat AND :maxLat', {
+        minLat: filters.minLat,
+        maxLat: filters.maxLat,
+      });
+    }
+    if (filters.minLng !== undefined && filters.maxLng !== undefined) {
+      qb.andWhere('property.longitude BETWEEN :minLng AND :maxLng', {
+        minLng: filters.minLng,
+        maxLng: filters.maxLng,
+      });
     }
   }
 }

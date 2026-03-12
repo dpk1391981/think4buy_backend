@@ -14,12 +14,13 @@ export class UsersController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(12), ParseIntPipe) limit: number,
     @Query('city') city?: string,
+    @Query('cityId') cityId?: string,
     @Query('state') state?: string,
     @Query('stateId') stateId?: string,
     @Query('locality') locality?: string,
     @Query('search') search?: string,
   ) {
-    return this.usersService.getAgents(page, limit, { city, state, stateId, locality, search });
+    return this.usersService.getAgents(page, limit, { city, cityId, state, stateId, locality, search });
   }
 
   @Get(':id')

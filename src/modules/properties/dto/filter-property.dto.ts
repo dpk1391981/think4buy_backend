@@ -1,4 +1,4 @@
-import { IsOptional, IsEnum, IsNumber, IsString, IsBoolean } from 'class-validator';
+import { IsOptional, IsEnum, IsNumber, IsString } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
@@ -7,6 +7,7 @@ import {
   FurnishingStatus,
   PossessionStatus,
   PropertyStatus,
+  ListingUserType,
 } from '../entities/property.entity';
 
 export class FilterPropertyDto {
@@ -28,6 +29,21 @@ export class FilterPropertyDto {
   @IsOptional()
   @IsString()
   locality?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  stateId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  cityId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -92,15 +108,60 @@ export class FilterPropertyDto {
   @IsEnum(PropertyStatus)
   status?: PropertyStatus;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Full-text search across title, locality, society, city' })
   @IsOptional()
   @IsString()
   search?: string;
 
-  @ApiPropertyOptional({ description: 'Filter by agent/owner ID' })
+  @ApiPropertyOptional({ description: 'Smart NLP keyword search e.g. "2 BHK in Noida under 50 lakh"' })
+  @IsOptional()
+  @IsString()
+  keyword?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by agent/owner user ID' })
   @IsOptional()
   @IsString()
   agentId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by amenity IDs (comma-separated)', example: 'id1,id2,id3' })
+  @IsOptional()
+  @IsString()
+  amenityIds?: string;
+
+  @ApiPropertyOptional({ enum: ListingUserType, description: 'Posted by: owner, agent, builder' })
+  @IsOptional()
+  @IsEnum(ListingUserType)
+  listedBy?: ListingUserType;
+
+  @ApiPropertyOptional({ description: 'Filter by builder/developer name' })
+  @IsOptional()
+  @IsString()
+  builderName?: string;
+
+  // Geo bounding box search (for map view)
+  @ApiPropertyOptional({ description: 'Minimum latitude for bounding box search' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  minLat?: number;
+
+  @ApiPropertyOptional({ description: 'Maximum latitude for bounding box search' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  maxLat?: number;
+
+  @ApiPropertyOptional({ description: 'Minimum longitude for bounding box search' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  minLng?: number;
+
+  @ApiPropertyOptional({ description: 'Maximum longitude for bounding box search' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  maxLng?: number;
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
@@ -114,7 +175,10 @@ export class FilterPropertyDto {
   @Type(() => Number)
   limit?: number = 12;
 
-  @ApiPropertyOptional({ default: 'createdAt', enum: ['createdAt', 'price', 'area', 'viewCount'] })
+  @ApiPropertyOptional({
+    default: 'createdAt',
+    enum: ['createdAt', 'price', 'area', 'viewCount', 'relevance'],
+  })
   @IsOptional()
   @IsString()
   sortBy?: string = 'createdAt';
