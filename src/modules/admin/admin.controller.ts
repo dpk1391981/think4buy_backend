@@ -314,6 +314,17 @@ export class AdminController {
     return this.adminService.deleteProperty(id);
   }
 
+  @Patch('properties/:id/seo')
+  @ApiOperation({ summary: 'Update property SEO slug and meta (admin only)' })
+  updatePropertySeo(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { slug?: string; metaTitle?: string; metaDescription?: string },
+  ) {
+    this.assertAdmin(req);
+    return this.adminService.updatePropertySeo(id, body);
+  }
+
   @Patch('properties/:id/toggle-status')
   @ApiOperation({ summary: 'Activate / Deactivate property' })
   togglePropertyStatus(@Request() req, @Param('id') id: string) {

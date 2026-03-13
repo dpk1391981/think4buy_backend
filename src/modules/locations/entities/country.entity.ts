@@ -31,6 +31,19 @@ export class Country {
   @Column({ default: true })
   isActive: boolean;
 
+  // SEO fields
+  @Column({ length: 150, nullable: true })
+  seoSlug: string; // e.g. 'india', 'usa'
+
+  @Column({ length: 200, nullable: true })
+  metaTitle: string;
+
+  @Column({ length: 500, nullable: true })
+  metaDescription: string;
+
+  @Column({ length: 300, nullable: true })
+  metaKeywords: string;
+
   @Column({ default: 0 })
   sortOrder: number;
 

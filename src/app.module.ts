@@ -42,6 +42,10 @@ import { TopAgentsCache } from './modules/analytics/entities/top-agents-cache.en
 import { TopProjectsCache } from './modules/analytics/entities/top-projects-cache.entity';
 import { TopLocationsCache } from './modules/analytics/entities/top-locations-cache.entity';
 import { CategoryAnalytics } from './modules/analytics/entities/category-analytics.entity';
+import { SeoModule } from './modules/seo/seo.module';
+import { CityPage } from './modules/seo/entities/city-page.entity';
+import { SeoConfig } from './modules/seo/entities/seo-config.entity';
+import { FooterSeoLink, FooterSeoLinkGroup } from './modules/seo/entities/footer-seo-link.entity';
 
 @Module({
   imports: [
@@ -86,6 +90,10 @@ import { CategoryAnalytics } from './modules/analytics/entities/category-analyti
           TopProjectsCache,
           TopLocationsCache,
           CategoryAnalytics,
+          CityPage,
+          SeoConfig,
+          FooterSeoLink,
+          FooterSeoLinkGroup,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -107,6 +115,7 @@ import { CategoryAnalytics } from './modules/analytics/entities/category-analyti
     AlertsModule,
     PropertyConfigModule,
     AnalyticsModule,
+    SeoModule,
   ],
 })
 export class AppModule {}

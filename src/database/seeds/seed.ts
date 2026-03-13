@@ -31,6 +31,8 @@ import { PropType } from '../../modules/property-config/entities/prop-type.entit
 import { PropTypeAmenity } from '../../modules/property-config/entities/prop-type-amenity.entity';
 import { PropTypeField, FieldType } from '../../modules/property-config/entities/prop-type-field.entity';
 import { CategoryAnalytics } from '../../modules/analytics/entities/category-analytics.entity';
+import { FooterSeoLink, FooterSeoLinkGroup } from '../../modules/seo/entities/footer-seo-link.entity';
+import { SeoConfig } from '../../modules/seo/entities/seo-config.entity';
 
 console.log("DB USER:", process.env.DB_USERNAME);
 
@@ -41,7 +43,7 @@ const dataSource = new DataSource({
   username: process.env.DB_USERNAME || 'dpk1391981',
   password: process.env.DB_PASSWORD || 'Dpk1391981!',
   database: process.env.DB_NAME || 'realestate_db',
-  entities: [User, Amenity, Property, PropertyImage, Location, Inquiry, ServiceCatalog, Wallet, WalletTransaction, BoostPlan, SubscriptionPlan, State, City, Country, PropCategory, PropType, PropTypeAmenity, PropTypeField, CategoryAnalytics],
+  entities: [User, Amenity, Property, PropertyImage, Location, Inquiry, ServiceCatalog, Wallet, WalletTransaction, BoostPlan, SubscriptionPlan, State, City, Country, PropCategory, PropType, PropTypeAmenity, PropTypeField, CategoryAnalytics, FooterSeoLink, FooterSeoLinkGroup, SeoConfig],
   synchronize: true,
 });
 
@@ -60,7 +62,7 @@ async function seed() {
     'property_amenities', 'property_images', 'inquiries', 'properties',
     'services_catalog', 'locations', 'wallet_transactions', 'wallets',
     'boost_plans', 'subscription_plans', 'cities', 'states', 'countries', 'users', 'amenities',
-    'category_analytics',
+    'category_analytics', 'footer_seo_links', 'footer_seo_link_groups', 'seo_configs',
   ]) {
     await dataSource.query(`TRUNCATE TABLE \`${entity}\``);
   }
@@ -204,49 +206,49 @@ async function seed() {
   // ─── States & Cities ──────────────────────────────────────────────────────────
   const stateRepo = dataSource.getRepository(State);
   const cityRepo = dataSource.getRepository(City);
-  const mh = await stateRepo.save({ name: 'Maharashtra',    code: 'MH', isActive: true, countryId: india.id });
-  const ka = await stateRepo.save({ name: 'Karnataka',      code: 'KA', isActive: true, countryId: india.id });
-  const dl = await stateRepo.save({ name: 'Delhi',          code: 'DL', isActive: true, countryId: india.id });
-  const tn = await stateRepo.save({ name: 'Tamil Nadu',     code: 'TN', isActive: true, countryId: india.id });
-  const ts = await stateRepo.save({ name: 'Telangana',      code: 'TS', isActive: true, countryId: india.id });
-  const gj = await stateRepo.save({ name: 'Gujarat',        code: 'GJ', isActive: true, countryId: india.id });
-  const rj = await stateRepo.save({ name: 'Rajasthan',      code: 'RJ', isActive: true, countryId: india.id });
-  const wb = await stateRepo.save({ name: 'West Bengal',    code: 'WB', isActive: true, countryId: india.id });
-  const up = await stateRepo.save({ name: 'Uttar Pradesh',  code: 'UP', isActive: true, countryId: india.id });
-  const hr = await stateRepo.save({ name: 'Haryana',        code: 'HR', isActive: true, countryId: india.id });
-  const kl = await stateRepo.save({ name: 'Kerala',         code: 'KL', isActive: true, countryId: india.id });
+  const mh = await stateRepo.save({ name: 'Maharashtra', code: 'MH', isActive: true, countryId: india.id, slug: 'maharashtra', metaTitle: 'Buy & Rent Property in Maharashtra - Think4BuySale', metaDescription: 'Explore thousands of properties for sale and rent across Maharashtra. Find your dream home in Mumbai, Pune, Nagpur and more.', metaKeywords: 'buy property maharashtra, rent property maharashtra, maharashtra real estate', h1: 'Properties in Maharashtra' });
+  const ka = await stateRepo.save({ name: 'Karnataka', code: 'KA', isActive: true, countryId: india.id, slug: 'karnataka', metaTitle: 'Buy & Rent Property in Karnataka - Think4BuySale', metaDescription: 'Find properties for sale and rent in Bangalore, Mysore and other cities in Karnataka.', metaKeywords: 'buy property karnataka, bangalore real estate, rent property karnataka', h1: 'Properties in Karnataka' });
+  const dl = await stateRepo.save({ name: 'Delhi', code: 'DL', isActive: true, countryId: india.id, slug: 'delhi', metaTitle: 'Buy & Rent Property in Delhi - Think4BuySale', metaDescription: 'Find the best properties for sale and rent in Delhi. Explore listings in all areas of Delhi NCR.', metaKeywords: 'buy property delhi, rent flat delhi, delhi real estate, delhi ncr property', h1: 'Properties in Delhi' });
+  const tn = await stateRepo.save({ name: 'Tamil Nadu', code: 'TN', isActive: true, countryId: india.id, slug: 'tamil-nadu', metaTitle: 'Buy & Rent Property in Tamil Nadu - Think4BuySale', metaDescription: 'Discover properties across Tamil Nadu including Chennai, Coimbatore and more.', metaKeywords: 'buy property tamil nadu, chennai real estate, rent flat tamil nadu', h1: 'Properties in Tamil Nadu' });
+  const ts = await stateRepo.save({ name: 'Telangana', code: 'TS', isActive: true, countryId: india.id, slug: 'telangana', metaTitle: 'Buy & Rent Property in Telangana - Think4BuySale', metaDescription: 'Find apartments, villas and plots for sale and rent in Hyderabad and across Telangana.', metaKeywords: 'buy property telangana, hyderabad real estate, rent flat hyderabad', h1: 'Properties in Telangana' });
+  const gj = await stateRepo.save({ name: 'Gujarat', code: 'GJ', isActive: true, countryId: india.id, slug: 'gujarat', metaTitle: 'Buy & Rent Property in Gujarat - Think4BuySale', metaDescription: 'Explore residential and commercial properties in Ahmedabad, Surat and across Gujarat.', metaKeywords: 'buy property gujarat, ahmedabad real estate, surat property', h1: 'Properties in Gujarat' });
+  const rj = await stateRepo.save({ name: 'Rajasthan', code: 'RJ', isActive: true, countryId: india.id, slug: 'rajasthan', metaTitle: 'Buy & Rent Property in Rajasthan - Think4BuySale', metaDescription: 'Find properties for sale and rent in Jaipur, Jodhpur and other cities in Rajasthan.', metaKeywords: 'buy property rajasthan, jaipur real estate, rent flat jaipur', h1: 'Properties in Rajasthan' });
+  const wb = await stateRepo.save({ name: 'West Bengal', code: 'WB', isActive: true, countryId: india.id, slug: 'west-bengal', metaTitle: 'Buy & Rent Property in West Bengal - Think4BuySale', metaDescription: 'Explore properties in Kolkata and other cities across West Bengal.', metaKeywords: 'buy property west bengal, kolkata real estate, rent flat kolkata', h1: 'Properties in West Bengal' });
+  const up = await stateRepo.save({ name: 'Uttar Pradesh', code: 'UP', isActive: true, countryId: india.id, slug: 'uttar-pradesh', metaTitle: 'Buy & Rent Property in Uttar Pradesh - Think4BuySale', metaDescription: 'Find properties for sale and rent in Noida, Lucknow, Ghaziabad and all UP cities.', metaKeywords: 'buy property uttar pradesh, noida real estate, lucknow property, ghaziabad flats', h1: 'Properties in Uttar Pradesh' });
+  const hr = await stateRepo.save({ name: 'Haryana', code: 'HR', isActive: true, countryId: india.id, slug: 'haryana', metaTitle: 'Buy & Rent Property in Haryana - Think4BuySale', metaDescription: 'Explore luxury and affordable properties in Gurgaon, Faridabad and across Haryana.', metaKeywords: 'buy property haryana, gurgaon real estate, rent flat gurgaon', h1: 'Properties in Haryana' });
+  const kl = await stateRepo.save({ name: 'Kerala', code: 'KL', isActive: true, countryId: india.id, slug: 'kerala', metaTitle: 'Buy & Rent Property in Kerala - Think4BuySale', metaDescription: 'Find properties for sale and rent in Kochi, Thiruvananthapuram and across Kerala.', metaKeywords: 'buy property kerala, kochi real estate, rent flat trivandrum', h1: 'Properties in Kerala' });
   // Additional Indian states
   await stateRepo.save([
-    { name: 'Punjab',              code: 'PB', isActive: true, countryId: india.id },
-    { name: 'Andhra Pradesh',      code: 'AP', isActive: true, countryId: india.id },
-    { name: 'Madhya Pradesh',      code: 'MP', isActive: true, countryId: india.id },
-    { name: 'Bihar',               code: 'BR', isActive: true, countryId: india.id },
-    { name: 'Odisha',              code: 'OD', isActive: true, countryId: india.id },
-    { name: 'Jharkhand',           code: 'JH', isActive: true, countryId: india.id },
-    { name: 'Assam',               code: 'AS', isActive: true, countryId: india.id },
-    { name: 'Chhattisgarh',        code: 'CG', isActive: true, countryId: india.id },
-    { name: 'Uttarakhand',         code: 'UK', isActive: true, countryId: india.id },
-    { name: 'Himachal Pradesh',    code: 'HP', isActive: true, countryId: india.id },
-    { name: 'Goa',                 code: 'GA', isActive: true, countryId: india.id },
+    { name: 'Punjab',           code: 'PB', isActive: true, countryId: india.id, slug: 'punjab' },
+    { name: 'Andhra Pradesh',   code: 'AP', isActive: true, countryId: india.id, slug: 'andhra-pradesh' },
+    { name: 'Madhya Pradesh',   code: 'MP', isActive: true, countryId: india.id, slug: 'madhya-pradesh' },
+    { name: 'Bihar',            code: 'BR', isActive: true, countryId: india.id, slug: 'bihar' },
+    { name: 'Odisha',           code: 'OD', isActive: true, countryId: india.id, slug: 'odisha' },
+    { name: 'Jharkhand',        code: 'JH', isActive: true, countryId: india.id, slug: 'jharkhand' },
+    { name: 'Assam',            code: 'AS', isActive: true, countryId: india.id, slug: 'assam' },
+    { name: 'Chhattisgarh',     code: 'CG', isActive: true, countryId: india.id, slug: 'chhattisgarh' },
+    { name: 'Uttarakhand',      code: 'UK', isActive: true, countryId: india.id, slug: 'uttarakhand' },
+    { name: 'Himachal Pradesh', code: 'HP', isActive: true, countryId: india.id, slug: 'himachal-pradesh' },
+    { name: 'Goa',              code: 'GA', isActive: true, countryId: india.id, slug: 'goa' },
   ]);
   await cityRepo.save([
-    { name: 'Mumbai',    stateId: mh.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1567157577867-05ccb1388e66?w=600&q=80' },
-    { name: 'Pune',      stateId: mh.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1545809074-59472b3f5ecc?w=600&q=80' },
-    { name: 'Nagpur',    stateId: mh.id, isActive: true, isFeatured: false },
-    { name: 'Bangalore', stateId: ka.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=600&q=80' },
-    { name: 'Mysore',    stateId: ka.id, isActive: true, isFeatured: false },
-    { name: 'Delhi',     stateId: dl.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80' },
-    { name: 'Gurgaon',   stateId: hr.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=600&q=80' },
-    { name: 'Noida',     stateId: up.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80' },
-    { name: 'Ghaziabad', stateId: up.id, isActive: true, isFeatured: true },
-    { name: 'Lucknow',   stateId: up.id, isActive: true, isFeatured: false },
-    { name: 'Chennai',   stateId: tn.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=600&q=80' },
-    { name: 'Hyderabad', stateId: ts.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1572445373025-8b4b3ab7dd21?w=600&q=80' },
-    { name: 'Ahmedabad', stateId: gj.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1558618047-f4e90ae6e13e?w=600&q=80' },
-    { name: 'Surat',     stateId: gj.id, isActive: true, isFeatured: false },
-    { name: 'Jaipur',    stateId: rj.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1477587458883-47145ed94245?w=600&q=80' },
-    { name: 'Kolkata',   stateId: wb.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1558431382-27e303142255?w=600&q=80' },
-    { name: 'Kochi',     stateId: kl.id, isActive: true, isFeatured: false },
+    { name: 'Mumbai',    stateId: mh.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1567157577867-05ccb1388e66?w=600&q=80', slug: 'mumbai', h1: 'Property in Mumbai', metaTitle: 'Buy & Rent Property in Mumbai - Think4BuySale', metaDescription: 'Find the best apartments, villas and plots for sale and rent in Mumbai. Explore Bandra, Powai, Andheri, Juhu and more.', metaKeywords: 'buy property mumbai, rent flat mumbai, mumbai real estate, apartments in mumbai', introContent: 'Mumbai is India\'s financial capital and one of the most sought-after real estate markets in the country. From luxury sea-facing apartments in Bandra to affordable housing in the suburbs, Mumbai offers properties for every budget.' },
+    { name: 'Pune',      stateId: mh.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1545809074-59472b3f5ecc?w=600&q=80', slug: 'pune', h1: 'Property in Pune', metaTitle: 'Buy & Rent Property in Pune - Think4BuySale', metaDescription: 'Explore properties for sale and rent in Pune. Find apartments in Baner, Viman Nagar, Kothrud and more.', metaKeywords: 'buy property pune, rent flat pune, pune real estate, apartments baner' },
+    { name: 'Nagpur',    stateId: mh.id, isActive: true, isFeatured: false, slug: 'nagpur' },
+    { name: 'Bangalore', stateId: ka.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=600&q=80', slug: 'bangalore', h1: 'Property in Bangalore', metaTitle: 'Buy & Rent Property in Bangalore - Think4BuySale', metaDescription: 'Discover apartments, villas and plots in Bangalore. Browse listings in Whitefield, Koramangala, Indiranagar, HSR Layout and more.', metaKeywords: 'buy property bangalore, rent flat bangalore, bangalore apartments, whitefield property', introContent: 'Bangalore (Bengaluru) is India\'s IT capital and one of the fastest-growing real estate markets. From tech corridors in Whitefield to upscale localities in Koramangala, the city offers diverse property options.' },
+    { name: 'Mysore',    stateId: ka.id, isActive: true, isFeatured: false, slug: 'mysore' },
+    { name: 'Delhi',     stateId: dl.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80', slug: 'delhi', h1: 'Property in Delhi', metaTitle: 'Buy & Rent Property in Delhi - Think4BuySale', metaDescription: 'Find properties for sale and rent in Delhi. Explore listings in Greater Kailash, Vasant Kunj, Dwarka, Saket and more.', metaKeywords: 'buy property delhi, rent flat delhi, delhi apartments, south delhi property' },
+    { name: 'Gurgaon',   stateId: hr.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=600&q=80', slug: 'gurgaon', h1: 'Property in Gurgaon', metaTitle: 'Buy & Rent Property in Gurgaon - Think4BuySale', metaDescription: 'Explore luxury apartments, villas and commercial spaces in Gurgaon. Browse DLF Phase, Sohna Road, Golf Course Road.', metaKeywords: 'buy property gurgaon, rent flat gurgaon, gurgaon apartments, dlf gurgaon' },
+    { name: 'Noida',     stateId: up.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80', slug: 'noida', h1: 'Property in Noida', metaTitle: 'Buy & Rent Property in Noida - Think4BuySale', metaDescription: 'Find affordable and premium properties in Noida. Browse listings in Sector 62, 137, 150 and more.', metaKeywords: 'buy property noida, rent flat noida, noida sector 62, noida extension flats' },
+    { name: 'Ghaziabad', stateId: up.id, isActive: true, isFeatured: true,  slug: 'ghaziabad' },
+    { name: 'Lucknow',   stateId: up.id, isActive: true, isFeatured: false, slug: 'lucknow', h1: 'Property in Lucknow', metaTitle: 'Buy & Rent Property in Lucknow - Think4BuySale', metaDescription: 'Find the best properties in Lucknow. Explore Gomti Nagar, Aliganj, Hazratganj and more.', metaKeywords: 'buy property lucknow, rent flat lucknow, lucknow real estate, gomti nagar property' },
+    { name: 'Chennai',   stateId: tn.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=600&q=80', slug: 'chennai', h1: 'Property in Chennai', metaTitle: 'Buy & Rent Property in Chennai - Think4BuySale', metaDescription: 'Discover properties for sale and rent in Chennai. Explore Anna Nagar, OMR, T Nagar, Velachery and more.', metaKeywords: 'buy property chennai, rent flat chennai, anna nagar property, omr apartments' },
+    { name: 'Hyderabad', stateId: ts.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1572445373025-8b4b3ab7dd21?w=600&q=80', slug: 'hyderabad', h1: 'Property in Hyderabad', metaTitle: 'Buy & Rent Property in Hyderabad - Think4BuySale', metaDescription: 'Find apartments and villas in Hyderabad. Browse Gachibowli, Kondapur, HITEC City, Banjara Hills listings.', metaKeywords: 'buy property hyderabad, rent flat hyderabad, gachibowli apartments, hitec city property' },
+    { name: 'Ahmedabad', stateId: gj.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1558618047-f4e90ae6e13e?w=600&q=80', slug: 'ahmedabad', h1: 'Property in Ahmedabad', metaTitle: 'Buy & Rent Property in Ahmedabad - Think4BuySale', metaDescription: 'Explore properties in Ahmedabad. Find listings in Prahlad Nagar, SG Highway, Bopal and more.', metaKeywords: 'buy property ahmedabad, rent flat ahmedabad, sg highway property, prahlad nagar apartments' },
+    { name: 'Surat',     stateId: gj.id, isActive: true, isFeatured: false, slug: 'surat' },
+    { name: 'Jaipur',    stateId: rj.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1477587458883-47145ed94245?w=600&q=80', slug: 'jaipur', h1: 'Property in Jaipur', metaTitle: 'Buy & Rent Property in Jaipur - Think4BuySale', metaDescription: 'Find properties in Jaipur — the Pink City. Explore Vaishali Nagar, Malviya Nagar, Mansarovar listings.', metaKeywords: 'buy property jaipur, rent flat jaipur, vaishali nagar property, jaipur real estate' },
+    { name: 'Kolkata',   stateId: wb.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1558431382-27e303142255?w=600&q=80', slug: 'kolkata', h1: 'Property in Kolkata', metaTitle: 'Buy & Rent Property in Kolkata - Think4BuySale', metaDescription: 'Discover properties in Kolkata. Browse Salt Lake, New Town, Park Street and other prime localities.', metaKeywords: 'buy property kolkata, rent flat kolkata, salt lake property, new town apartments' },
+    { name: 'Kochi',     stateId: kl.id, isActive: true, isFeatured: false, slug: 'kochi', h1: 'Property in Kochi', metaTitle: 'Buy & Rent Property in Kochi - Think4BuySale', metaDescription: 'Find flats and villas in Kochi. Explore Kakkanad, Edapally, Marine Drive and more.', metaKeywords: 'buy property kochi, rent flat kochi, kakkanad apartments, kochi real estate' },
   ]);
   console.log('States & cities created');
 
@@ -1613,6 +1615,42 @@ async function seed() {
 
   await catAnalyticsRepo.save(allCatRows as CategoryAnalytics[]);
   console.log(`Category analytics seeded: ${allCatRows.length} records (global + ${Object.keys(stateData).length} states + ${Object.keys(cityData).length} cities)`);
+
+  // ─── SEO Config ───────────────────────────────────────────────────────────────
+  const seoConfigRepo = dataSource.getRepository(SeoConfig);
+  await seoConfigRepo.save([
+    { key: 'site_title', label: 'Site Title', description: 'Default title for all pages', value: 'Think4BuySale - Buy, Sell & Rent Property in India' },
+    { key: 'site_description', label: 'Site Description', description: 'Default meta description', value: 'India\'s trusted real estate platform. Find apartments, villas, plots, commercial spaces for sale and rent across 100+ cities.' },
+    { key: 'site_keywords', label: 'Site Keywords', description: 'Default meta keywords', value: 'buy property india, sell property, rent apartment, real estate india, think4buysale' },
+    { key: 'og_image', label: 'OG Image URL', description: 'Default Open Graph image for social sharing', value: '/images/og-default.jpg' },
+    { key: 'twitter_handle', label: 'Twitter Handle', description: 'Twitter/X account handle', value: '@think4buysale' },
+    { key: 'canonical_domain', label: 'Canonical Domain', description: 'Canonical base URL', value: 'https://think4buysale.com' },
+    { key: 'google_site_verification', label: 'Google Site Verification', description: 'Google Search Console verification meta content', value: '' },
+  ]);
+  console.log('SEO config seeded');
+
+  // ─── Footer SEO Links ─────────────────────────────────────────────────────────
+  const footerGroupRepo = dataSource.getRepository(FooterSeoLinkGroup);
+  const footerLinkRepo = dataSource.getRepository(FooterSeoLink);
+
+  const fgBuy = await footerGroupRepo.save({ title: 'Buy Property', sortOrder: 0, isActive: true });
+  const fgRent = await footerGroupRepo.save({ title: 'Rent Property', sortOrder: 1, isActive: true });
+  const fgPG = await footerGroupRepo.save({ title: 'PG / Co-Living', sortOrder: 2, isActive: true });
+  const fgNew = await footerGroupRepo.save({ title: 'New Projects', sortOrder: 3, isActive: true });
+
+  const topCities = ['Mumbai', 'Bangalore', 'Delhi', 'Hyderabad', 'Pune', 'Chennai', 'Gurgaon', 'Noida', 'Kolkata', 'Ahmedabad'];
+  const slugOf = (name: string) => name.toLowerCase().replace(/\s+/g, '-');
+
+  for (const [i, city] of topCities.entries()) {
+    const s = slugOf(city);
+    await footerLinkRepo.save([
+      { groupId: fgBuy.id, label: `Buy Property in ${city}`, url: `/buy/property-in-${s}`, sortOrder: i, isActive: true },
+      { groupId: fgRent.id, label: `Rent Flat in ${city}`, url: `/flats-for-rent/${s}`, sortOrder: i, isActive: true },
+      { groupId: fgPG.id, label: `PG in ${city}`, url: `/properties?category=pg&city=${encodeURIComponent(city)}`, sortOrder: i, isActive: true },
+      { groupId: fgNew.id, label: `New Projects in ${city}`, url: `/new-projects/${s}`, sortOrder: i, isActive: true },
+    ]);
+  }
+  console.log('Footer SEO links seeded');
 
   await dataSource.destroy();
   console.log('\nSeeding complete!');

@@ -36,6 +36,31 @@ export class City {
   @Column({ nullable: true })
   imageUrl: string;
 
+  // SEO fields
+  @Column({ length: 150, nullable: true })
+  slug: string; // e.g. 'mumbai', 'bangalore'
+
+  @Column({ length: 200, nullable: true })
+  h1: string;
+
+  @Column({ length: 200, nullable: true })
+  metaTitle: string;
+
+  @Column({ length: 500, nullable: true })
+  metaDescription: string;
+
+  @Column({ length: 300, nullable: true })
+  metaKeywords: string;
+
+  @Column({ type: 'text', nullable: true })
+  introContent: string;
+
+  @Column({ type: 'text', nullable: true })
+  seoContent: string;
+
+  @Column({ type: 'json', nullable: true })
+  faqs: { question: string; answer: string }[];
+
   @CreateDateColumn()
   createdAt: Date;
 

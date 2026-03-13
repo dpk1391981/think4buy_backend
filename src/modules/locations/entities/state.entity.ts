@@ -34,6 +34,25 @@ export class State {
   @Column({ nullable: true })
   countryId: string;
 
+  // SEO fields
+  @Column({ length: 150, nullable: true })
+  slug: string; // e.g. 'maharashtra', 'karnataka'
+
+  @Column({ length: 200, nullable: true })
+  h1: string;
+
+  @Column({ length: 200, nullable: true })
+  metaTitle: string;
+
+  @Column({ length: 500, nullable: true })
+  metaDescription: string;
+
+  @Column({ length: 300, nullable: true })
+  metaKeywords: string;
+
+  @Column({ type: 'text', nullable: true })
+  seoContent: string;
+
   @ManyToOne(() => Country, (country) => country.states, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'countryId' })
   country: Country;

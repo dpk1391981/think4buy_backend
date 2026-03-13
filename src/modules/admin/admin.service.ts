@@ -339,4 +339,19 @@ export class AdminService {
     property.isFeatured = !property.isFeatured;
     return this.propertyRepo.save(property);
   }
+
+  async updatePropertySeo(id: string, data: { slug?: string; metaTitle?: string; metaDescription?: string }): Promise<Property> {
+    const property = await this.propertyRepo.findOne({ where: { id } });
+    if (!property) throw new NotFoundException('Property not found');
+
+    if (data.slug && data.slug !== property.slug) {
+      const existing = await this.propertyRepo.findOne({ where: { slug: data.slug } });
+      if (existing) throw new ConflictException('Slug already in use by another property');
+      property.slug = data.slug;
+    }
+    if (data.metaTitle !== undefined) (property as any).metaTitle = data.metaTitle;
+    if (data.metaDescription !== undefined) (property as any).metaDescription = data.metaDescription;
+
+    return this.propertyRepo.save(property);
+  }
 }
