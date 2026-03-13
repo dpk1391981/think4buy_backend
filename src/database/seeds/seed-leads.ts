@@ -21,7 +21,7 @@ const dataSource = new DataSource({
   password: process.env.DB_PASSWORD || 'Dpk1391981!',
   database: process.env.DB_NAME || 'realestate_db',
   entities: [Lead, LeadAssignment, LeadActivityLog],
-  synchronize: false,
+  synchronize: true,
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -503,8 +503,15 @@ async function seedLeads() {
   // Clear existing leads data
   console.log('Clearing existing leads data...');
   await dataSource.query('SET FOREIGN_KEY_CHECKS = 0');
+  const dbName = process.env.DB_NAME || 'realestate_db';
   for (const table of ['lead_activity_logs', 'lead_assignments', 'leads']) {
-    await dataSource.query(`TRUNCATE TABLE \`${table}\``);
+    const [exists] = await dataSource.query(
+      `SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_schema = ? AND table_name = ?`,
+      [dbName, table],
+    );
+    if (Number(exists.cnt) > 0) {
+      await dataSource.query(`TRUNCATE TABLE \`${table}\``);
+    }
   }
   await dataSource.query('SET FOREIGN_KEY_CHECKS = 1');
 
