@@ -15,6 +15,10 @@ import {
   ListingUserType,
   ApprovalStatus,
 } from '../../modules/properties/entities/property.entity';
+import { Agency } from '../../modules/agency/entities/agency.entity';
+import { AgentProfile } from '../../modules/agency/entities/agent-profile.entity';
+import { PropertyAgentMap } from '../../modules/agency/entities/property-agent-map.entity';
+import { AgentLocationMap } from '../../modules/agency/entities/agent-location-map.entity';
 import { PropertyImage } from '../../modules/properties/entities/property-image.entity';
 import { Location } from '../../modules/locations/entities/location.entity';
 import { Inquiry } from '../../modules/inquiries/entities/inquiry.entity';
@@ -43,7 +47,7 @@ const dataSource = new DataSource({
   username: process.env.DB_USERNAME || 'dpk1391981',
   password: process.env.DB_PASSWORD || 'Dpk1391981!',
   database: process.env.DB_NAME || 'realestate_db',
-  entities: [User, Amenity, Property, PropertyImage, Location, Inquiry, ServiceCatalog, Wallet, WalletTransaction, BoostPlan, SubscriptionPlan, State, City, Country, PropCategory, PropType, PropTypeAmenity, PropTypeField, CategoryAnalytics, FooterSeoLink, FooterSeoLinkGroup, SeoConfig],
+  entities: [User, Amenity, Property, PropertyImage, Location, Inquiry, ServiceCatalog, Wallet, WalletTransaction, BoostPlan, SubscriptionPlan, State, City, Country, PropCategory, PropType, PropTypeAmenity, PropTypeField, CategoryAnalytics, FooterSeoLink, FooterSeoLinkGroup, SeoConfig, Agency, AgentProfile, PropertyAgentMap, AgentLocationMap],
   synchronize: true,
 });
 
@@ -59,6 +63,7 @@ async function seed() {
 
   await dataSource.query('SET FOREIGN_KEY_CHECKS = 0');
   for (const entity of [
+    'agent_location_map', 'property_agent_map', 'agent_profiles', 'agencies',
     'property_amenities', 'property_images', 'inquiries', 'properties',
     'services_catalog', 'locations', 'wallet_transactions', 'wallets',
     'boost_plans', 'subscription_plans', 'cities', 'states', 'countries', 'users', 'amenities',
@@ -231,24 +236,36 @@ async function seed() {
     { name: 'Himachal Pradesh', code: 'HP', isActive: true, countryId: india.id, slug: 'himachal-pradesh' },
     { name: 'Goa',              code: 'GA', isActive: true, countryId: india.id, slug: 'goa' },
   ]);
-  await cityRepo.save([
-    { name: 'Mumbai',    stateId: mh.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1567157577867-05ccb1388e66?w=600&q=80', slug: 'mumbai', h1: 'Property in Mumbai', metaTitle: 'Buy & Rent Property in Mumbai - Think4BuySale', metaDescription: 'Find the best apartments, villas and plots for sale and rent in Mumbai. Explore Bandra, Powai, Andheri, Juhu and more.', metaKeywords: 'buy property mumbai, rent flat mumbai, mumbai real estate, apartments in mumbai', introContent: 'Mumbai is India\'s financial capital and one of the most sought-after real estate markets in the country. From luxury sea-facing apartments in Bandra to affordable housing in the suburbs, Mumbai offers properties for every budget.' },
-    { name: 'Pune',      stateId: mh.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1545809074-59472b3f5ecc?w=600&q=80', slug: 'pune', h1: 'Property in Pune', metaTitle: 'Buy & Rent Property in Pune - Think4BuySale', metaDescription: 'Explore properties for sale and rent in Pune. Find apartments in Baner, Viman Nagar, Kothrud and more.', metaKeywords: 'buy property pune, rent flat pune, pune real estate, apartments baner' },
-    { name: 'Nagpur',    stateId: mh.id, isActive: true, isFeatured: false, slug: 'nagpur' },
-    { name: 'Bangalore', stateId: ka.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=600&q=80', slug: 'bangalore', h1: 'Property in Bangalore', metaTitle: 'Buy & Rent Property in Bangalore - Think4BuySale', metaDescription: 'Discover apartments, villas and plots in Bangalore. Browse listings in Whitefield, Koramangala, Indiranagar, HSR Layout and more.', metaKeywords: 'buy property bangalore, rent flat bangalore, bangalore apartments, whitefield property', introContent: 'Bangalore (Bengaluru) is India\'s IT capital and one of the fastest-growing real estate markets. From tech corridors in Whitefield to upscale localities in Koramangala, the city offers diverse property options.' },
-    { name: 'Mysore',    stateId: ka.id, isActive: true, isFeatured: false, slug: 'mysore' },
-    { name: 'Delhi',     stateId: dl.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80', slug: 'delhi', h1: 'Property in Delhi', metaTitle: 'Buy & Rent Property in Delhi - Think4BuySale', metaDescription: 'Find properties for sale and rent in Delhi. Explore listings in Greater Kailash, Vasant Kunj, Dwarka, Saket and more.', metaKeywords: 'buy property delhi, rent flat delhi, delhi apartments, south delhi property' },
-    { name: 'Gurgaon',   stateId: hr.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=600&q=80', slug: 'gurgaon', h1: 'Property in Gurgaon', metaTitle: 'Buy & Rent Property in Gurgaon - Think4BuySale', metaDescription: 'Explore luxury apartments, villas and commercial spaces in Gurgaon. Browse DLF Phase, Sohna Road, Golf Course Road.', metaKeywords: 'buy property gurgaon, rent flat gurgaon, gurgaon apartments, dlf gurgaon' },
-    { name: 'Noida',     stateId: up.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80', slug: 'noida', h1: 'Property in Noida', metaTitle: 'Buy & Rent Property in Noida - Think4BuySale', metaDescription: 'Find affordable and premium properties in Noida. Browse listings in Sector 62, 137, 150 and more.', metaKeywords: 'buy property noida, rent flat noida, noida sector 62, noida extension flats' },
-    { name: 'Ghaziabad', stateId: up.id, isActive: true, isFeatured: true,  slug: 'ghaziabad' },
-    { name: 'Lucknow',   stateId: up.id, isActive: true, isFeatured: false, slug: 'lucknow', h1: 'Property in Lucknow', metaTitle: 'Buy & Rent Property in Lucknow - Think4BuySale', metaDescription: 'Find the best properties in Lucknow. Explore Gomti Nagar, Aliganj, Hazratganj and more.', metaKeywords: 'buy property lucknow, rent flat lucknow, lucknow real estate, gomti nagar property' },
-    { name: 'Chennai',   stateId: tn.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=600&q=80', slug: 'chennai', h1: 'Property in Chennai', metaTitle: 'Buy & Rent Property in Chennai - Think4BuySale', metaDescription: 'Discover properties for sale and rent in Chennai. Explore Anna Nagar, OMR, T Nagar, Velachery and more.', metaKeywords: 'buy property chennai, rent flat chennai, anna nagar property, omr apartments' },
-    { name: 'Hyderabad', stateId: ts.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1572445373025-8b4b3ab7dd21?w=600&q=80', slug: 'hyderabad', h1: 'Property in Hyderabad', metaTitle: 'Buy & Rent Property in Hyderabad - Think4BuySale', metaDescription: 'Find apartments and villas in Hyderabad. Browse Gachibowli, Kondapur, HITEC City, Banjara Hills listings.', metaKeywords: 'buy property hyderabad, rent flat hyderabad, gachibowli apartments, hitec city property' },
-    { name: 'Ahmedabad', stateId: gj.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1558618047-f4e90ae6e13e?w=600&q=80', slug: 'ahmedabad', h1: 'Property in Ahmedabad', metaTitle: 'Buy & Rent Property in Ahmedabad - Think4BuySale', metaDescription: 'Explore properties in Ahmedabad. Find listings in Prahlad Nagar, SG Highway, Bopal and more.', metaKeywords: 'buy property ahmedabad, rent flat ahmedabad, sg highway property, prahlad nagar apartments' },
-    { name: 'Surat',     stateId: gj.id, isActive: true, isFeatured: false, slug: 'surat' },
-    { name: 'Jaipur',    stateId: rj.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1477587458883-47145ed94245?w=600&q=80', slug: 'jaipur', h1: 'Property in Jaipur', metaTitle: 'Buy & Rent Property in Jaipur - Think4BuySale', metaDescription: 'Find properties in Jaipur — the Pink City. Explore Vaishali Nagar, Malviya Nagar, Mansarovar listings.', metaKeywords: 'buy property jaipur, rent flat jaipur, vaishali nagar property, jaipur real estate' },
-    { name: 'Kolkata',   stateId: wb.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1558431382-27e303142255?w=600&q=80', slug: 'kolkata', h1: 'Property in Kolkata', metaTitle: 'Buy & Rent Property in Kolkata - Think4BuySale', metaDescription: 'Discover properties in Kolkata. Browse Salt Lake, New Town, Park Street and other prime localities.', metaKeywords: 'buy property kolkata, rent flat kolkata, salt lake property, new town apartments' },
-    { name: 'Kochi',     stateId: kl.id, isActive: true, isFeatured: false, slug: 'kochi', h1: 'Property in Kochi', metaTitle: 'Buy & Rent Property in Kochi - Think4BuySale', metaDescription: 'Find flats and villas in Kochi. Explore Kakkanad, Edapally, Marine Drive and more.', metaKeywords: 'buy property kochi, rent flat kochi, kakkanad apartments, kochi real estate' },
+  const [
+    mumbaiCity, puneCity, nagpurCity,
+    bangaloreCity, mysoreCity,
+    delhiCity,
+    gurgaonCity,
+    noidaCity, ghaziabadCity, lucknowCity,
+    chennaiCity,
+    hyderabadCity,
+    ahmedabadCity, suratCity,
+    jaipurCity,
+    kolkataCity,
+    kochiCity,
+  ] = await cityRepo.save([
+    { name: 'Mumbai',    stateId: mh.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1567157577867-05ccb1388e66?w=600&q=80', slug: 'mumbai',    h1: 'Property in Mumbai',    metaTitle: 'Buy & Rent Property in Mumbai - Think4BuySale',    metaDescription: 'Find the best apartments, villas and plots for sale and rent in Mumbai. Explore Bandra, Powai, Andheri, Juhu and more.',                 metaKeywords: 'buy property mumbai, rent flat mumbai, mumbai real estate, apartments in mumbai',         introContent: 'Mumbai is India\'s financial capital and one of the most sought-after real estate markets in the country. From luxury sea-facing apartments in Bandra to affordable housing in the suburbs, Mumbai offers properties for every budget.' },
+    { name: 'Pune',      stateId: mh.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1545809074-59472b3f5ecc?w=600&q=80', slug: 'pune',      h1: 'Property in Pune',      metaTitle: 'Buy & Rent Property in Pune - Think4BuySale',      metaDescription: 'Explore properties for sale and rent in Pune. Find apartments in Baner, Viman Nagar, Kothrud and more.',                              metaKeywords: 'buy property pune, rent flat pune, pune real estate, apartments baner' },
+    { name: 'Nagpur',    stateId: mh.id, isActive: true, isFeatured: false,                                                                                       slug: 'nagpur' },
+    { name: 'Bangalore', stateId: ka.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=600&q=80', slug: 'bangalore', h1: 'Property in Bangalore', metaTitle: 'Buy & Rent Property in Bangalore - Think4BuySale', metaDescription: 'Discover apartments, villas and plots in Bangalore. Browse listings in Whitefield, Koramangala, Indiranagar, HSR Layout and more.',  metaKeywords: 'buy property bangalore, rent flat bangalore, bangalore apartments, whitefield property',   introContent: 'Bangalore (Bengaluru) is India\'s IT capital and one of the fastest-growing real estate markets. From tech corridors in Whitefield to upscale localities in Koramangala, the city offers diverse property options.' },
+    { name: 'Mysore',    stateId: ka.id, isActive: true, isFeatured: false,                                                                                       slug: 'mysore' },
+    { name: 'Delhi',     stateId: dl.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80', slug: 'delhi',     h1: 'Property in Delhi',     metaTitle: 'Buy & Rent Property in Delhi - Think4BuySale',     metaDescription: 'Find properties for sale and rent in Delhi. Explore listings in Greater Kailash, Vasant Kunj, Dwarka, Saket and more.',              metaKeywords: 'buy property delhi, rent flat delhi, delhi apartments, south delhi property' },
+    { name: 'Gurgaon',   stateId: hr.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=600&q=80', slug: 'gurgaon',   h1: 'Property in Gurgaon',   metaTitle: 'Buy & Rent Property in Gurgaon - Think4BuySale',   metaDescription: 'Explore luxury apartments, villas and commercial spaces in Gurgaon. Browse DLF Phase, Sohna Road, Golf Course Road.',               metaKeywords: 'buy property gurgaon, rent flat gurgaon, gurgaon apartments, dlf gurgaon' },
+    { name: 'Noida',     stateId: up.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80', slug: 'noida',     h1: 'Property in Noida',     metaTitle: 'Buy & Rent Property in Noida - Think4BuySale',     metaDescription: 'Find affordable and premium properties in Noida. Browse listings in Sector 62, 137, 150 and more.',                                  metaKeywords: 'buy property noida, rent flat noida, noida sector 62, noida extension flats' },
+    { name: 'Ghaziabad', stateId: up.id, isActive: true, isFeatured: true,                                                                                        slug: 'ghaziabad' },
+    { name: 'Lucknow',   stateId: up.id, isActive: true, isFeatured: false,                                                                                       slug: 'lucknow',   h1: 'Property in Lucknow',   metaTitle: 'Buy & Rent Property in Lucknow - Think4BuySale',   metaDescription: 'Find the best properties in Lucknow. Explore Gomti Nagar, Aliganj, Hazratganj and more.',                                          metaKeywords: 'buy property lucknow, rent flat lucknow, lucknow real estate, gomti nagar property' },
+    { name: 'Chennai',   stateId: tn.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=600&q=80', slug: 'chennai',   h1: 'Property in Chennai',   metaTitle: 'Buy & Rent Property in Chennai - Think4BuySale',   metaDescription: 'Discover properties for sale and rent in Chennai. Explore Anna Nagar, OMR, T Nagar, Velachery and more.',                          metaKeywords: 'buy property chennai, rent flat chennai, anna nagar property, omr apartments' },
+    { name: 'Hyderabad', stateId: ts.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1572445373025-8b4b3ab7dd21?w=600&q=80', slug: 'hyderabad', h1: 'Property in Hyderabad', metaTitle: 'Buy & Rent Property in Hyderabad - Think4BuySale', metaDescription: 'Find apartments and villas in Hyderabad. Browse Gachibowli, Kondapur, HITEC City, Banjara Hills listings.',                          metaKeywords: 'buy property hyderabad, rent flat hyderabad, gachibowli apartments, hitec city property' },
+    { name: 'Ahmedabad', stateId: gj.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1558618047-f4e90ae6e13e?w=600&q=80', slug: 'ahmedabad', h1: 'Property in Ahmedabad', metaTitle: 'Buy & Rent Property in Ahmedabad - Think4BuySale', metaDescription: 'Explore properties in Ahmedabad. Find listings in Prahlad Nagar, SG Highway, Bopal and more.',                                      metaKeywords: 'buy property ahmedabad, rent flat ahmedabad, sg highway property, prahlad nagar apartments' },
+    { name: 'Surat',     stateId: gj.id, isActive: true, isFeatured: false,                                                                                       slug: 'surat' },
+    { name: 'Jaipur',    stateId: rj.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1477587458883-47145ed94245?w=600&q=80', slug: 'jaipur',    h1: 'Property in Jaipur',    metaTitle: 'Buy & Rent Property in Jaipur - Think4BuySale',    metaDescription: 'Find properties in Jaipur — the Pink City. Explore Vaishali Nagar, Malviya Nagar, Mansarovar listings.',                           metaKeywords: 'buy property jaipur, rent flat jaipur, vaishali nagar property, jaipur real estate' },
+    { name: 'Kolkata',   stateId: wb.id, isActive: true, isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1558431382-27e303142255?w=600&q=80', slug: 'kolkata',   h1: 'Property in Kolkata',   metaTitle: 'Buy & Rent Property in Kolkata - Think4BuySale',   metaDescription: 'Discover properties in Kolkata. Browse Salt Lake, New Town, Park Street and other prime localities.',                               metaKeywords: 'buy property kolkata, rent flat kolkata, salt lake property, new town apartments' },
+    { name: 'Kochi',     stateId: kl.id, isActive: true, isFeatured: false,                                                                                       slug: 'kochi',     h1: 'Property in Kochi',     metaTitle: 'Buy & Rent Property in Kochi - Think4BuySale',     metaDescription: 'Find flats and villas in Kochi. Explore Kakkanad, Edapally, Marine Drive and more.',                                               metaKeywords: 'buy property kochi, rent flat kochi, kakkanad apartments, kochi real estate' },
   ]);
   console.log('States & cities created');
 
@@ -1109,6 +1126,248 @@ async function seed() {
   }
 
   console.log('All properties seeded successfully');
+
+  // ─── Agencies — linked to real countryId / stateId / cityId ─────────────────
+  const agencyRepo = dataSource.getRepository(Agency);
+  const agentProfileRepo = dataSource.getRepository(AgentProfile);
+  const propertyAgentMapRepo = dataSource.getRepository(PropertyAgentMap);
+  const agentLocationMapRepo = dataSource.getRepository(AgentLocationMap);
+
+  const [agencyPropElite, agencyHomeFirst, agencyCapital, agencySaffron] = await agencyRepo.save([
+    {
+      name: 'PropElite Realty',
+      description: 'Mumbai\'s leading luxury residential and commercial real estate agency. 15+ years of excellence in premium property dealings across Bandra, Juhu, Powai, and South Mumbai.',
+      contactEmail: 'contact@propelite.in',
+      contactPhone: '9811000001',
+      address: 'Level 12, One BKC, Bandra Kurla Complex, Mumbai – 400051',
+      website: 'https://propelite.in',
+      licenseNumber: 'MH-RERA-AGENCY-001',
+      countryId: india.id,
+      stateId: mh.id,
+      cityId: mumbaiCity.id,
+      isActive: true,
+      isVerified: true,
+      totalAgents: 1,
+    },
+    {
+      name: 'HomeFirst Properties',
+      description: 'Bangalore\'s top-rated real estate firm specialising in tech-corridor residential, luxury villas, and commercial leasing. Serving IT professionals since 2016.',
+      contactEmail: 'info@homefirst.co.in',
+      contactPhone: '9811000002',
+      address: 'No. 24, 2nd Floor, Koramangala 5th Block, Bangalore – 560034',
+      website: 'https://homefirst.co.in',
+      licenseNumber: 'KA-RERA-AGENCY-002',
+      countryId: india.id,
+      stateId: ka.id,
+      cityId: bangaloreCity.id,
+      isActive: true,
+      isVerified: true,
+      totalAgents: 1,
+    },
+    {
+      name: 'Capital Estates',
+      description: 'Delhi NCR\'s most trusted real estate consultancy. Expert in South Delhi, Gurgaon, Noida, and Faridabad properties. 20+ years of heritage and trust.',
+      contactEmail: 'delhi@capitalestates.in',
+      contactPhone: '9811000003',
+      address: '203, DLF Centre, Sansad Marg, Connaught Place, New Delhi – 110001',
+      website: 'https://capitalestates.in',
+      licenseNumber: 'DL-RERA-AGENCY-003',
+      countryId: india.id,
+      stateId: dl.id,
+      cityId: delhiCity.id,
+      isActive: true,
+      isVerified: true,
+      totalAgents: 1,
+    },
+    {
+      name: 'Saffron Realty',
+      description: 'Hyderabad\'s premier real estate agency for residential and IT-corridor commercial properties. Trusted by 1000+ IT families in HITEC City, Gachibowli, and Financial District.',
+      contactEmail: 'info@saffronrealty.in',
+      contactPhone: '9811000004',
+      address: 'Plot 45, Jubilee Hills, Hyderabad – 500033',
+      website: 'https://saffronrealty.in',
+      licenseNumber: 'TS-RERA-AGENCY-004',
+      countryId: india.id,
+      stateId: ts.id,
+      cityId: hyderabadCity.id,
+      isActive: true,
+      isVerified: true,
+      totalAgents: 1,
+    },
+  ]);
+  console.log('Agencies seeded (with countryId, stateId, cityId)');
+
+  // ─── Agent Profiles — linked to agencies ─────────────────────────────────────
+  const [profile1, profile2, profile3, profile4] = await agentProfileRepo.save([
+    {
+      userId: agent1.id,
+      agencyId: agencyPropElite.id,
+      experienceYears: 12,
+      licenseNumber: 'MH-RERA-A12345',
+      rating: 4.8,
+      totalDeals: 340,
+      totalListings: 0,
+      bio: 'Senior consultant with 12 years in Mumbai luxury residential and commercial. Expert in Bandra, Juhu, Powai.',
+      tick: 'gold' as const,
+      isActive: true,
+    },
+    {
+      userId: agent2.id,
+      agencyId: agencyHomeFirst.id,
+      experienceYears: 8,
+      licenseNumber: 'KA-RERA-B67890',
+      rating: 4.6,
+      totalDeals: 215,
+      totalListings: 0,
+      bio: 'Top-performing agent in Bangalore tech corridors. Expert in Whitefield, Koramangala, HSR Layout.',
+      tick: 'blue' as const,
+      isActive: true,
+    },
+    {
+      userId: agent3.id,
+      agencyId: agencyCapital.id,
+      experienceYears: 15,
+      licenseNumber: 'DL-RERA-C11223',
+      rating: 4.9,
+      totalDeals: 480,
+      totalListings: 0,
+      bio: 'NCR specialist covering Delhi, Gurgaon and Noida. 15 years expertise in luxury villas and commercial.',
+      tick: 'diamond' as const,
+      isActive: true,
+    },
+    {
+      userId: agent4.id,
+      agencyId: agencySaffron.id,
+      experienceYears: 10,
+      licenseNumber: 'TS-RERA-D44556',
+      rating: 4.7,
+      totalDeals: 298,
+      totalListings: 0,
+      bio: 'Hyderabad specialist with 10 years. Expert in Gachibowli, Kondapur, and HITEC City.',
+      tick: 'gold' as const,
+      isActive: true,
+    },
+  ]);
+  console.log('Agent profiles seeded');
+
+  // ─── Agent Location Maps — state + city level ─────────────────────────────────
+  // Each agent gets state-level coverage + city-level entries for each city they operate in.
+  await agentLocationMapRepo.save([
+    // ── Agent 1 — Amit Verma (PropElite, Mumbai) ── Maharashtra ──────────────
+    { agentId: profile1.id, countryId: india.id, stateId: mh.id, cityId: mumbaiCity.id    },
+    { agentId: profile1.id, countryId: india.id, stateId: mh.id, cityId: puneCity.id      },
+    { agentId: profile1.id, countryId: india.id, stateId: mh.id, cityId: nagpurCity.id    },
+    // state-level catch-all (covers Thane, Nashik, etc.)
+    { agentId: profile1.id, countryId: india.id, stateId: mh.id                           },
+
+    // ── Agent 2 — Sunita Nair (HomeFirst, Bangalore) ── Karnataka ────────────
+    { agentId: profile2.id, countryId: india.id, stateId: ka.id, cityId: bangaloreCity.id },
+    { agentId: profile2.id, countryId: india.id, stateId: ka.id, cityId: mysoreCity.id    },
+    // state-level catch-all
+    { agentId: profile2.id, countryId: india.id, stateId: ka.id                           },
+    // also covers Chennai (south India expansion)
+    { agentId: profile2.id, countryId: india.id, stateId: tn.id, cityId: chennaiCity.id   },
+
+    // ── Agent 3 — Vikram Singh (Capital, Delhi) ── NCR: Delhi+HR+UP ──────────
+    { agentId: profile3.id, countryId: india.id, stateId: dl.id, cityId: delhiCity.id     },
+    { agentId: profile3.id, countryId: india.id, stateId: hr.id, cityId: gurgaonCity.id   },
+    { agentId: profile3.id, countryId: india.id, stateId: up.id, cityId: noidaCity.id     },
+    { agentId: profile3.id, countryId: india.id, stateId: up.id, cityId: ghaziabadCity.id },
+    { agentId: profile3.id, countryId: india.id, stateId: up.id, cityId: lucknowCity.id   },
+    // state-level catch-alls
+    { agentId: profile3.id, countryId: india.id, stateId: dl.id                           },
+    { agentId: profile3.id, countryId: india.id, stateId: hr.id                           },
+    { agentId: profile3.id, countryId: india.id, stateId: up.id                           },
+    // also covers Jaipur and Kolkata (pan-north India)
+    { agentId: profile3.id, countryId: india.id, stateId: rj.id, cityId: jaipurCity.id    },
+    { agentId: profile3.id, countryId: india.id, stateId: wb.id, cityId: kolkataCity.id   },
+
+    // ── Agent 4 — Deepa Menon (Saffron, Hyderabad) ── Telangana + Gujarat ────
+    { agentId: profile4.id, countryId: india.id, stateId: ts.id, cityId: hyderabadCity.id },
+    { agentId: profile4.id, countryId: india.id, stateId: ts.id                           },
+    // also covers Ahmedabad
+    { agentId: profile4.id, countryId: india.id, stateId: gj.id, cityId: ahmedabadCity.id },
+    { agentId: profile4.id, countryId: india.id, stateId: kl.id, cityId: kochiCity.id     },
+  ]);
+  console.log('Agent location maps seeded (state + city level)');
+
+  // ─── Property–Agent Mapping ───────────────────────────────────────────────────
+  // Strategy:
+  //   • If property.ownerId is an agent user → map to that agent's profile (self-listed)
+  //   • If property.ownerId is a seller → map by city name to the agent who covers that city
+  //   • Any remaining city → round-robin across all 4 agents
+
+  const agentUserToProfile: Record<string, AgentProfile> = {
+    [agent1.id]: profile1,
+    [agent2.id]: profile2,
+    [agent3.id]: profile3,
+    [agent4.id]: profile4,
+  };
+
+  // City name → responsible agent profile
+  const cityNameToProfile: Record<string, AgentProfile> = {
+    // Agent 1 — Mumbai / Maharashtra
+    'mumbai':    profile1,
+    'pune':      profile1,
+    'nagpur':    profile1,
+    // Agent 2 — Bangalore / Karnataka + Chennai
+    'bangalore': profile2,
+    'mysore':    profile2,
+    'chennai':   profile2,
+    // Agent 3 — Delhi NCR + North India
+    'delhi':     profile3,
+    'gurgaon':   profile3,
+    'noida':     profile3,
+    'ghaziabad': profile3,
+    'lucknow':   profile3,
+    'jaipur':    profile3,
+    'kolkata':   profile3,
+    // Agent 4 — Hyderabad / South + West
+    'hyderabad': profile4,
+    'ahmedabad': profile4,
+    'surat':     profile4,
+    'kochi':     profile4,
+  };
+
+  const allProperties = await propertyRepo.find({ select: ['id', 'ownerId', 'city'] });
+  const propertyMaps: Partial<PropertyAgentMap>[] = [];
+  const listingCountPerAgent: Record<string, number> = {};
+  let fallbackIdx = 0;
+  const allProfiles = [profile1, profile2, profile3, profile4];
+
+  for (const prop of allProperties) {
+    const ownerProfile = agentUserToProfile[prop.ownerId ?? ''];
+    const cityKey = (prop.city ?? '').toLowerCase().trim();
+    const cityProfile = cityNameToProfile[cityKey];
+    // priority: self-listed agent > city match > round-robin fallback
+    const profile = ownerProfile ?? cityProfile ?? allProfiles[fallbackIdx++ % 4];
+    const assignedByAdmin = !ownerProfile; // admin-assigned if not self-listed
+
+    propertyMaps.push({
+      propertyId: prop.id,
+      agentId: profile.id,
+      assignedByAdmin,
+      isActive: true,
+    });
+    listingCountPerAgent[profile.id] = (listingCountPerAgent[profile.id] ?? 0) + 1;
+  }
+
+  await propertyAgentMapRepo.save(propertyMaps);
+
+  // ── Update totalListings on agent profiles ────────────────────────────────
+  for (const [profileId, count] of Object.entries(listingCountPerAgent)) {
+    await agentProfileRepo.update(profileId, { totalListings: count });
+  }
+
+  // ── Update totalListings + totalAgents on agencies ────────────────────────
+  await agencyRepo.update(agencyPropElite.id, { totalListings: listingCountPerAgent[profile1.id] ?? 0, totalAgents: 1 });
+  await agencyRepo.update(agencyHomeFirst.id, { totalListings: listingCountPerAgent[profile2.id] ?? 0, totalAgents: 1 });
+  await agencyRepo.update(agencyCapital.id,   { totalListings: listingCountPerAgent[profile3.id] ?? 0, totalAgents: 1 });
+  await agencyRepo.update(agencySaffron.id,   { totalListings: listingCountPerAgent[profile4.id] ?? 0, totalAgents: 1 });
+
+  const totalMapped = propertyMaps.length;
+  const perAgent = allProfiles.map(p => `${p.licenseNumber}: ${listingCountPerAgent[p.id] ?? 0}`).join(', ');
+  console.log(`Property-agent maps seeded: ${totalMapped} mappings [${perAgent}]`);
 
   // ── Link properties to city/state FK records by matching city name string ──
   // This ensures stateId and cityId are populated so navbar state-filter works.

@@ -46,6 +46,11 @@ import { SeoModule } from './modules/seo/seo.module';
 import { CityPage } from './modules/seo/entities/city-page.entity';
 import { SeoConfig } from './modules/seo/entities/seo-config.entity';
 import { FooterSeoLink, FooterSeoLinkGroup } from './modules/seo/entities/footer-seo-link.entity';
+import { AgencyModule } from './modules/agency/agency.module';
+import { Agency } from './modules/agency/entities/agency.entity';
+import { AgentProfile } from './modules/agency/entities/agent-profile.entity';
+import { PropertyAgentMap } from './modules/agency/entities/property-agent-map.entity';
+import { AgentLocationMap } from './modules/agency/entities/agent-location-map.entity';
 
 @Module({
   imports: [
@@ -94,6 +99,10 @@ import { FooterSeoLink, FooterSeoLinkGroup } from './modules/seo/entities/footer
           SeoConfig,
           FooterSeoLink,
           FooterSeoLinkGroup,
+          Agency,
+          AgentProfile,
+          PropertyAgentMap,
+          AgentLocationMap,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -116,6 +125,7 @@ import { FooterSeoLink, FooterSeoLinkGroup } from './modules/seo/entities/footer
     PropertyConfigModule,
     AnalyticsModule,
     SeoModule,
+    AgencyModule,
   ],
 })
 export class AppModule {}

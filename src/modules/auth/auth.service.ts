@@ -30,9 +30,16 @@ export class AuthService {
     });
     if (existing) throw new ConflictException('Email already registered');
 
+    // Guard: only OWNER and AGENT roles allowed during self-registration
+    const allowedRoles = [UserRole.OWNER, UserRole.AGENT];
+    if (dto.role && !allowedRoles.includes(dto.role as UserRole)) {
+      throw new BadRequestException('Only "owner" or "agent" roles can be self-registered');
+    }
+
     const hashed = await bcrypt.hash(dto.password, 10);
     const user = this.userRepository.create({
       ...dto,
+      role: dto.role ?? UserRole.OWNER,
       password: hashed,
     });
     await this.userRepository.save(user);

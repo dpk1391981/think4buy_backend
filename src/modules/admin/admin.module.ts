@@ -8,12 +8,14 @@ import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { Country } from '../locations/entities/country.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { LocationsModule } from '../locations/locations.module';
+import { AgencyModule } from '../agency/agency.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([User, Property, Inquiry, Country]),
     WalletModule,
     LocationsModule,
+    AgencyModule,
   ],
   controllers: [AdminController],
   providers: [AdminService],

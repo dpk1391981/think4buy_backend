@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Property, PropertyStatus, ApprovalStatus } from '../properties/entities/property.entity';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { WalletService } from '../wallet/wallet.service';
+import { AgencyService } from '../agency/agency.service';
 
 @Injectable()
 export class AgentService {
@@ -13,6 +14,7 @@ export class AgentService {
     @InjectRepository(Inquiry)
     private inquiryRepo: Repository<Inquiry>,
     private walletService: WalletService,
+    private agencyService: AgencyService,
   ) {}
 
   async getDashboardStats(userId: string) {
@@ -24,6 +26,7 @@ export class AgentService {
       recentInquiries,
       recentListings,
       wallet,
+      agencyDashboard,
     ] = await Promise.all([
       this.propertyRepo.count({ where: { ownerId: userId } }),
       this.propertyRepo.count({
@@ -52,6 +55,7 @@ export class AgentService {
         take: 5,
       }),
       this.walletService.getWallet(userId),
+      this.agencyService.getAgentDashboard(userId).catch(() => null),
     ]);
 
     return {
@@ -62,6 +66,14 @@ export class AgentService {
       walletBalance: wallet.balance,
       recentInquiries,
       recentListings,
+      // Agency-related data
+      agentProfile: agencyDashboard?.profile ?? null,
+      agency: agencyDashboard?.agency ?? null,
+      assignedListings: agencyDashboard?.totalListings ?? 0,
+      adminAssignedProperties: agencyDashboard?.adminAssignedCount ?? 0,
+      rating: agencyDashboard?.rating ?? 0,
+      totalDeals: agencyDashboard?.totalDeals ?? 0,
+      locations: agencyDashboard?.locations ?? [],
     };
   }
 }

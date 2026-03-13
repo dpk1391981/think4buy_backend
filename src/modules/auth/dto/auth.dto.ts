@@ -2,6 +2,11 @@ import { IsEmail, IsString, MinLength, IsOptional, IsEnum, Length, Matches } fro
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '../../users/entities/user.entity';
 
+// Only OWNER and AGENT roles are allowed during public registration.
+// BUYER is for search-only users (registered via OTP flow).
+// ADMIN is system-only and cannot be self-registered.
+const ALLOWED_REGISTRATION_ROLES = [UserRole.OWNER, UserRole.AGENT] as const;
+
 export class RegisterDto {
   @ApiProperty({ example: 'John Doe' })
   @IsString()
@@ -21,10 +26,16 @@ export class RegisterDto {
   @IsString()
   phone?: string;
 
-  @ApiPropertyOptional({ enum: UserRole, default: UserRole.BUYER })
+  @ApiPropertyOptional({
+    enum: ALLOWED_REGISTRATION_ROLES,
+    default: UserRole.OWNER,
+    description: 'Only "owner" or "agent" allowed during registration',
+  })
   @IsOptional()
-  @IsEnum(UserRole)
-  role?: UserRole;
+  @IsEnum(ALLOWED_REGISTRATION_ROLES, {
+    message: 'role must be either "owner" or "agent"',
+  })
+  role?: UserRole.OWNER | UserRole.AGENT;
 }
 
 export class LoginDto {

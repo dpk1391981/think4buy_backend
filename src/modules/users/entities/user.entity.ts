@@ -12,7 +12,8 @@ import { Inquiry } from '../../inquiries/entities/inquiry.entity';
 
 export enum UserRole {
   BUYER = 'buyer',
-  SELLER = 'seller',
+  OWNER = 'owner',     // property owner listing (replaces SELLER for new registrations)
+  SELLER = 'seller',   // kept for backward compatibility
   AGENT = 'agent',
   ADMIN = 'admin',
 }
