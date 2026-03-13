@@ -126,9 +126,30 @@ export class AdminService {
     }
 
     const total = await qb.getCount();
-    const items = await qb.skip((page - 1) * limit).take(limit).getMany();
+    const users = await qb.skip((page - 1) * limit).take(limit).getMany();
 
-    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+    // Enrich with agency info from agent_profiles + agencies
+    if (users.length > 0) {
+      const userIds = users.map((u) => u.id);
+      const profiles: any[] = await this.userRepo.manager.query(
+        `SELECT ap.userId, ap.id AS profileId, ap.agencyId,
+                ag.name AS agencyName
+         FROM agent_profiles ap
+         LEFT JOIN agencies ag ON ag.id = ap.agencyId
+         WHERE ap.userId IN (${userIds.map(() => '?').join(',')})`,
+        userIds,
+      );
+      const profileMap = Object.fromEntries(profiles.map((p) => [p.userId, p]));
+      const items = users.map((u) => ({
+        ...u,
+        profileId:  profileMap[u.id]?.profileId  ?? null,
+        agencyId:   profileMap[u.id]?.agencyId   ?? null,
+        agencyName: profileMap[u.id]?.agencyName ?? null,
+      }));
+      return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+    }
+
+    return { items: users, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async createAgent(dto: CreateAgentDto): Promise<User> {

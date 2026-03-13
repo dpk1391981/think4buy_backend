@@ -189,37 +189,40 @@ export class AgencyService {
     limit = 20,
     unassigned?: boolean,
   ) {
-    const dataSource = this.agentProfileRepo.manager.connection;
+    const db = this.agentProfileRepo.manager.connection;
 
-    // Build query joining users table so we can search by name/email
-    let sql = `
-      SELECT ap.*, u.name AS userName, u.email AS userEmail,
-             ag.name AS agencyName
-      FROM agent_profiles ap
-      LEFT JOIN users u ON u.id = ap.userId
-      LEFT JOIN agencies ag ON ag.id = ap.agencyId
-      WHERE 1=1
-    `;
+    const conditions: string[] = ['1=1'];
     const params: any[] = [];
 
     if (search) {
-      sql += ` AND (u.name LIKE ? OR u.email LIKE ? OR ap.licenseNumber LIKE ?)`;
+      conditions.push('(u.name LIKE ? OR u.email LIKE ? OR ap.licenseNumber LIKE ?)');
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
     if (unassigned) {
-      sql += ` AND ap.agencyId IS NULL`;
+      conditions.push('ap.agencyId IS NULL');
     }
 
-    const countSql = sql.replace(
-      'ap.*, u.name AS userName, u.email AS userEmail, ag.name AS agencyName',
-      'COUNT(*) AS cnt',
-    );
-    const [{ cnt }] = await dataSource.query(countSql, params);
+    const where = conditions.join(' AND ');
+    const joins = `
+      FROM agent_profiles ap
+      LEFT JOIN users u ON u.id = ap.userId
+      LEFT JOIN agencies ag ON ag.id = ap.agencyId
+      WHERE ${where}
+    `;
+
+    const [{ cnt }] = await db.query(`SELECT COUNT(*) AS cnt ${joins}`, params);
     const total = Number(cnt);
 
-    sql += ` ORDER BY ap.createdAt DESC LIMIT ? OFFSET ?`;
-    params.push(limit, (page - 1) * limit);
-    const rows: any[] = await dataSource.query(sql, params);
+    const rows: any[] = await db.query(
+      `SELECT ap.id, ap.userId, ap.agencyId, ap.licenseNumber,
+              ap.experienceYears, ap.rating, ap.totalDeals, ap.totalListings,
+              ap.tick, ap.isActive, ap.bio, ap.createdAt,
+              u.name AS userName, u.email AS userEmail,
+              ag.name AS agencyName
+       ${joins}
+       ORDER BY ap.createdAt DESC LIMIT ? OFFSET ?`,
+      [...params, limit, (page - 1) * limit],
+    );
 
     const items = rows.map((r) => ({
       id: r.id,
@@ -231,10 +234,10 @@ export class AgencyService {
       totalDeals: r.totalDeals,
       totalListings: r.totalListings,
       tick: r.tick,
-      isActive: r.isActive,
+      isActive: !!r.isActive,
       bio: r.bio,
-      agencyName: r.agencyName,
-      user: r.userId ? { id: r.userId, name: r.userName, email: r.userEmail } : null,
+      agencyName: r.agencyName ?? null,
+      user: { id: r.userId, name: r.userName, email: r.userEmail },
     }));
 
     return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
