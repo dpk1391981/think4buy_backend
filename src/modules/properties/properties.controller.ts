@@ -99,6 +99,14 @@ export class PropertiesController {
     });
   }
 
+  @Get('id/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get property by ID (for editing)' })
+  findById(@Param('id') id: string) {
+    return this.propertiesService.findById(id);
+  }
+
   @Get(':slug')
   @ApiOperation({ summary: 'Get property by slug' })
   findBySlug(@Param('slug') slug: string) {
@@ -160,6 +168,18 @@ export class PropertiesController {
     @Request() req,
   ) {
     return this.propertiesService.addImages(id, files, req.user);
+  }
+
+  @Delete(':id/images/:imageId')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a property image' })
+  deleteImage(
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Request() req,
+  ) {
+    return this.propertiesService.deleteImage(id, imageId, req.user);
   }
 
   @Get(':id/similar')

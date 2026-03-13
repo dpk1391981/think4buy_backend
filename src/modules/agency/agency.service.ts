@@ -335,19 +335,29 @@ export class AgencyService {
     });
   }
 
-  async getAgentProperties(
-    agentId: string,
-    page = 1,
-    limit = 20,
-  ) {
-    const [items, total] = await this.propertyAgentMapRepo.findAndCount({
-      where: { agentId, isActive: true },
-      skip: (page - 1) * limit,
-      take: limit,
-      order: { createdAt: 'DESC' },
-    });
+  async getAgentProperties(agentId: string, page = 1, limit = 20) {
+    const db = this.propertyAgentMapRepo.manager.connection;
 
-    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+    const [{ cnt }] = await db.query(
+      `SELECT COUNT(*) as cnt FROM property_agent_map WHERE agentId = ? AND isActive = 1`,
+      [agentId],
+    );
+    const total = Number(cnt);
+
+    const rows = await db.query(
+      `SELECT p.id, p.title, p.slug, p.price, p.type AS propertyType,
+              p.category, p.city, p.approvalStatus, p.status,
+              p.isBoosted, p.boostExpiry, p.createdAt,
+              pam.assignedByAdmin, pam.createdAt AS assignedAt
+       FROM property_agent_map pam
+       INNER JOIN properties p ON p.id = pam.propertyId
+       WHERE pam.agentId = ? AND pam.isActive = 1
+       ORDER BY pam.createdAt DESC
+       LIMIT ? OFFSET ?`,
+      [agentId, limit, (page - 1) * limit],
+    );
+
+    return { items: rows, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   // ─── Agent Location Mapping ───────────────────────────────────────────────────

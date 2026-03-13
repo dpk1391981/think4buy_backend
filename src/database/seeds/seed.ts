@@ -63,6 +63,7 @@ async function seed() {
 
   await dataSource.query('SET FOREIGN_KEY_CHECKS = 0');
   for (const entity of [
+    'lead_activity_logs', 'lead_assignments', 'leads',
     'agent_location_map', 'property_agent_map', 'agent_profiles', 'agencies',
     'property_amenities', 'property_images', 'inquiries', 'properties',
     'services_catalog', 'locations', 'wallet_transactions', 'wallets',
@@ -150,13 +151,14 @@ async function seed() {
   const userRepo = dataSource.getRepository(User);
 
   const admin = await userRepo.save({ name: 'Admin User', email: 'admin@realestate.com', password: await bcrypt.hash('Admin@123', 10), role: UserRole.ADMIN, isVerified: true, phone: '9958023001' });
+   const admin2 = await userRepo.save({ name: 'Admin User', email: 'admin2@realestate.com', password: await bcrypt.hash('Admin@123', 10), role: UserRole.ADMIN, isVerified: true, phone: '8285257636' });
   const seller = await userRepo.save({ name: 'Rajesh Kumar', email: 'seller@example.com', phone: '9876543210', password: await bcrypt.hash('Seller@123', 10), role: UserRole.SELLER, city: 'Mumbai', state: 'Maharashtra', isVerified: true });
   const seller2 = await userRepo.save({ name: 'Priya Sharma', email: 'seller2@example.com', phone: '9845123456', password: await bcrypt.hash('Seller2@123', 10), role: UserRole.SELLER, city: 'Bangalore', state: 'Karnataka', isVerified: true });
   const seller3 = await userRepo.save({ name: 'Mohammed Aziz', email: 'seller3@example.com', phone: '9712345678', password: await bcrypt.hash('Seller3@123', 10), role: UserRole.SELLER, city: 'Hyderabad', state: 'Telangana', isVerified: true });
   const agent1 = await userRepo.save({ name: 'Amit Verma', email: 'agent1@example.com', phone: '9811223344', password: await bcrypt.hash('Agent1@123', 10), role: UserRole.AGENT, city: 'Mumbai', state: 'Maharashtra', company: 'PropElite Realty', isVerified: true, agentLicense: 'MH-RERA-A12345', agentBio: 'Senior consultant with 12 years in Mumbai luxury residential and commercial. Expert in Bandra, Juhu, Powai.', agentExperience: 12, agentRating: 4.8, totalDeals: 340, agentTick: 'gold' });
   const agent2 = await userRepo.save({ name: 'Sunita Nair', email: 'agent2@example.com', phone: '9988776655', password: await bcrypt.hash('Agent2@123', 10), role: UserRole.AGENT, city: 'Bangalore', state: 'Karnataka', company: 'HomeFirst Properties', isVerified: true, agentLicense: 'KA-RERA-B67890', agentBio: 'Top-performing agent in Bangalore tech corridors. Expert in Whitefield, Koramangala, HSR Layout.', agentExperience: 8, agentRating: 4.6, totalDeals: 215, agentTick: 'blue' });
   const agent3 = await userRepo.save({ name: 'Vikram Singh', email: 'agent3@example.com', phone: '9776655443', password: await bcrypt.hash('Agent3@123', 10), role: UserRole.AGENT, city: 'Delhi', state: 'Delhi', company: 'Capital Estates', isVerified: true, agentLicense: 'DL-RERA-C11223', agentBio: 'NCR specialist covering Delhi, Gurgaon and Noida. 15 years expertise in luxury villas and commercial.', agentExperience: 15, agentRating: 4.9, totalDeals: 480, agentTick: 'diamond' });
-  const agent4 = await userRepo.save({ name: 'Deepa Menon', email: 'agent4@example.com', phone: '9944332211', password: await bcrypt.hash('Agent4@123', 10), role: UserRole.AGENT, city: 'Hyderabad', state: 'Telangana', company: 'Saffron Realty', isVerified: true, agentLicense: 'TS-RERA-D44556', agentBio: 'Hyderabad specialist with 10 years. Expert in Gachibowli, Kondapur, and HITEC City. Helped 300+ IT professionals.', agentExperience: 10, agentRating: 4.7, totalDeals: 298, agentTick: 'gold' });
+  const agent4 = await userRepo.save({ name: 'Deepa Menon', email: 'agent4@example.com', phone: '9999999999', password: await bcrypt.hash('Agent4@123', 10), role: UserRole.AGENT, city: 'Hyderabad', state: 'Telangana', company: 'Saffron Realty', isVerified: true, agentLicense: 'TS-RERA-D44556', agentBio: 'Hyderabad specialist with 10 years. Expert in Gachibowli, Kondapur, and HITEC City. Helped 300+ IT professionals.', agentExperience: 10, agentRating: 4.7, totalDeals: 298, agentTick: 'gold' });
 
   console.log('Created users (admin, 3 sellers, 4 agents)');
 
@@ -169,6 +171,7 @@ async function seed() {
     return w;
   };
   await createWallet(admin.id, 500);
+  await createWallet(admin2.id, 500);
   await createWallet(seller.id, 100);
   await createWallet(seller2.id, 100);
   await createWallet(seller3.id, 100);

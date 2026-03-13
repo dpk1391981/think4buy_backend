@@ -24,9 +24,17 @@ export class WalletController {
   constructor(private readonly walletService: WalletService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get current user wallet balance' })
-  getWallet(@Request() req) {
-    return this.walletService.getWallet(req.user.id);
+  @ApiOperation({ summary: 'Get current user wallet balance with quota info' })
+  async getWallet(@Request() req) {
+    const [wallet, user] = await Promise.all([
+      this.walletService.getWallet(req.user.id),
+      this.walletService.getUserQuota(req.user.id),
+    ]);
+    return {
+      ...wallet,
+      quotaUsed: user?.agentUsedQuota ?? 0,
+      quotaTotal: user?.agentFreeQuota ?? 0,
+    };
   }
 
   @Get('transactions')

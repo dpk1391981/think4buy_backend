@@ -153,6 +153,13 @@ export class WalletService {
     return plan;
   }
 
+  async getUserQuota(userId: string) {
+    return this.userRepository.findOne({
+      where: { id: userId },
+      select: ['id', 'role', 'agentFreeQuota', 'agentUsedQuota'],
+    });
+  }
+
   // Subscription purchase
   async purchaseSubscription(userId: string, planId: string) {
     const plan = await this.subscriptionPlanRepository.findOne({
@@ -160,7 +167,6 @@ export class WalletService {
     });
     if (!plan) throw new NotFoundException('Subscription plan not found or inactive');
 
-    const tokenCost = Number(plan.tokensIncluded) > 0 ? Number(plan.price) : 0;
     // Deduct tokens equal to plan price (tokens are used as currency)
     await this.debit(
       userId,
@@ -213,9 +219,10 @@ export class WalletService {
       );
     }
 
-    // Update agent quota
+    // Update agent quota: set new limit and reset used count for the new period
     await this.userRepository.update(userId, {
       agentFreeQuota: plan.maxListings,
+      agentUsedQuota: 0,
     });
 
     return { subscription: saved, plan };

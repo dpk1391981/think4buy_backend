@@ -51,6 +51,16 @@ import { Agency } from './modules/agency/entities/agency.entity';
 import { AgentProfile } from './modules/agency/entities/agent-profile.entity';
 import { PropertyAgentMap } from './modules/agency/entities/property-agent-map.entity';
 import { AgentLocationMap } from './modules/agency/entities/agent-location-map.entity';
+import { LeadsModule } from './modules/leads/leads.module';
+import { Lead } from './modules/leads/entities/lead.entity';
+import { LeadAssignment } from './modules/leads/entities/lead-assignment.entity';
+import { LeadActivityLog } from './modules/leads/entities/lead-activity-log.entity';
+import { SiteVisitsModule } from './modules/site-visits/site-visits.module';
+import { SiteVisit } from './modules/site-visits/entities/site-visit.entity';
+import { DealsModule } from './modules/deals/deals.module';
+import { Deal } from './modules/deals/entities/deal.entity';
+import { CommissionsModule } from './modules/commissions/commissions.module';
+import { Commission } from './modules/commissions/entities/commission.entity';
 
 @Module({
   imports: [
@@ -103,6 +113,12 @@ import { AgentLocationMap } from './modules/agency/entities/agent-location-map.e
           AgentProfile,
           PropertyAgentMap,
           AgentLocationMap,
+          Lead,
+          LeadAssignment,
+          LeadActivityLog,
+          SiteVisit,
+          Deal,
+          Commission,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -126,6 +142,10 @@ import { AgentLocationMap } from './modules/agency/entities/agent-location-map.e
     AnalyticsModule,
     SeoModule,
     AgencyModule,
+    LeadsModule,
+    SiteVisitsModule,
+    DealsModule,
+    CommissionsModule,
   ],
 })
 export class AppModule {}

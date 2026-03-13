@@ -17,7 +17,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "seed": "node -r dotenv/config -r ts-node/register src/database/seeds/seed.ts",
-    "seed:agency": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-agency.ts"
+    "seed:agency": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-agency.ts",
+    "seed:leads": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-leads.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

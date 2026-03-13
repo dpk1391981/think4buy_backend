@@ -90,6 +90,11 @@ export class AuthService {
     return this.getProfile(userId);
   }
 
+  async updateAvatar(userId: string, avatarUrl: string) {
+    await this.userRepository.update(userId, { avatar: avatarUrl });
+    return this.getProfile(userId);
+  }
+
   async sendOtp(dto: SendOtpDto) {
     const otp = Math.floor(1000 + Math.random() * 9000).toString(); // 4-digit
     const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 min

@@ -3,7 +3,9 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import slugify from 'slugify';
@@ -38,6 +40,8 @@ interface ParsedKeyword {
 
 @Injectable()
 export class PropertiesService {
+  private readonly logger = new Logger(PropertiesService.name);
+
   constructor(
     @InjectRepository(Property)
     private propertyRepo: Repository<Property>,
@@ -47,6 +51,22 @@ export class PropertiesService {
     private amenityRepo: Repository<Amenity>,
     private walletService: WalletService,
   ) {}
+
+  /** Runs every hour — expires paid boosts whose boostExpiresAt has passed */
+  @Cron(CronExpression.EVERY_HOUR)
+  async expireBoosts() {
+    const result = await this.propertyRepo
+      .createQueryBuilder()
+      .update(Property)
+      .set({ isFeatured: false })
+      .where('isFeatured = :f', { f: true })
+      .andWhere('boostExpiresAt IS NOT NULL')
+      .andWhere('boostExpiresAt <= :now', { now: new Date() })
+      .execute();
+    if (result.affected && result.affected > 0) {
+      this.logger.log(`Expired ${result.affected} property boost(s)`);
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Smart NLP keyword parser
@@ -277,14 +297,13 @@ export class PropertiesService {
   // ─────────────────────────────────────────────────────────────────────────────
   async create(dto: CreatePropertyDto, owner: User): Promise<Property> {
     if (owner.role === UserRole.AGENT) {
+      // Quota is consumed on admin approval, not on submission.
+      // Check current approved count against quota to prevent excess submissions.
       if (owner.agentUsedQuota >= owner.agentFreeQuota) {
         throw new BadRequestException(
-          `Free listing quota exhausted (${owner.agentFreeQuota} listings). Please upgrade to a paid plan.`,
+          `Listing quota exhausted (${owner.agentUsedQuota}/${owner.agentFreeQuota} approved listings used). Please upgrade your subscription.`,
         );
       }
-      await this.propertyRepo.manager
-        .getRepository(User)
-        .increment({ id: owner.id }, 'agentUsedQuota', 1);
     }
 
     if (!dto.title || !dto.title.trim()) {
@@ -375,10 +394,16 @@ export class PropertiesService {
     }
 
     const total = await qb.getCount();
-    const items = await qb
+    const raw = await qb
       .skip((page - 1) * limit)
       .take(limit)
       .getMany();
+    const now = new Date();
+    const items = raw.map((p) => ({
+      ...p,
+      isBoosted: p.isFeatured && p.boostExpiresAt != null && new Date(p.boostExpiresAt) > now,
+      boostExpiry: p.boostExpiresAt ?? null,
+    }));
 
     return {
       data: items,
@@ -414,12 +439,18 @@ export class PropertiesService {
   }
 
   async findFeatured(limit = 8): Promise<Property[]> {
-    return this.propertyRepo.find({
-      where: { isFeatured: true, status: PropertyStatus.ACTIVE },
-      relations: ['images'],
-      take: limit,
-      order: { createdAt: 'DESC' },
-    });
+    const now = new Date();
+    return this.propertyRepo
+      .createQueryBuilder('property')
+      .leftJoinAndSelect('property.images', 'images')
+      .where('property.isFeatured = :f', { f: true })
+      .andWhere('property.status = :status', { status: PropertyStatus.ACTIVE })
+      .andWhere('property.approvalStatus = :approval', { approval: ApprovalStatus.APPROVED })
+      .andWhere('(property.boostExpiresAt IS NULL OR property.boostExpiresAt > :now)', { now })
+      .orderBy('property.boostExpiresAt', 'DESC')
+      .addOrderBy('property.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
   }
 
   async findBySlug(slug: string): Promise<Property> {
@@ -451,6 +482,12 @@ export class PropertiesService {
       property.amenities = await this.amenityRepo.findByIds(dto.amenityIds);
     }
     Object.assign(property, dto);
+    // Non-admin edits always reset approval to pending for re-review
+    if (user.role !== UserRole.ADMIN) {
+      property.approvalStatus = ApprovalStatus.PENDING;
+      property.status = PropertyStatus.INACTIVE;
+      property.rejectionReason = null;
+    }
     return this.propertyRepo.save(property);
   }
 
@@ -477,6 +514,17 @@ export class PropertiesService {
       }),
     );
     return this.imageRepo.save(images);
+  }
+
+  async deleteImage(propertyId: string, imageId: string, user: User) {
+    const property = await this.findById(propertyId);
+    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException();
+    }
+    const image = await this.imageRepo.findOne({ where: { id: imageId, propertyId } });
+    if (!image) throw new NotFoundException('Image not found');
+    await this.imageRepo.remove(image);
+    return { success: true };
   }
 
   async getStats() {
@@ -529,22 +577,43 @@ export class PropertiesService {
   ) {
     const { page = 1, limit = 12, status, approvalStatus } = filters;
 
+    // Look up the agent profile for this user (if any) to include assigned properties
+    const agentRows = await this.propertyRepo.manager.query(
+      `SELECT id FROM agent_profiles WHERE userId = ? LIMIT 1`,
+      [userId],
+    );
+    const agentProfileId: string | null = agentRows[0]?.id ?? null;
+
     const qb = this.propertyRepo
       .createQueryBuilder('property')
       .leftJoinAndSelect('property.images', 'images')
-      .where('property.ownerId = :userId', { userId })
       .orderBy('property.createdAt', 'DESC');
+
+    if (agentProfileId) {
+      qb.where(
+        `(property.ownerId = :userId OR property.id IN (
+          SELECT pam.propertyId FROM property_agent_map pam
+          WHERE pam.agentId = :agentProfileId AND pam.isActive = 1
+        ))`,
+        { userId, agentProfileId },
+      );
+    } else {
+      qb.where('property.ownerId = :userId', { userId });
+    }
 
     if (status) qb.andWhere('property.status = :status', { status });
     if (approvalStatus) qb.andWhere('property.approvalStatus = :approvalStatus', { approvalStatus });
 
     const total = await qb.getCount();
-    const items = await qb.skip((+page - 1) * +limit).take(+limit).getMany();
+    const raw = await qb.skip((+page - 1) * +limit).take(+limit).getMany();
+    const now = new Date();
+    const items = raw.map((p) => ({
+      ...p,
+      isBoosted: p.isFeatured && p.boostExpiresAt != null && new Date(p.boostExpiresAt) > now,
+      boostExpiry: p.boostExpiresAt ?? null,
+    }));
 
-    return {
-      data: items,
-      meta: { total, page: +page, limit: +limit, totalPages: Math.ceil(total / +limit) },
-    };
+    return { items, total, page: +page, limit: +limit };
   }
 
   async boostProperty(propertyId: string, boostPlanId: string, user: User): Promise<Property> {
@@ -686,6 +755,12 @@ export class PropertiesService {
     }
     if (filters.isFeatured !== undefined) {
       qb.andWhere('property.isFeatured = :isFeatured', { isFeatured: filters.isFeatured });
+      if (filters.isFeatured) {
+        // Only show active boosts (not expired) — NULL boostExpiresAt = manually featured by admin
+        qb.andWhere('(property.boostExpiresAt IS NULL OR property.boostExpiresAt > :boostNow)', {
+          boostNow: new Date(),
+        });
+      }
     }
     if (filters.isVerified !== undefined) {
       qb.andWhere('property.isVerified = :isVerified', { isVerified: filters.isVerified });

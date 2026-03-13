@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Property, PropertyStatus, ApprovalStatus } from '../properties/entities/property.entity';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
+import { User } from '../users/entities/user.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { AgencyService } from '../agency/agency.service';
 
@@ -13,6 +14,8 @@ export class AgentService {
     private propertyRepo: Repository<Property>,
     @InjectRepository(Inquiry)
     private inquiryRepo: Repository<Inquiry>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
     private walletService: WalletService,
     private agencyService: AgencyService,
   ) {}
@@ -27,6 +30,7 @@ export class AgentService {
       recentListings,
       wallet,
       agencyDashboard,
+      user,
     ] = await Promise.all([
       this.propertyRepo.count({ where: { ownerId: userId } }),
       this.propertyRepo.count({
@@ -56,6 +60,7 @@ export class AgentService {
       }),
       this.walletService.getWallet(userId),
       this.agencyService.getAgentDashboard(userId).catch(() => null),
+      this.userRepo.findOne({ where: { id: userId }, select: ['agentFreeQuota', 'agentUsedQuota'] }),
     ]);
 
     return {
@@ -64,6 +69,8 @@ export class AgentService {
       pendingListings,
       totalInquiries,
       walletBalance: wallet.balance,
+      agentFreeQuota: user?.agentFreeQuota ?? 100,
+      agentUsedQuota: totalListings,
       recentInquiries,
       recentListings,
       // Agency-related data

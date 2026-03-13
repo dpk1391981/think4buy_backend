@@ -11,6 +11,7 @@ import { Property, ApprovalStatus, PropertyStatus } from '../properties/entities
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { CreateAgentDto, UpdateAgentDto, UpdateAgentQuotaDto } from './dto/admin.dto';
 import { WalletService } from '../wallet/wallet.service';
+import { TransactionReason } from '../wallet/entities/wallet-transaction.entity';
 import { LocationsService } from '../locations/locations.service';
 import { SubscriptionPlan } from '../wallet/entities/subscription-plan.entity';
 import { BoostPlan } from '../wallet/entities/boost-plan.entity';
@@ -93,23 +94,47 @@ export class AdminService {
   }
 
   async approveProperty(id: string): Promise<Property> {
-    const property = await this.propertyRepo.findOne({ where: { id } });
+    const property = await this.propertyRepo.findOne({
+      where: { id },
+      relations: ['owner'],
+    });
     if (!property) throw new NotFoundException('Property not found');
+
+    const wasAlreadyApproved = property.approvalStatus === ApprovalStatus.APPROVED;
 
     property.approvalStatus = ApprovalStatus.APPROVED;
     property.status = PropertyStatus.ACTIVE;
     property.rejectionReason = null;
-    return this.propertyRepo.save(property);
+    const saved = await this.propertyRepo.save(property);
+
+    // Consume listing quota on first approval (agent role)
+    if (!wasAlreadyApproved && property.owner?.role === UserRole.AGENT) {
+      await this.userRepo.increment({ id: property.owner.id }, 'agentUsedQuota', 1);
+    }
+
+    return saved;
   }
 
   async rejectProperty(id: string, reason?: string): Promise<Property> {
-    const property = await this.propertyRepo.findOne({ where: { id } });
+    const property = await this.propertyRepo.findOne({
+      where: { id },
+      relations: ['owner'],
+    });
     if (!property) throw new NotFoundException('Property not found');
+
+    const wasApproved = property.approvalStatus === ApprovalStatus.APPROVED;
 
     property.approvalStatus = ApprovalStatus.REJECTED;
     property.status = PropertyStatus.INACTIVE;
     property.rejectionReason = reason || null;
-    return this.propertyRepo.save(property);
+    const saved = await this.propertyRepo.save(property);
+
+    // Release quota if property was previously approved
+    if (wasApproved && property.owner?.role === UserRole.AGENT) {
+      await this.userRepo.decrement({ id: property.owner.id }, 'agentUsedQuota', 1);
+    }
+
+    return saved;
   }
 
   async getAgents(page = 1, limit = 20, search?: string) {
