@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, ForbiddenException, DefaultValuePipe, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, ForbiddenException, DefaultValuePipe, ParseIntPipe, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { SeoService } from './seo.service';
@@ -14,6 +14,18 @@ export class SeoController {
   }
 
   // ── Public endpoints ─────────────────────────────────────────────────────────
+
+  @Get('categories')
+  @ApiOperation({ summary: 'Get all active categories with SEO content (public)' })
+  getCategoriesSeo() {
+    return this.seoService.getCategoriesSeo();
+  }
+
+  @Get('categories/:slug')
+  @ApiOperation({ summary: 'Get category SEO content by slug (public)' })
+  getCategorySeoBySlug(@Param('slug') slug: string) {
+    return this.seoService.getCategorySeoBySlug(slug);
+  }
 
   @Get('city-pages/:slug')
   @ApiOperation({ summary: 'Get city SEO page by slug (public)' })

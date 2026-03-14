@@ -67,6 +67,8 @@ import { DealsModule } from './modules/deals/deals.module';
 import { Deal } from './modules/deals/entities/deal.entity';
 import { CommissionsModule } from './modules/commissions/commissions.module';
 import { Commission } from './modules/commissions/entities/commission.entity';
+import { ArticlesModule } from './modules/articles/articles.module';
+import { Article } from './modules/articles/entities/article.entity';
 
 @Module({
   imports: [
@@ -130,6 +132,7 @@ import { Commission } from './modules/commissions/entities/commission.entity';
           SiteVisit,
           Deal,
           Commission,
+          Article,
           OtpVerification,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
@@ -158,6 +161,7 @@ import { Commission } from './modules/commissions/entities/commission.entity';
     SiteVisitsModule,
     DealsModule,
     CommissionsModule,
+    ArticlesModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)

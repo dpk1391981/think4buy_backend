@@ -186,4 +186,9 @@ export class CreatePropertyDto {
   @IsOptional()
   @IsString()
   agencyId?: string;
+
+  @ApiPropertyOptional({ description: 'Save as draft — skips quota check and approval workflow' })
+  @IsOptional()
+  @IsBoolean()
+  isDraft?: boolean;
 }

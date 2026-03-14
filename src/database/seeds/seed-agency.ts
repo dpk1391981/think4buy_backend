@@ -16,6 +16,10 @@ dotenv.config();
 import { DataSource } from 'typeorm';
 import { User, UserRole } from '../../modules/users/entities/user.entity';
 import { Property } from '../../modules/properties/entities/property.entity';
+import { PropertyImage } from '../../modules/properties/entities/property-image.entity';
+import { Amenity } from '../../modules/properties/entities/amenity.entity';
+import { Location } from '../../modules/locations/entities/location.entity';
+import { Inquiry } from '../../modules/inquiries/entities/inquiry.entity';
 import { Agency } from '../../modules/agency/entities/agency.entity';
 import { AgentProfile } from '../../modules/agency/entities/agent-profile.entity';
 import { PropertyAgentMap } from '../../modules/agency/entities/property-agent-map.entity';
@@ -28,7 +32,7 @@ const dataSource = new DataSource({
   username: process.env.DB_USERNAME || 'dpk1391981',
   password: process.env.DB_PASSWORD || 'Dpk1391981!',
   database: process.env.DB_NAME || 'realestate_db',
-  entities: [User, Property, Agency, AgentProfile, PropertyAgentMap, AgentLocationMap],
+  entities: [User, Property, PropertyImage, Amenity, Location, Inquiry, Agency, AgentProfile, PropertyAgentMap, AgentLocationMap],
   synchronize: true,
 });
 

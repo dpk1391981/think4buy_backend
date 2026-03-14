@@ -121,6 +121,14 @@ export class PropertiesController {
     return this.propertiesService.create(dto, req.user);
   }
 
+  @Patch(':id/publish')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Publish a draft property (submit for admin approval)' })
+  publishDraft(@Param('id') id: string, @Request() req) {
+    return this.propertiesService.publishDraft(id, req.user);
+  }
+
   @Patch(':id')
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()

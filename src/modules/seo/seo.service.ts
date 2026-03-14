@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { CityPage } from './entities/city-page.entity';
 import { SeoConfig } from './entities/seo-config.entity';
 import { FooterSeoLink, FooterSeoLinkGroup } from './entities/footer-seo-link.entity';
+import { PropCategory } from '../property-config/entities/prop-category.entity';
 
 @Injectable()
 export class SeoService {
@@ -12,7 +13,20 @@ export class SeoService {
     @InjectRepository(SeoConfig) private seoConfigRepo: Repository<SeoConfig>,
     @InjectRepository(FooterSeoLink) private footerLinkRepo: Repository<FooterSeoLink>,
     @InjectRepository(FooterSeoLinkGroup) private footerGroupRepo: Repository<FooterSeoLinkGroup>,
+    @InjectRepository(PropCategory) private propCategoryRepo: Repository<PropCategory>,
   ) {}
+
+  // ── Categories SEO ──────────────────────────────────────────────────────────
+
+  async getCategoriesSeo() {
+    return this.propCategoryRepo.find({ where: { status: true }, order: { sortOrder: 'ASC' } });
+  }
+
+  async getCategorySeoBySlug(slug: string) {
+    const cat = await this.propCategoryRepo.findOne({ where: { slug, status: true } });
+    if (!cat) throw new NotFoundException('Category not found');
+    return cat;
+  }
 
   // ── City Pages ──────────────────────────────────────────────────────────────
 

@@ -304,7 +304,8 @@ export class PropertiesService {
       );
     }
 
-    if (owner.role === UserRole.AGENT) {
+    // Quota check is skipped for drafts — only enforce on publish
+    if (owner.role === UserRole.AGENT && !dto.isDraft) {
       // Quota is consumed on admin approval, not on submission.
       // Check current approved count against quota to prevent excess submissions.
       if (owner.agentUsedQuota >= owner.agentFreeQuota) {
@@ -348,13 +349,16 @@ export class PropertiesService {
     }
 
     const isAgentListing = owner.role === UserRole.AGENT;
+    const isDraft = !!dto.isDraft;
     const property = this.propertyRepo.create({
       ...dto,
       slug,
       owner,
       ownerId: owner.id,
       amenities,
+      isDraft,
       approvalStatus: ApprovalStatus.PENDING,
+      status: isDraft ? PropertyStatus.INACTIVE : PropertyStatus.ACTIVE,
       listedBy: isAgentListing ? ListingUserType.AGENT : ListingUserType.OWNER,
       agentId: isAgentListing ? (dto.agentProfileId ?? null) : null,
       agencyId: isAgentListing ? (dto.agencyId ?? null) : null,
@@ -362,6 +366,34 @@ export class PropertiesService {
       metaDescription: dto.description?.substring(0, 160),
     });
 
+    return this.propertyRepo.save(property);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Publish Draft
+  // ─────────────────────────────────────────────────────────────────────────────
+  async publishDraft(id: string, user: User): Promise<Property> {
+    const property = await this.findById(id);
+    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('You can only publish your own properties');
+    }
+    if (!property.isDraft) {
+      throw new BadRequestException('Property is already published');
+    }
+
+    // Enforce agent quota on publish
+    if (user.role === UserRole.AGENT) {
+      if (user.agentUsedQuota >= user.agentFreeQuota) {
+        throw new BadRequestException(
+          `Listing quota exhausted (${user.agentUsedQuota}/${user.agentFreeQuota} approved listings used). Please upgrade your subscription.`,
+        );
+      }
+    }
+
+    property.isDraft = false;
+    property.approvalStatus = ApprovalStatus.PENDING;
+    property.status = PropertyStatus.INACTIVE;
+    property.rejectionReason = null;
     return this.propertyRepo.save(property);
   }
 
@@ -385,6 +417,7 @@ export class PropertiesService {
       .andWhere('property.approvalStatus = :approvalStatus', {
         approvalStatus: ApprovalStatus.APPROVED,
       })
+      .andWhere('property.isDraft = :isDraft', { isDraft: false })
       // Exclude agent listings whose agency is pending approval (not yet approved)
       .andWhere(
         `(property.agencyId IS NULL OR EXISTS (
@@ -500,12 +533,17 @@ export class PropertiesService {
     if (dto.amenityIds) {
       property.amenities = await this.amenityRepo.findByIds(dto.amenityIds);
     }
+    const wasDraft = property.isDraft;
     Object.assign(property, dto);
-    // Non-admin edits always reset approval to pending for re-review
-    if (user.role !== UserRole.ADMIN) {
+    // Non-admin edits of live (non-draft) properties reset approval for re-review
+    if (user.role !== UserRole.ADMIN && !wasDraft) {
       property.approvalStatus = ApprovalStatus.PENDING;
       property.status = PropertyStatus.INACTIVE;
       property.rejectionReason = null;
+    }
+    // Keep draft status unless explicitly publishing
+    if (wasDraft && dto.isDraft !== false) {
+      property.isDraft = true;
     }
     return this.propertyRepo.save(property);
   }

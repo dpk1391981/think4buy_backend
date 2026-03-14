@@ -181,6 +181,9 @@ export class Property {
   status: PropertyStatus;
 
   @Column({ default: false })
+  isDraft: boolean;
+
+  @Column({ default: false })
   isFeatured: boolean;
 
   @Column({ default: false })

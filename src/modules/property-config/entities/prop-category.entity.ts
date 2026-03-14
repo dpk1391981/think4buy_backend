@@ -20,6 +20,27 @@ export class PropCategory {
   @Column({ length: 500, nullable: true })
   description: string;
 
+  @Column({ length: 200, nullable: true })
+  h1: string;
+
+  @Column({ length: 200, nullable: true })
+  metaTitle: string;
+
+  @Column({ length: 500, nullable: true })
+  metaDescription: string;
+
+  @Column({ length: 500, nullable: true })
+  metaKeywords: string;
+
+  @Column({ type: 'text', nullable: true })
+  introContent: string;
+
+  @Column({ type: 'text', nullable: true })
+  seoContent: string;
+
+  @Column({ type: 'json', nullable: true })
+  faqs: { question: string; answer: string }[];
+
   @Column({ default: true })
   status: boolean;
 

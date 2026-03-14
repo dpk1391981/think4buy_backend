@@ -53,6 +53,18 @@ export class AgentProfile {
   @Column({ type: 'text', nullable: true })
   bio: string;
 
+  @Column({ length: 200, nullable: true })
+  metaTitle: string;
+
+  @Column({ length: 500, nullable: true })
+  metaDescription: string;
+
+  @Column({ type: 'text', nullable: true })
+  introContent: string;
+
+  @Column({ type: 'text', nullable: true })
+  seoContent: string;
+
   @Column({ type: 'enum', enum: ['none', 'blue', 'gold', 'diamond'], default: 'none' })
   tick: 'none' | 'blue' | 'gold' | 'diamond';
 
