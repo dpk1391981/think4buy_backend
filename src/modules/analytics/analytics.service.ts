@@ -179,7 +179,7 @@ export class AnalyticsService {
       .addSelect('COUNT(*)', 'totalListings')
       .from('properties', 'p')
       .where('p.approvalStatus = :s', { s: 'approved' })
-      .andWhere('p.isActive = 1')
+      .andWhere("p.status = 'active'")
       .groupBy('p.type')
       .orderBy('totalListings', 'DESC')
       .limit(limit);
@@ -289,7 +289,7 @@ export class AnalyticsService {
       .createQueryBuilder()
       .select(['c.id', 'c.name', 'c.imageUrl', 'c.propertyCount', 's.name AS stateName'])
       .from('cities', 'c')
-      .leftJoin('states', 's', 's.id = c.stateId')
+      .leftJoin('states', 's', 's.id = c.state_id')
       .where('c.isActive = 1')
       .orderBy('c.propertyCount', 'DESC')
       .limit(limit);
@@ -360,7 +360,7 @@ export class AnalyticsService {
       .select('p.*')
       .from('properties', 'p')
       .where('p.approvalStatus = :s', { s: 'approved' })
-      .andWhere('p.isActive = 1')
+      .andWhere("p.status = 'active'")
       .limit(limit);
 
     if (filters.city)    qb.andWhere('p.city = :city', { city: filters.city });
@@ -461,7 +461,7 @@ export class AnalyticsService {
       .select('p.*')
       .from('properties', 'p')
       .where('p.approvalStatus = :s', { s: 'approved' })
-      .andWhere('p.isActive = 1')
+      .andWhere("p.status = 'active'")
       .andWhere("p.possessionStatus = 'under_construction'")
       .orderBy('p.viewCount', 'DESC')
       .addOrderBy('p.createdAt', 'DESC')
@@ -487,7 +487,7 @@ export class AnalyticsService {
       await this.dataSource.query(`
         SELECT p.type, p.city, p.state, COUNT(*) AS cnt
         FROM properties p
-        WHERE p.approvalStatus = 'approved' AND p.isActive = 1
+        WHERE p.approvalStatus = 'approved' AND p.status = 'active'
         GROUP BY p.type, p.city, p.state
       `);
 
@@ -704,7 +704,7 @@ export class AnalyticsService {
       SELECT c.id, c.name, c.imageUrl, c.propertyCount,
              s.name AS stateName
       FROM cities c
-      LEFT JOIN states s ON s.id = c.stateId
+      LEFT JOIN states s ON s.id = c.state_id
       WHERE c.isActive = 1
     `);
 
@@ -798,7 +798,7 @@ export class AnalyticsService {
       SELECT p.id, p.isFeatured, p.isPremium, p.possessionStatus,
              p.city, p.state, p.createdAt, p.viewCount
       FROM properties p
-      WHERE p.approvalStatus = 'approved' AND p.isActive = 1
+      WHERE p.approvalStatus = 'approved' AND p.status = 'active'
     `);
 
     const now = Date.now();
@@ -882,10 +882,10 @@ export class AnalyticsService {
 
     const agentInquiries: { entityId: string; cnt: string }[] =
       await this.dataSource.query(`
-        SELECT i.agentId AS entityId, COUNT(*) AS cnt
+        SELECT i.agent_id AS entityId, COUNT(*) AS cnt
         FROM inquiries i
         WHERE i.createdAt >= ?
-        GROUP BY i.agentId
+        GROUP BY i.agent_id
       `, [since7d]);
 
     const agents: any[] = await this.dataSource.query(`
@@ -893,7 +893,7 @@ export class AnalyticsService {
              u.agentExperience,
              COUNT(p.id) AS listingsCount
       FROM users u
-      LEFT JOIN properties p ON p.ownerId = u.id AND p.approvalStatus = 'approved' AND p.isActive = 1
+      LEFT JOIN properties p ON p.owner_id = u.id AND p.approvalStatus = 'approved' AND p.status = 'active'
       WHERE u.role = 'agent' AND u.isActive = 1
       GROUP BY u.id
     `);
@@ -981,7 +981,7 @@ export class AnalyticsService {
     const projects: any[] = await this.dataSource.query(`
       SELECT p.id, p.city, p.state, p.viewCount, p.createdAt
       FROM properties p
-      WHERE p.approvalStatus = 'approved' AND p.isActive = 1
+      WHERE p.approvalStatus = 'approved' AND p.status = 'active'
         AND p.possessionStatus = 'under_construction'
     `);
 
