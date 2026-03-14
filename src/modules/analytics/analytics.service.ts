@@ -500,7 +500,7 @@ export class AnalyticsService {
         WHERE ae.eventType = 'property_view'
           AND ae.createdAt >= ?
           AND ae.metadata->>'$.propertyType' IS NOT NULL
-        GROUP BY entityId, ae.city, ae.state
+        GROUP BY ae.metadata->>'$.propertyType', ae.city, ae.state
       `, [since7d]);
 
     // Get 7-day search counts
@@ -512,7 +512,7 @@ export class AnalyticsService {
         WHERE ae.eventType = 'search_query'
           AND ae.createdAt >= ?
           AND ae.metadata->>'$.propertyType' IS NOT NULL
-        GROUP BY entityId, ae.city, ae.state
+        GROUP BY ae.metadata->>'$.propertyType', ae.city, ae.state
       `, [since7d]);
 
     // Get previous 7d (14d-7d) for trending calculation
@@ -523,7 +523,7 @@ export class AnalyticsService {
         WHERE ae.eventType = 'property_view'
           AND ae.createdAt BETWEEN ? AND ?
           AND ae.metadata->>'$.propertyType' IS NOT NULL
-        GROUP BY entityId
+        GROUP BY ae.metadata->>'$.propertyType'
       `, [since14d, since7d]);
 
     const prevViewMap = new Map(prevViews.map(r => [r.entityId, parseInt(r.cnt)]));
