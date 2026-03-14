@@ -64,6 +64,10 @@ export class User {
   @Column({ default: false })
   isVerified: boolean;
 
+  /** True for OTP-registered users who haven't selected their role yet */
+  @Column({ default: false })
+  needsOnboarding: boolean;
+
   // Agent-specific fields
   @Column({ nullable: true, length: 100 })
   agentLicense: string;
@@ -97,6 +101,25 @@ export class User {
 
   @Column({ type: 'date', nullable: true })
   dailyCreditDate: string; // ISO date string YYYY-MM-DD, reset when date changes
+
+  // ── Security fields ─────────────────────────────────────────────────────────
+
+  /** Hashed refresh token stored server-side; nulled on logout */
+  @Column({ nullable: true, length: 500 })
+  @Exclude()
+  refreshToken: string;
+
+  /** Count of consecutive failed login attempts */
+  @Column({ type: 'int', default: 0 })
+  failedLoginAttempts: number;
+
+  /** Account locked until this timestamp after too many failures */
+  @Column({ type: 'datetime', nullable: true })
+  lockedUntil: Date;
+
+  /** Timestamp of last successful login */
+  @Column({ type: 'datetime', nullable: true })
+  lastLoginAt: Date;
 
   @OneToMany(() => Property, (property) => property.owner)
   properties: Property[];

@@ -1,15 +1,33 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { IsString, IsNotEmpty, IsOptional, IsEmail, MaxLength } from 'class-validator';
 import { Inquiry } from './entities/inquiry.entity';
 import { Property } from '../properties/entities/property.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 
 export class CreateInquiryDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   name: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(150)
   email?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(15)
   phone: string;
+
+  @IsOptional()
+  @IsString()
   message?: string;
+
+  @IsOptional()
+  @IsString()
   type?: string;
 }
 

@@ -3,10 +3,11 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
-import { Agency } from './entities/agency.entity';
+import { Agency, AgencyStatus } from './entities/agency.entity';
 import { AgentProfile } from './entities/agent-profile.entity';
 import { PropertyAgentMap } from './entities/property-agent-map.entity';
 import { AgentLocationMap } from './entities/agent-location-map.entity';
@@ -481,5 +482,86 @@ export class AgencyService {
       }
     }
     return profile;
+  }
+
+  // ─── Agent Self-Registration: Find existing agency or create pending one ─────
+
+  async agentRegisterOrJoinAgency(
+    userId: string,
+    data: {
+      agencyName: string;
+      contactPhone?: string;
+      address?: string;
+      city?: string;
+      cityId?: string;
+    },
+  ): Promise<{ agency: Agency; agentProfile: AgentProfile; isNew: boolean }> {
+    // Find existing approved agency by name (case-insensitive)
+    const existing = await this.agencyRepo
+      .createQueryBuilder('a')
+      .where('LOWER(a.name) = LOWER(:name)', { name: data.agencyName.trim() })
+      .andWhere('a.status = :status', { status: AgencyStatus.APPROVED })
+      .getOne();
+
+    let agency: Agency;
+    let isNew = false;
+
+    if (existing) {
+      agency = existing;
+    } else {
+      // Create new agency with pending status
+      agency = await this.agencyRepo.save(
+        this.agencyRepo.create({
+          name: data.agencyName.trim(),
+          contactPhone: data.contactPhone ?? null,
+          address: data.address ?? null,
+          cityId: data.cityId ?? null,
+          status: AgencyStatus.PENDING,
+          isActive: false,
+          isVerified: false,
+          createdByUserId: userId,
+        }),
+      );
+      isNew = true;
+    }
+
+    // Ensure agent profile exists and link to agency
+    const agentProfile = await this.getOrCreateAgentProfile(userId, agency.id);
+    if (agentProfile.agencyId !== agency.id) {
+      agentProfile.agencyId = agency.id;
+      await this.agentProfileRepo.save(agentProfile);
+    }
+
+    return { agency, agentProfile, isNew };
+  }
+
+  // ─── Admin: Agency Approval ───────────────────────────────────────────────────
+
+  async getPendingAgencies(page = 1, limit = 20) {
+    const [items, total] = await this.agencyRepo.findAndCount({
+      where: { status: AgencyStatus.PENDING },
+      order: { createdAt: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async approveAgency(id: string): Promise<Agency> {
+    const agency = await this.agencyRepo.findOne({ where: { id } });
+    if (!agency) throw new NotFoundException('Agency not found');
+    agency.status = AgencyStatus.APPROVED;
+    agency.isActive = true;
+    agency.rejectionReason = null;
+    return this.agencyRepo.save(agency);
+  }
+
+  async rejectAgency(id: string, reason: string): Promise<Agency> {
+    const agency = await this.agencyRepo.findOne({ where: { id } });
+    if (!agency) throw new NotFoundException('Agency not found');
+    agency.status = AgencyStatus.REJECTED;
+    agency.isActive = false;
+    agency.rejectionReason = reason ?? 'Rejected by admin';
+    return this.agencyRepo.save(agency);
   }
 }

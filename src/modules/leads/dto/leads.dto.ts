@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsNumber, IsEmail, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsNumber, IsEmail, IsUUID, Length, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 import { LeadSource, LeadStatus, LeadPropertyType } from '../entities/lead.entity';
 
@@ -54,6 +54,99 @@ export class CreateLeadDto {
   @IsString()
   @IsOptional()
   requirement?: string;
+
+  // Tracking
+  @IsString()
+  @IsOptional()
+  utmSource?: string;
+
+  @IsString()
+  @IsOptional()
+  utmMedium?: string;
+
+  @IsString()
+  @IsOptional()
+  utmCampaign?: string;
+
+  @IsString()
+  @IsOptional()
+  sessionId?: string;
+
+  @IsString()
+  @IsOptional()
+  deviceType?: string;
+}
+
+/** Stripped-down DTO for public (unauthenticated) lead capture forms */
+export class PublicLeadDto {
+  @IsEnum(LeadSource)
+  source: LeadSource;
+
+  @IsString()
+  @IsOptional()
+  propertyId?: string;
+
+  @IsString()
+  @Length(2, 100)
+  contactName: string;
+
+  @IsString()
+  @Matches(/^[6-9]\d{9}$/, { message: 'Enter a valid 10-digit Indian mobile number' })
+  contactPhone: string;
+
+  @IsEmail()
+  @IsOptional()
+  contactEmail?: string;
+
+  @IsString()
+  @IsOptional()
+  city?: string;
+
+  @IsString()
+  @IsOptional()
+  cityId?: string;
+
+  @IsString()
+  @IsOptional()
+  state?: string;
+
+  @IsEnum(LeadPropertyType)
+  @IsOptional()
+  propertyType?: LeadPropertyType;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  budgetMin?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  budgetMax?: number;
+
+  @IsString()
+  @IsOptional()
+  requirement?: string;
+
+  @IsString()
+  @IsOptional()
+  utmSource?: string;
+
+  @IsString()
+  @IsOptional()
+  utmMedium?: string;
+
+  @IsString()
+  @IsOptional()
+  utmCampaign?: string;
+
+  @IsString()
+  @IsOptional()
+  sessionId?: string;
+
+  @IsString()
+  @IsOptional()
+  deviceType?: string;
 }
 
 export class UpdateLeadStatusDto {

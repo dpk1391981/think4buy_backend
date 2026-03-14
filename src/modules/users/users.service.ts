@@ -29,6 +29,13 @@ export class UsersService {
     });
   }
 
+  async getStats(): Promise<{ totalAgents: number }> {
+    const totalAgents = await this.userRepo.count({
+      where: { role: UserRole.AGENT, isActive: true },
+    });
+    return { totalAgents };
+  }
+
   async getAgents(
     page = 1,
     limit = 12,

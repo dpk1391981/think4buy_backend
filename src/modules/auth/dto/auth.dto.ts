@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsEnum, Length, Matches } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsOptional, IsEnum, Length, Matches, IsNumber, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '../../users/entities/user.entity';
 
@@ -60,13 +60,36 @@ export class VerifyOtpDto {
   @IsString()
   phone: string;
 
-  @ApiProperty({ example: '1234' })
+  @ApiProperty({ example: '123456' })
   @IsString()
-  @Length(4, 4)
+  @Length(6, 6)
   otp: string;
 
   @ApiPropertyOptional({ example: 'John Doe' })
   @IsOptional()
   @IsString()
   name?: string;
+}
+
+export class OnboardingDto {
+  @ApiProperty({ enum: ['buyer', 'owner', 'agent'], description: 'Role chosen during onboarding' })
+  @IsEnum(['buyer', 'owner', 'agent'], { message: 'Role must be buyer, owner, or agent' })
+  role: 'buyer' | 'owner' | 'agent';
+
+  @ApiPropertyOptional({ example: 'John Doe' })
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional({ example: 'MH-AG-12345' })
+  @IsOptional()
+  @IsString()
+  agentLicense?: string;
+
+  @ApiPropertyOptional({ example: 5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(60)
+  agentExperience?: number;
 }

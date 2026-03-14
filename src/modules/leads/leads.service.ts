@@ -1,13 +1,19 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Lead, LeadStatus, LeadSource, LeadTemperature } from './entities/lead.entity';
 import { LeadAssignment, AssignmentType } from './entities/lead-assignment.entity';
 import { LeadActivityLog, ActivityType, ActorType } from './entities/lead-activity-log.entity';
-import { CreateLeadDto, UpdateLeadStatusDto, AssignLeadDto, AddLeadNoteDto, LeadsQueryDto } from './dto/leads.dto';
+import { CreateLeadDto, PublicLeadDto, UpdateLeadStatusDto, AssignLeadDto, AddLeadNoteDto, LeadsQueryDto } from './dto/leads.dto';
+import { LeadAssignmentEngineService } from './lead-assignment-engine.service';
+
+/** Dedup window: same phone + same property within this many minutes = duplicate */
+const DEDUP_WINDOW_MINUTES = 10;
 
 @Injectable()
 export class LeadsService {
+  private readonly logger = new Logger(LeadsService.name);
+
   constructor(
     @InjectRepository(Lead)
     private leadRepo: Repository<Lead>,
@@ -15,15 +21,25 @@ export class LeadsService {
     private assignmentRepo: Repository<LeadAssignment>,
     @InjectRepository(LeadActivityLog)
     private activityRepo: Repository<LeadActivityLog>,
+    private readonly assignmentEngine: LeadAssignmentEngineService,
   ) {}
 
-  private calcScore(dto: CreateLeadDto): number {
+  // ── Scoring ────────────────────────────────────────────────────────────────
+
+  private calcScore(dto: CreateLeadDto | PublicLeadDto): number {
     let score = 0;
     if (dto.budgetMin || dto.budgetMax) score += 20;
     if (dto.contactEmail) score += 10;
     if (dto.requirement) score += 10;
-    if (dto.source === LeadSource.PROPERTY_PAGE || dto.source === LeadSource.CONTACT_FORM) score += 15;
+    if (
+      dto.source === LeadSource.PROPERTY_PAGE ||
+      dto.source === LeadSource.CONTACT_FORM ||
+      dto.source === LeadSource.SCHEDULE_VISIT
+    ) score += 15;
+    if (dto.source === LeadSource.VIEW_PHONE) score += 25;
+    if (dto.source === LeadSource.DOWNLOAD_BROCHURE) score += 10;
     if (dto.propertyId) score += 15;
+    if (dto.cityId) score += 5;
     return Math.min(score, 100);
   }
 
@@ -33,27 +49,118 @@ export class LeadsService {
     return LeadTemperature.COLD;
   }
 
-  async create(dto: CreateLeadDto, createdByUserId?: string): Promise<Lead> {
+  // ── Deduplication ──────────────────────────────────────────────────────────
+
+  /**
+   * Returns an existing lead if the same phone + property combo was submitted
+   * within the dedup window, otherwise null.
+   */
+  private async findDuplicate(phone: string, propertyId?: string): Promise<Lead | null> {
+    const windowStart = new Date(Date.now() - DEDUP_WINDOW_MINUTES * 60 * 1000);
+    const qb = this.leadRepo
+      .createQueryBuilder('l')
+      .where('l.contactPhone = :phone', { phone })
+      .andWhere('l.createdAt >= :windowStart', { windowStart })
+      .andWhere('l.status != :dup', { dup: LeadStatus.DUPLICATE })
+      .orderBy('l.createdAt', 'DESC');
+
+    if (propertyId) {
+      qb.andWhere('l.propertyId = :pid', { pid: propertyId });
+    }
+
+    return qb.getOne();
+  }
+
+  // ── Public capture (no auth) ───────────────────────────────────────────────
+
+  async capturePublic(dto: PublicLeadDto): Promise<{ lead: Lead; isDuplicate: boolean }> {
+    const existing = await this.findDuplicate(dto.contactPhone, dto.propertyId);
+    if (existing) {
+      this.logger.debug(`Dedup hit: lead ${existing.id} for ${dto.contactPhone}`);
+      return { lead: existing, isDuplicate: true };
+    }
+
     const score = this.calcScore(dto);
+    const agentId = await this.assignmentEngine.resolveAgent({
+      propertyId: dto.propertyId,
+      cityId: dto.cityId,
+      city: dto.city,
+    });
+
     const lead = this.leadRepo.create({
       ...dto,
       leadScore: score,
       temperature: this.getTemperature(score),
       status: LeadStatus.NEW,
-      assignedAgentId: createdByUserId ?? null,
+      assignedAgentId: agentId ?? null,
     });
     const saved = await this.leadRepo.save(lead);
 
-    if (createdByUserId) {
-      const assignment = this.assignmentRepo.create({
-        leadId: saved.id,
-        agentId: createdByUserId,
-        assignedBy: createdByUserId,
-        assignmentType: AssignmentType.MANUAL,
-        isActive: true,
-        reason: 'Self-created',
-      });
-      await this.assignmentRepo.save(assignment);
+    if (agentId) {
+      await this.assignmentRepo.save(
+        this.assignmentRepo.create({
+          leadId: saved.id,
+          agentId,
+          assignedBy: null,
+          assignmentType: AssignmentType.AUTO,
+          isActive: true,
+          reason: 'Auto-assigned on capture',
+        }),
+      );
+    }
+
+    await this.logActivity(
+      saved.id,
+      ActivityType.STATUS_CHANGE,
+      null,
+      { status: LeadStatus.NEW },
+      `Lead captured via ${dto.source}`,
+      null,
+      ActorType.SYSTEM,
+    );
+
+    return { lead: saved, isDuplicate: false };
+  }
+
+  // ── Authenticated create (agent / admin) ───────────────────────────────────
+
+  async create(dto: CreateLeadDto, createdByUserId?: string): Promise<Lead> {
+    const existing = await this.findDuplicate(dto.contactPhone, dto.propertyId);
+    if (existing) {
+      return existing;
+    }
+
+    const score = this.calcScore(dto);
+    const autoAgentId = dto.propertyId
+      ? await this.assignmentEngine.resolveAgent({
+          propertyId: dto.propertyId,
+          cityId: dto.cityId,
+          city: dto.city,
+        })
+      : null;
+
+    const agentId = createdByUserId ?? autoAgentId ?? null;
+
+    const lead = this.leadRepo.create({
+      ...dto,
+      leadScore: score,
+      temperature: this.getTemperature(score),
+      status: LeadStatus.NEW,
+      assignedAgentId: agentId,
+    });
+    const saved = await this.leadRepo.save(lead);
+
+    if (agentId) {
+      await this.assignmentRepo.save(
+        this.assignmentRepo.create({
+          leadId: saved.id,
+          agentId,
+          assignedBy: createdByUserId ?? null,
+          assignmentType: createdByUserId ? AssignmentType.MANUAL : AssignmentType.AUTO,
+          isActive: true,
+          reason: createdByUserId ? 'Self-created' : 'Auto-assigned',
+        }),
+      );
     }
 
     await this.logActivity(
@@ -67,6 +174,8 @@ export class LeadsService {
     );
     return saved;
   }
+
+  // ── Queries ────────────────────────────────────────────────────────────────
 
   async findAll(query: LeadsQueryDto) {
     const page = query.page || 1;
@@ -102,6 +211,8 @@ export class LeadsService {
     return lead;
   }
 
+  // ── Mutations ──────────────────────────────────────────────────────────────
+
   async updateStatus(
     id: string,
     dto: UpdateLeadStatusDto,
@@ -134,15 +245,16 @@ export class LeadsService {
       { isActive: false, unassignedAt: new Date() },
     );
 
-    const assignment = this.assignmentRepo.create({
-      leadId: id,
-      agentId: dto.agentId,
-      assignedBy: assignedByUserId,
-      assignmentType: AssignmentType.MANUAL,
-      isActive: true,
-      reason: dto.reason,
-    });
-    await this.assignmentRepo.save(assignment);
+    await this.assignmentRepo.save(
+      this.assignmentRepo.create({
+        leadId: id,
+        agentId: dto.agentId,
+        assignedBy: assignedByUserId,
+        assignmentType: AssignmentType.MANUAL,
+        isActive: true,
+        reason: dto.reason,
+      }),
+    );
 
     const oldAgentId = lead.assignedAgentId;
     lead.assignedAgentId = dto.agentId;
@@ -173,6 +285,8 @@ export class LeadsService {
     return this.assignmentRepo.find({ where: { leadId }, order: { assignedAt: 'DESC' } });
   }
 
+  // ── Analytics ──────────────────────────────────────────────────────────────
+
   async getStats(agentId?: string) {
     const db = this.leadRepo.manager.connection;
     const params: any[] = [];
@@ -199,6 +313,8 @@ export class LeadsService {
     const total = Object.values(statusMap).reduce((a, b) => a + b, 0);
     return { total, byStatus: statusMap, byTemperature: tempMap };
   }
+
+  // ── Internals ──────────────────────────────────────────────────────────────
 
   private async logActivity(
     leadId: string,

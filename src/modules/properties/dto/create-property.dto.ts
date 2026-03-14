@@ -176,4 +176,14 @@ export class CreatePropertyDto {
   @IsOptional()
   @IsArray()
   amenityIds?: string[];
+
+  @ApiPropertyOptional({ description: 'AgentProfile ID (for agent listings — auto-set by backend)' })
+  @IsOptional()
+  @IsString()
+  agentProfileId?: string;
+
+  @ApiPropertyOptional({ description: 'Agency ID (for agent listings — auto-set by backend)' })
+  @IsOptional()
+  @IsString()
+  agencyId?: string;
 }

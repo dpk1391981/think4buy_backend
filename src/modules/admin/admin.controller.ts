@@ -35,13 +35,17 @@ import {
 } from './dto/admin.dto';
 import { UserRole } from '../users/entities/user.entity';
 import { ApprovalStatus } from '../properties/entities/property.entity';
+import { AgencyService } from '../agency/agency.service';
 
 @ApiTags('admin')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'))
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly agencyService: AgencyService,
+  ) {}
 
   private assertAdmin(req: any) {
     if (req.user?.role !== UserRole.ADMIN) {
@@ -425,6 +429,45 @@ export class AdminController {
   deleteCity(@Request() req, @Param('id') id: string) {
     this.assertAdmin(req);
     return this.adminService.deleteCity(id);
+  }
+
+  // ── Agency Management ───────────────────────────────────────────────────────
+  @Get('agencies')
+  @ApiOperation({ summary: 'List all agencies (admin, all statuses)' })
+  @ApiQuery({ name: 'status', required: false, enum: ['pending', 'approved', 'rejected'] })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  getAdminAgencies(
+    @Request() req,
+    @Query('status') status?: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+    @Query('search') search?: string,
+  ) {
+    this.assertAdmin(req);
+    if (status === 'pending') {
+      return this.agencyService.getPendingAgencies(+page, +limit);
+    }
+    return this.agencyService.getAgencies(+page, +limit, search);
+  }
+
+  @Patch('agencies/:id/approve')
+  @ApiOperation({ summary: 'Approve a pending agency' })
+  approveAgency(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.agencyService.approveAgency(id);
+  }
+
+  @Patch('agencies/:id/reject')
+  @ApiOperation({ summary: 'Reject a pending agency' })
+  rejectAgency(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    this.assertAdmin(req);
+    return this.agencyService.rejectAgency(id, body.reason ?? 'Rejected by admin');
   }
 
   // ── Location Image Upload ────────────────────────────────────────────────────

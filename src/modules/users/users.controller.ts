@@ -8,6 +8,12 @@ import { UsersService } from './users.service';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Get('stats')
+  @ApiOperation({ summary: 'Get platform user stats' })
+  getStats() {
+    return this.usersService.getStats();
+  }
+
   @Get('agents')
   @ApiOperation({ summary: 'Get all active agents' })
   getAgents(

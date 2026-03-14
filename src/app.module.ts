@@ -1,6 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
+import { BotDetectionMiddleware } from './common/middleware/bot-detection.middleware';
+import { RolesGuard } from './common/guards/roles.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { PropertiesModule } from './modules/properties/properties.module';
@@ -19,6 +24,7 @@ import { PropType } from './modules/property-config/entities/prop-type.entity';
 import { PropTypeAmenity } from './modules/property-config/entities/prop-type-amenity.entity';
 import { PropTypeField } from './modules/property-config/entities/prop-type-field.entity';
 import { User } from './modules/users/entities/user.entity';
+import { OtpVerification } from './modules/auth/entities/otp-verification.entity';
 import { Property } from './modules/properties/entities/property.entity';
 import { PropertyImage } from './modules/properties/entities/property-image.entity';
 import { Amenity } from './modules/properties/entities/amenity.entity';
@@ -68,6 +74,11 @@ import { Commission } from './modules/commissions/entities/commission.entity';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    // Global rate limiting: 100 req / 60s per IP by default
+    // Individual endpoints can override with @Throttle({ default: { limit: X, ttl: Y } })
+    ThrottlerModule.forRoot([
+      { name: 'default', ttl: 60_000, limit: 100 },
+    ]),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
@@ -119,6 +130,7 @@ import { Commission } from './modules/commissions/entities/commission.entity';
           SiteVisit,
           Deal,
           Commission,
+          OtpVerification,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -147,5 +159,21 @@ import { Commission } from './modules/commissions/entities/commission.entity';
     DealsModule,
     CommissionsModule,
   ],
+  providers: [
+    // Global rate limiting guard (full DI, required for @nestjs/throttler)
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Global role-based access control guard
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(RequestIdMiddleware)
+      .forRoutes('*');
+
+    consumer
+      .apply(BotDetectionMiddleware)
+      .forRoutes('*');
+  }
+}

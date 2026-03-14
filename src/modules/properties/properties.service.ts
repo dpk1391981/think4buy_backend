@@ -16,6 +16,7 @@ import {
   PropertyCategory,
   ApprovalStatus,
   PropertyType,
+  ListingUserType,
 } from './entities/property.entity';
 import { PropertyImage } from './entities/property-image.entity';
 import { Amenity } from './entities/amenity.entity';
@@ -296,6 +297,13 @@ export class PropertiesService {
   // Create
   // ─────────────────────────────────────────────────────────────────────────────
   async create(dto: CreatePropertyDto, owner: User): Promise<Property> {
+    // Security: Only Owner and Agent roles may create property listings
+    if (owner.role === UserRole.BUYER) {
+      throw new ForbiddenException(
+        'Buyers cannot post properties. Please upgrade your role to Owner or Agent first.',
+      );
+    }
+
     if (owner.role === UserRole.AGENT) {
       // Quota is consumed on admin approval, not on submission.
       // Check current approved count against quota to prevent excess submissions.
@@ -339,6 +347,7 @@ export class PropertiesService {
       amenities = await this.amenityRepo.findByIds(dto.amenityIds);
     }
 
+    const isAgentListing = owner.role === UserRole.AGENT;
     const property = this.propertyRepo.create({
       ...dto,
       slug,
@@ -346,6 +355,9 @@ export class PropertiesService {
       ownerId: owner.id,
       amenities,
       approvalStatus: ApprovalStatus.PENDING,
+      listedBy: isAgentListing ? ListingUserType.AGENT : ListingUserType.OWNER,
+      agentId: isAgentListing ? (dto.agentProfileId ?? null) : null,
+      agencyId: isAgentListing ? (dto.agencyId ?? null) : null,
       metaTitle: `${dto.title} | ${dto.city}`,
       metaDescription: dto.description?.substring(0, 160),
     });
@@ -372,7 +384,14 @@ export class PropertiesService {
       .where('property.status = :status', { status: PropertyStatus.ACTIVE })
       .andWhere('property.approvalStatus = :approvalStatus', {
         approvalStatus: ApprovalStatus.APPROVED,
-      });
+      })
+      // Exclude agent listings whose agency is pending approval (not yet approved)
+      .andWhere(
+        `(property.agencyId IS NULL OR EXISTS (
+          SELECT 1 FROM agencies ag
+          WHERE ag.id = property.agencyId AND ag.status = 'approved'
+        ))`,
+      );
 
     this.applyFilters(qb, filters);
 
@@ -528,13 +547,21 @@ export class PropertiesService {
   }
 
   async getStats() {
-    const [total, forSale, forRent, forPG] = await Promise.all([
+    const [total, forSale, forRent, forPG, citiesRow] = await Promise.all([
       this.propertyRepo.count({ where: { status: PropertyStatus.ACTIVE } }),
       this.propertyRepo.count({ where: { status: PropertyStatus.ACTIVE, category: PropertyCategory.BUY } }),
       this.propertyRepo.count({ where: { status: PropertyStatus.ACTIVE, category: PropertyCategory.RENT } }),
       this.propertyRepo.count({ where: { status: PropertyStatus.ACTIVE, category: PropertyCategory.PG } }),
+      this.propertyRepo
+        .createQueryBuilder('p')
+        .select('COUNT(DISTINCT p.city)', 'cnt')
+        .where('p.status = :status', { status: PropertyStatus.ACTIVE })
+        .andWhere('p.city IS NOT NULL')
+        .andWhere("p.city != ''")
+        .getRawOne<{ cnt: string }>(),
     ]);
-    return { total, forSale, forRent, forPG };
+    const totalCities = parseInt(citiesRow?.cnt || '0', 10);
+    return { total, forSale, forRent, forPG, totalCities };
   }
 
   async getCitiesWithCount() {

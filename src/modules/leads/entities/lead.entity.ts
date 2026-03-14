@@ -1,7 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index, Unique } from 'typeorm';
 
 export enum LeadSource {
   PROPERTY_PAGE = 'property_page',
+  VIEW_PHONE = 'view_phone',
+  SCHEDULE_VISIT = 'schedule_visit',
+  DOWNLOAD_BROCHURE = 'download_brochure',
+  CHATBOT = 'chatbot',
+  SEO_FORM = 'seo_form',
+  PROPERTY_ALERT = 'property_alert',
   SEARCH = 'search',
   CONTACT_FORM = 'contact_form',
   CALL = 'call',
@@ -40,6 +46,7 @@ export enum LeadPropertyType {
 }
 
 @Entity('leads')
+@Index('idx_lead_dedup', ['contactPhone', 'propertyId', 'createdAt'])
 export class Lead {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -110,6 +117,22 @@ export class Lead {
 
   @Column({ type: 'text', nullable: true })
   notes: string;
+
+  // ── Tracking / UTM fields ──────────────────────────────────────────────────
+  @Column({ length: 100, nullable: true })
+  utmSource: string;
+
+  @Column({ length: 100, nullable: true })
+  utmMedium: string;
+
+  @Column({ length: 100, nullable: true })
+  utmCampaign: string;
+
+  @Column({ length: 100, nullable: true })
+  sessionId: string;
+
+  @Column({ length: 50, nullable: true })
+  deviceType: string;
 
   @CreateDateColumn()
   createdAt: Date;

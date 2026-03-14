@@ -113,4 +113,52 @@ export class LocationsService {
   async deleteCity(id: string) {
     return this.cityRepository.delete(id);
   }
+
+  // ── SEO content lookup ────────────────────────────────────────────────────
+
+  /**
+   * Returns SEO content for a city (preferred) or state.
+   * Matched case-insensitively by name. Returns null if neither found.
+   */
+  async getLocationSeoContent(cityName?: string, stateName?: string) {
+    if (cityName) {
+      const city = await this.cityRepository
+        .createQueryBuilder('c')
+        .where('LOWER(c.name) = LOWER(:name)', { name: cityName.trim() })
+        .andWhere('c.isActive = true')
+        .getOne();
+
+      if (city && (city.seoContent || city.introContent || city.faqs?.length)) {
+        return {
+          type: 'city' as const,
+          name: city.name,
+          h1: city.h1 || null,
+          introContent: city.introContent || null,
+          seoContent: city.seoContent || null,
+          faqs: city.faqs || [],
+        };
+      }
+    }
+
+    if (stateName) {
+      const state = await this.stateRepository
+        .createQueryBuilder('s')
+        .where('LOWER(s.name) = LOWER(:name)', { name: stateName.trim() })
+        .andWhere('s.isActive = true')
+        .getOne();
+
+      if (state && state.seoContent) {
+        return {
+          type: 'state' as const,
+          name: state.name,
+          h1: state.h1 || null,
+          introContent: null,
+          seoContent: state.seoContent,
+          faqs: [] as { question: string; answer: string }[],
+        };
+      }
+    }
+
+    return null;
+  }
 }

@@ -234,6 +234,13 @@ export class Property {
   @Column({ type: 'enum', enum: ListingUserType, default: ListingUserType.OWNER })
   listedBy: ListingUserType;
 
+  // Agent & Agency reference (for agent listings)
+  @Column({ nullable: true, length: 36 })
+  agentId: string;
+
+  @Column({ nullable: true, length: 36 })
+  agencyId: string;
+
   // Brokerage info (for agents)
   @Column({ nullable: true, length: 100 })
   brokerage: string; // e.g., "1 Month", "2%", "Negotiable"

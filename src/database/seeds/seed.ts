@@ -1411,7 +1411,7 @@ async function seed() {
     { name: 'Commercial',    slug: 'commercial',     icon: '🏢', description: 'Offices, shops, warehouses, showrooms',       status: true, sortOrder: 4 },
     { name: 'Industrial',    slug: 'industrial',     icon: '🏭', description: 'Factories, sheds, industrial plots',          status: true, sortOrder: 5 },
     { name: 'New Projects',  slug: 'builder_project',icon: '🏗️', description: 'Under-construction builder projects',         status: true, sortOrder: 6 },
-    { name: 'Investment',    slug: 'investment',     icon: '📈', description: 'High-yield investment properties',            status: true, sortOrder: 7 },
+    { name: 'Investment',    slug: 'investment',     icon: '📈', description: 'High-yield investment properties',            status: false, sortOrder: 7 },
   ]);
   console.log('Seeded prop_categories (aligned with listing categories)');
 

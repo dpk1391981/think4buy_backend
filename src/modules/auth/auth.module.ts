@@ -7,17 +7,20 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { User } from '../users/entities/user.entity';
+import { OtpVerification } from './entities/otp-verification.entity';
 import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, OtpVerification]),
     PassportModule,
+    // JwtModule configured for ACCESS tokens (short-lived).
+    // Refresh tokens use a separate secret validated inside AuthService.
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
         secret: config.get('JWT_SECRET', 'secret'),
-        signOptions: { expiresIn: config.get('JWT_EXPIRES_IN', '7d') },
+        signOptions: { expiresIn: config.get('JWT_EXPIRES_IN', '15m') },
       }),
       inject: [ConfigService],
     }),

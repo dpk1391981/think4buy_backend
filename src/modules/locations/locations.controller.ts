@@ -36,4 +36,13 @@ export class LocationsController {
   getCitiesByState(@Param('stateId') stateId: string) {
     return this.locationsService.getCitiesByState(stateId, true);
   }
+
+  @Get('seo')
+  @ApiOperation({ summary: 'Get SEO content for a city or state (public)' })
+  getLocationSeoContent(
+    @Query('city') city?: string,
+    @Query('state') state?: string,
+  ) {
+    return this.locationsService.getLocationSeoContent(city, state);
+  }
 }

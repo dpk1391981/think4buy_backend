@@ -9,6 +9,12 @@ import {
 } from 'typeorm';
 import { AgentProfile } from './agent-profile.entity';
 
+export enum AgencyStatus {
+  PENDING = 'pending',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+}
+
 @Entity('agencies')
 export class Agency {
   @PrimaryGeneratedColumn('uuid')
@@ -53,6 +59,19 @@ export class Agency {
 
   @Column({ default: false })
   isVerified: boolean;
+
+  /** Approval workflow status — set to pending when agent self-registers an agency */
+  @Column({ type: 'enum', enum: AgencyStatus, default: AgencyStatus.APPROVED })
+  @Index()
+  status: AgencyStatus;
+
+  /** User ID who created this agency (agent self-registration) */
+  @Column({ length: 36, nullable: true })
+  createdByUserId: string;
+
+  /** Admin rejection reason */
+  @Column({ length: 500, nullable: true })
+  rejectionReason: string;
 
   @Column({ type: 'int', default: 0 })
   totalAgents: number;

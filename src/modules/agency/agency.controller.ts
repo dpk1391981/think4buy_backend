@@ -260,6 +260,64 @@ export class AgencyController {
     return this.agencyService.removeAgentLocation(id);
   }
 
+  // ─── Admin: Agency Approval ───────────────────────────────────────────────────
+
+  @Get('admin/agencies/pending')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List agencies pending approval (admin)' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  getPendingAgencies(
+    @Request() req,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+  ) {
+    this.assertAdmin(req);
+    return this.agencyService.getPendingAgencies(page, limit);
+  }
+
+  @Patch('admin/agencies/:id/approve')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Approve a pending agency (admin)' })
+  approveAgency(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.agencyService.approveAgency(id);
+  }
+
+  @Patch('admin/agencies/:id/reject')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Reject a pending agency (admin)' })
+  rejectAgency(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    this.assertAdmin(req);
+    return this.agencyService.rejectAgency(id, body.reason ?? 'Rejected by admin');
+  }
+
+  // ─── Agent: Self-register or Join Agency ──────────────────────────────────────
+
+  @Post('self/register-or-join')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent self-registers a new agency or joins an existing one by name' })
+  registerOrJoinAgency(
+    @Request() req,
+    @Body() body: {
+      agencyName: string;
+      contactPhone?: string;
+      address?: string;
+      city?: string;
+      cityId?: string;
+    },
+  ) {
+    return this.agencyService.agentRegisterOrJoinAgency(req.user.id, body);
+  }
+
   // ─── Agent: My Dashboard ──────────────────────────────────────────────────────
 
   @Get('me/dashboard')
