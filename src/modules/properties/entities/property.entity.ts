@@ -272,11 +272,10 @@ export class Property {
 
   @OneToMany(() => PropertyImage, (image) => image.property, {
     cascade: true,
-    eager: true,
   })
   images: PropertyImage[];
 
-  @ManyToMany(() => Amenity, { eager: true })
+  @ManyToMany(() => Amenity)
   @JoinTable({ name: 'property_amenities' })
   amenities: Amenity[];
 
