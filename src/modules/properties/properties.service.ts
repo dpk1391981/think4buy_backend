@@ -72,6 +72,22 @@ export class PropertiesService {
     }
   }
 
+  /** Runs every 6 hours — auto-expires listings whose listingExpiresAt has passed */
+  @Cron('0 */6 * * *')
+  async expireListings() {
+    const result = await this.propertyRepo
+      .createQueryBuilder()
+      .update(Property)
+      .set({ status: PropertyStatus.INACTIVE })
+      .where('status = :active', { active: PropertyStatus.ACTIVE })
+      .andWhere('listingExpiresAt IS NOT NULL')
+      .andWhere('listingExpiresAt <= :now', { now: new Date() })
+      .execute();
+    if (result.affected && result.affected > 0) {
+      this.logger.log(`Expired ${result.affected} listing(s) past their listingExpiresAt`);
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Smart NLP keyword parser
   // ─────────────────────────────────────────────────────────────────────────────
@@ -434,11 +450,28 @@ export class PropertiesService {
     // Sorting
     const allowedSort = ['createdAt', 'price', 'area', 'viewCount'];
     if (sortBy === 'relevance') {
-      // Relevance: featured first, then verified, then newest
-      qb.orderBy('property.isFeatured', 'DESC')
-        .addOrderBy('property.listingPlan', 'DESC')
-        .addOrderBy('property.isVerified', 'DESC')
-        .addOrderBy('property.createdAt', 'DESC');
+      // Weighted relevance score:
+      //   isFeatured    → +100
+      //   listingPlan   → FEATURED=80, PREMIUM=60, BASIC=40, FREE=0
+      //   isVerified    → +20
+      //   viewCount     → up to +15 (capped at 500 views → 15 pts)
+      //   recency       → up to +10 (within last 30 days)
+      qb.addSelect(
+        `(
+          (CASE WHEN property.isFeatured = 1 THEN 100 ELSE 0 END) +
+          (CASE property.listingPlan
+            WHEN 'featured' THEN 80
+            WHEN 'premium'  THEN 60
+            WHEN 'basic'    THEN 40
+            ELSE 0
+          END) +
+          (CASE WHEN property.isVerified = 1 THEN 20 ELSE 0 END) +
+          LEAST(CAST(property.viewCount AS UNSIGNED) / 500.0 * 15, 15) +
+          GREATEST(10 - DATEDIFF(NOW(), property.updatedAt), 0)
+        )`,
+        'relevanceScore',
+      ).orderBy('relevanceScore', 'DESC')
+       .addOrderBy('property.updatedAt', 'DESC');
     } else {
       const safeSort = allowedSort.includes(sortBy) ? sortBy : 'createdAt';
       qb.orderBy(`property.${safeSort}`, sortOrder === 'ASC' ? 'ASC' : 'DESC');
@@ -696,16 +729,50 @@ export class PropertiesService {
   }
 
   async getSimilarProperties(property: Property, limit = 4): Promise<Property[]> {
-    return this.propertyRepo.find({
-      where: {
-        city: property.city,
-        category: property.category,
-        status: PropertyStatus.ACTIVE,
-      },
-      relations: ['images'],
-      take: limit,
-      order: { createdAt: 'DESC' },
-    });
+    const baseQb = () =>
+      this.propertyRepo
+        .createQueryBuilder('p')
+        .leftJoinAndSelect('p.images', 'images')
+        .where('p.id != :id', { id: property.id })
+        .andWhere('p.status = :status', { status: PropertyStatus.ACTIVE })
+        .andWhere('p.approvalStatus = :approval', { approval: ApprovalStatus.APPROVED })
+        .andWhere('p.isDraft = :isDraft', { isDraft: false });
+
+    // Primary: same city + category + price range ±25%
+    if (property.price) {
+      const minPrice = Number(property.price) * 0.75;
+      const maxPrice = Number(property.price) * 1.25;
+      const results = await baseQb()
+        .andWhere('p.city = :city', { city: property.city })
+        .andWhere('p.category = :category', { category: property.category })
+        .andWhere('p.price BETWEEN :minPrice AND :maxPrice', { minPrice, maxPrice })
+        .orderBy('p.isFeatured', 'DESC')
+        .addOrderBy('p.updatedAt', 'DESC')
+        .take(limit)
+        .getMany();
+      if (results.length >= limit) return results;
+
+      // Fallback 1: same city + category (no price filter), pad up to limit
+      const ids = results.map(r => r.id);
+      const fallback1 = await baseQb()
+        .andWhere('p.city = :city', { city: property.city })
+        .andWhere('p.category = :category', { category: property.category })
+        .andWhere(ids.length ? 'p.id NOT IN (:...ids)' : '1=1', ids.length ? { ids } : {})
+        .orderBy('p.isFeatured', 'DESC')
+        .addOrderBy('p.updatedAt', 'DESC')
+        .take(limit - results.length)
+        .getMany();
+      return [...results, ...fallback1];
+    }
+
+    // Fallback: no price — match city + category
+    return baseQb()
+      .andWhere('p.city = :city', { city: property.city })
+      .andWhere('p.category = :category', { category: property.category })
+      .orderBy('p.isFeatured', 'DESC')
+      .addOrderBy('p.updatedAt', 'DESC')
+      .take(limit)
+      .getMany();
   }
 
   async getAmenities(): Promise<Amenity[]> {
