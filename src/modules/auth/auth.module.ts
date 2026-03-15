@@ -9,6 +9,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { User } from '../users/entities/user.entity';
 import { OtpVerification } from './entities/otp-verification.entity';
 import { WalletModule } from '../wallet/wallet.module';
+import { MenusModule } from '../menus/menus.module';
+import { AgencyModule } from '../agency/agency.module';
 
 @Module({
   imports: [
@@ -25,6 +27,8 @@ import { WalletModule } from '../wallet/wallet.module';
       inject: [ConfigService],
     }),
     WalletModule,
+    MenusModule,
+    AgencyModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

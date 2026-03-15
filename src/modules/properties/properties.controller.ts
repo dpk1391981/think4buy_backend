@@ -9,6 +9,8 @@ import {
   Query,
   UseGuards,
   Request,
+  HttpCode,
+  HttpStatus,
   UseInterceptors,
   UploadedFiles,
   ParseFilePipe,
@@ -17,6 +19,7 @@ import {
   ParseIntPipe,
   DefaultValuePipe,
 } from '@nestjs/common';
+import { OptionalAuthGuard } from '../../common/guards/optional-auth.guard';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
@@ -111,6 +114,43 @@ export class PropertiesController {
   @ApiOperation({ summary: 'Get property by slug' })
   findBySlug(@Param('slug') slug: string) {
     return this.propertiesService.findBySlug(slug);
+  }
+
+  /**
+   * Track a unique property view.
+   * Works for both guests (keyed by IP) and logged-in users (keyed by userId).
+   * Idempotent within a 24-hour window — safe to call on every page load.
+   */
+  @Post(':id/view')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(OptionalAuthGuard)
+  @ApiOperation({ summary: 'Record a unique property view' })
+  async trackView(
+    @Param('id') propertyId: string,
+    @Body() body: {
+      sessionId?: string;
+      source?: string;
+      referrer?: string;
+      deviceType?: string;
+    },
+    @Request() req,
+  ) {
+    const ip = (
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.headers['x-real-ip'] as string ||
+      req.socket?.remoteAddress ||
+      '0.0.0.0'
+    );
+
+    await this.propertiesService.trackView(propertyId, {
+      userId:     req.user?.id ?? undefined,
+      ipAddress:  ip,
+      userAgent:  req.headers['user-agent'],
+      sessionId:  body?.sessionId,
+      source:     body?.source,
+      referrer:   body?.referrer ?? req.headers['referer'],
+      deviceType: body?.deviceType,
+    });
   }
 
   @Post()

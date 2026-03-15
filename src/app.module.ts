@@ -69,6 +69,11 @@ import { CommissionsModule } from './modules/commissions/commissions.module';
 import { Commission } from './modules/commissions/entities/commission.entity';
 import { ArticlesModule } from './modules/articles/articles.module';
 import { Article } from './modules/articles/entities/article.entity';
+import { MenusModule } from './modules/menus/menus.module';
+import { Menu } from './modules/menus/entities/menu.entity';
+import { RoleMenuPermission } from './modules/menus/entities/role-menu-permission.entity';
+import { AgentFeedbackModule } from './modules/agent-feedback/agent-feedback.module';
+import { AgentFeedback } from './modules/agent-feedback/entities/agent-feedback.entity';
 
 @Module({
   imports: [
@@ -133,6 +138,9 @@ import { Article } from './modules/articles/entities/article.entity';
           Deal,
           Commission,
           Article,
+          Menu,
+          RoleMenuPermission,
+          AgentFeedback,
           OtpVerification,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
@@ -162,6 +170,8 @@ import { Article } from './modules/articles/entities/article.entity';
     DealsModule,
     CommissionsModule,
     ArticlesModule,
+    MenusModule,
+    AgentFeedbackModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)

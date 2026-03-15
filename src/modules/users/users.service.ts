@@ -10,8 +10,16 @@ export class UsersService {
     private userRepo: Repository<User>,
   ) {}
 
-  async findById(id: string): Promise<User> {
-    const user = await this.userRepo.findOne({ where: { id } });
+  async findById(id: string): Promise<Partial<User>> {
+    const user = await this.userRepo.findOne({
+      where: { id, isActive: true },
+      select: [
+        'id', 'name', 'phone', 'avatar', 'role',
+        'city', 'state', 'company', 'isVerified',
+        'agentLicense', 'agentBio', 'agentExperience',
+        'agentRating', 'totalDeals', 'agentTick', 'createdAt',
+      ],
+    });
     if (!user) throw new NotFoundException('User not found');
     return user;
   }

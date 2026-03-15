@@ -92,4 +92,10 @@ export class OnboardingDto {
   @Min(0)
   @Max(60)
   agentExperience?: number;
+
+  /** Company / agency name — when provided for agents, a pending agency record is created */
+  @ApiPropertyOptional({ example: 'PropElite Realty' })
+  @IsOptional()
+  @IsString()
+  agencyName?: string;
 }

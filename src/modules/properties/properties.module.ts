@@ -6,11 +6,12 @@ import { PropertiesService } from './properties.service';
 import { Property } from './entities/property.entity';
 import { PropertyImage } from './entities/property-image.entity';
 import { Amenity } from './entities/amenity.entity';
+import { PropertyView } from './entities/property-view.entity';
 import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Property, PropertyImage, Amenity]),
+    TypeOrmModule.forFeature([Property, PropertyImage, Amenity, PropertyView]),
     WalletModule,
     ScheduleModule.forRoot(),
   ],

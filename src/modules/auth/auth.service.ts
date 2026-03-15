@@ -14,6 +14,8 @@ import { User, UserRole } from '../users/entities/user.entity';
 import { OtpVerification } from './entities/otp-verification.entity';
 import { RegisterDto, LoginDto, SendOtpDto, VerifyOtpDto, OnboardingDto } from './dto/auth.dto';
 import { WalletService } from '../wallet/wallet.service';
+import { MenusService } from '../menus/menus.service';
+import { AgencyService } from '../agency/agency.service';
 
 /** Max OTP verify attempts before entry is locked */
 const OTP_MAX_ATTEMPTS = 5;
@@ -34,6 +36,8 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private walletService: WalletService,
+    private menusService: MenusService,
+    private agencyService: AgencyService,
   ) {}
 
   // ── Registration ──────────────────────────────────────────────────────────
@@ -145,7 +149,7 @@ export class AuthService {
       select: [
         'id', 'name', 'email', 'phone', 'role', 'avatar',
         'city', 'company', 'isVerified', 'createdAt', 'lastLoginAt',
-        'needsOnboarding',
+        'needsOnboarding', 'agentTick',
       ],
     });
   }
@@ -160,10 +164,25 @@ export class AuthService {
     if (dto.name?.trim()) update.name = dto.name.trim();
     if (dto.agentLicense?.trim()) update.agentLicense = dto.agentLicense.trim();
     if (dto.agentExperience != null) update.agentExperience = dto.agentExperience;
+    if (dto.agencyName?.trim()) update.company = dto.agencyName.trim();
 
     await this.userRepository.update(userId, update);
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('User not found');
+
+    // For agents: ensure AgentProfile exists + create pending Agency if company provided
+    if (dto.role === 'agent') {
+      if (dto.agencyName?.trim()) {
+        // Creates pending agency + links agent profile
+        await this.agencyService.agentRegisterOrJoinAgency(userId, {
+          agencyName: dto.agencyName.trim(),
+        });
+      } else {
+        // Always create an AgentProfile so the agent appears in admin panel
+        await this.agencyService.getOrCreateAgentProfile(userId);
+      }
+    }
+
     return this.buildAuthResponse(user);
   }
 
@@ -327,7 +346,10 @@ export class AuthService {
 
     const { password, refreshToken: _rt, failedLoginAttempts: _fa, lockedUntil: _lu, ...safeUser } = user as any;
 
+    // Fetch role-based menus for dynamic sidebar rendering
+    const menus = await this.menusService.getMenusForRole(user.role);
+
     // `token` is an alias for `accessToken` kept for backward compatibility with frontend consumers
-    return { user: safeUser, token: accessToken, accessToken, refreshToken };
+    return { user: safeUser, token: accessToken, accessToken, refreshToken, menus };
   }
 }

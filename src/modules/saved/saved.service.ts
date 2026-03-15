@@ -24,9 +24,21 @@ export class SavedService {
   async saveProperty(userId: string, propertyId: string) {
     const existing = await this.savedRepo.findOne({ where: { userId, propertyId } });
     if (existing) throw new ConflictException('Property already saved');
-    const saved = this.savedRepo.create({ userId, propertyId });
-    await this.savedRepo.save(saved);
-    return { message: 'Property saved' };
+    try {
+      const saved = this.savedRepo.create({ userId, propertyId });
+      await this.savedRepo.save(saved);
+      return { message: 'Property saved' };
+    } catch (e: any) {
+      // Duplicate entry (race condition)
+      if (e?.code === 'ER_DUP_ENTRY' || e?.code === '23505') {
+        throw new ConflictException('Property already saved');
+      }
+      // FK violation — property doesn't exist
+      if (e?.code === 'ER_NO_REFERENCED_ROW_2' || e?.code === '23503') {
+        throw new NotFoundException('Property not found');
+      }
+      throw e;
+    }
   }
 
   async unsaveProperty(userId: string, propertyId: string) {

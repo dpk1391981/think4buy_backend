@@ -20,6 +20,7 @@ import {
 } from './entities/property.entity';
 import { PropertyImage } from './entities/property-image.entity';
 import { Amenity } from './entities/amenity.entity';
+import { PropertyView } from './entities/property-view.entity';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { FilterPropertyDto } from './dto/filter-property.dto';
 import { User, UserRole } from '../users/entities/user.entity';
@@ -50,6 +51,8 @@ export class PropertiesService {
     private imageRepo: Repository<PropertyImage>,
     @InjectRepository(Amenity)
     private amenityRepo: Repository<Amenity>,
+    @InjectRepository(PropertyView)
+    private viewRepo: Repository<PropertyView>,
     private walletService: WalletService,
   ) {}
 
@@ -511,9 +514,87 @@ export class PropertiesService {
       relations: ['images', 'amenities', 'owner'],
     });
     if (!property) throw new NotFoundException('Property not found');
-    await this.propertyRepo.increment({ id: property.id }, 'viewCount', 1);
-    property.viewCount += 1;
+    // View count is now managed exclusively by trackView() to ensure uniqueness.
     return property;
+  }
+
+  // ── Bot detection ────────────────────────────────────────────────────────────
+
+  private static readonly BOT_PATTERNS = [
+    'googlebot', 'bingbot', 'slurp', 'duckduckbot', 'baiduspider',
+    'yandexbot', 'sogou', 'exabot', 'facebot', 'ia_archiver',
+    'ahrefsbot', 'semrushbot', 'dotbot', 'rogerbot', 'uptimerobot',
+    'pingdom', 'gtmetrix', 'lighthouse', 'headlesschrome', 'phantomjs',
+    'scrapy', 'python-requests', 'curl/', 'wget/', 'libwww-perl',
+  ];
+
+  private isBot(userAgent: string): boolean {
+    if (!userAgent) return false;
+    const ua = userAgent.toLowerCase();
+    return PropertiesService.BOT_PATTERNS.some(p => ua.includes(p));
+  }
+
+  // ── Track unique property view ────────────────────────────────────────────────
+
+  /**
+   * Records a property view only if no view from the same identity exists
+   * within the last 24 hours. Logged-in users are keyed by userId;
+   * guests are keyed by IP address.
+   */
+  async trackView(
+    propertyId: string,
+    opts: {
+      userId?: string;
+      ipAddress: string;
+      userAgent?: string;
+      sessionId?: string;
+      source?: string;
+      referrer?: string;
+      deviceType?: string;
+    },
+  ): Promise<void> {
+    // 1. Ignore bots
+    if (opts.userAgent && this.isBot(opts.userAgent)) return;
+
+    // 2. Ensure property exists
+    const exists = await this.propertyRepo.findOne({
+      where: { id: propertyId },
+      select: ['id'],
+    });
+    if (!exists) return;
+
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // 3. Dedup check
+    const qb = this.viewRepo
+      .createQueryBuilder('v')
+      .where('v.propertyId = :propertyId', { propertyId })
+      .andWhere('v.viewedAt > :cutoff', { cutoff });
+
+    if (opts.userId) {
+      qb.andWhere('v.userId = :userId', { userId: opts.userId });
+    } else {
+      qb.andWhere('v.ipAddress = :ip', { ip: opts.ipAddress });
+    }
+
+    const duplicate = await qb.getExists();
+    if (duplicate) return;
+
+    // 4. Insert view row
+    const view = this.viewRepo.create({
+      propertyId,
+      userId:     opts.userId ?? null,
+      ipAddress:  opts.ipAddress,
+      userAgent:  opts.userAgent?.slice(0, 512),
+      sessionId:  opts.sessionId?.slice(0, 100),
+      source:     opts.source?.slice(0, 50),
+      referrer:   opts.referrer?.slice(0, 512),
+      deviceType: opts.deviceType?.slice(0, 20),
+    });
+    await this.viewRepo.save(view);
+
+    // 5. Increment the cached counter on the property
+    await this.propertyRepo.increment({ id: propertyId }, 'viewCount', 1);
   }
 
   async findById(id: string): Promise<Property> {
