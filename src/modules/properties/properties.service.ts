@@ -542,12 +542,15 @@ export class PropertiesService {
   }
 
   async findBySlug(slug: string): Promise<Property> {
-    const property = await this.propertyRepo.findOne({
-      where: { slug },
-      relations: ['images', 'amenities', 'owner'],
-    });
+    const property = await this.propertyRepo
+      .createQueryBuilder('property')
+      .leftJoinAndSelect('property.images', 'images')
+      .leftJoinAndSelect('property.amenities', 'amenities')
+      .leftJoinAndSelect('property.owner', 'owner')
+      .where('property.slug = :slug', { slug })
+      .orderBy('images.sortOrder', 'ASC')
+      .getOne();
     if (!property) throw new NotFoundException('Property not found');
-    // View count is now managed exclusively by trackView() to ensure uniqueness.
     return property;
   }
 
@@ -631,10 +634,14 @@ export class PropertiesService {
   }
 
   async findById(id: string): Promise<Property> {
-    const property = await this.propertyRepo.findOne({
-      where: { id },
-      relations: ['images', 'amenities', 'owner'],
-    });
+    const property = await this.propertyRepo
+      .createQueryBuilder('property')
+      .leftJoinAndSelect('property.images', 'images')
+      .leftJoinAndSelect('property.amenities', 'amenities')
+      .leftJoinAndSelect('property.owner', 'owner')
+      .where('property.id = :id', { id })
+      .orderBy('images.sortOrder', 'ASC')
+      .getOne();
     if (!property) throw new NotFoundException('Property not found');
     return property;
   }
