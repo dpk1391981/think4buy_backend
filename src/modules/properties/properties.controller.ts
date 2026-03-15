@@ -123,7 +123,7 @@ export class PropertiesController {
    * Idempotent within a 24-hour window — safe to call on every page load.
    */
   @Post(':id/view')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  // @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: 'Record a unique property view' })
   async trackView(
