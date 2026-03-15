@@ -5,12 +5,14 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository, IsNull, LessThanOrEqual, MoreThan } from 'typeorm';
 import { Agency, AgencyStatus } from './entities/agency.entity';
 import { AgentProfile } from './entities/agent-profile.entity';
 import { PropertyAgentMap } from './entities/property-agent-map.entity';
 import { AgentLocationMap } from './entities/agent-location-map.entity';
+import { PremiumSlot } from './entities/premium-slot.entity';
 import {
   CreateAgencyDto,
   UpdateAgencyDto,
@@ -31,6 +33,8 @@ export class AgencyService {
     private propertyAgentMapRepo: Repository<PropertyAgentMap>,
     @InjectRepository(AgentLocationMap)
     private agentLocationMapRepo: Repository<AgentLocationMap>,
+    @InjectRepository(PremiumSlot)
+    private premiumSlotRepo: Repository<PremiumSlot>,
   ) {}
 
   // ─── Agency CRUD ─────────────────────────────────────────────────────────────
@@ -363,22 +367,46 @@ export class AgencyService {
 
   // ─── Agent Location Mapping ───────────────────────────────────────────────────
 
+  private toSlug(s: string): string {
+    return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+
   async addAgentLocation(agentId: string, dto: AssignAgentLocationDto): Promise<AgentLocationMap> {
     const profile = await this.agentProfileRepo.findOne({ where: { id: agentId } });
     if (!profile) throw new NotFoundException('Agent profile not found');
 
-    // Prevent duplicate location mapping
+    const coverageType = dto.coverageType ?? 'city';
+    const localitySlug = dto.localityName ? this.toSlug(dto.localityName) : null;
+    const citySlug     = dto.cityName     ? this.toSlug(dto.cityName)     : null;
+    const stateSlug    = dto.stateName    ? this.toSlug(dto.stateName)    : null;
+
+    // Prevent exact duplicate
     const existing = await this.agentLocationMapRepo.findOne({
       where: {
         agentId,
-        countryId: dto.countryId || null,
-        stateId: dto.stateId || null,
-        cityId: dto.cityId || null,
+        coverageType,
+        cityId:  dto.cityId     || null,
+        stateId: dto.stateId    || null,
+        localityId: dto.localityId || null,
       },
     });
-    if (existing) throw new ConflictException('Location already mapped to this agent');
+    if (existing) throw new ConflictException('Coverage area already mapped to this agent');
 
-    const loc = this.agentLocationMapRepo.create({ agentId, ...dto });
+    const loc = this.agentLocationMapRepo.create({
+      agentId,
+      coverageType,
+      countryId:    dto.countryId    || null,
+      stateId:      dto.stateId      || null,
+      stateName:    dto.stateName    || null,
+      stateSlug,
+      cityId:       dto.cityId       || null,
+      cityName:     dto.cityName     || null,
+      citySlug,
+      localityId:   dto.localityId   || null,
+      localityName: dto.localityName || null,
+      localitySlug,
+      isActive: true,
+    });
     return this.agentLocationMapRepo.save(loc);
   }
 
@@ -386,11 +414,182 @@ export class AgencyService {
     const loc = await this.agentLocationMapRepo.findOne({ where: { id: locationMapId } });
     if (!loc) throw new NotFoundException('Location mapping not found');
     await this.agentLocationMapRepo.remove(loc);
-    return { message: 'Location mapping removed' };
+    return { message: 'Coverage area removed' };
   }
 
   async getAgentLocations(agentId: string): Promise<AgentLocationMap[]> {
-    return this.agentLocationMapRepo.find({ where: { agentId } });
+    return this.agentLocationMapRepo.find({ where: { agentId }, order: { createdAt: 'DESC' } });
+  }
+
+  // ─── Diamond Agent Coverage Search ───────────────────────────────────────────
+
+  /**
+   * Returns diamond-badge agents whose coverage areas match the query.
+   * Matching priority: locality slug > city slug > state slug.
+   * Used to render "Top Diamond Agents" banner above search results.
+   */
+  async getDiamondAgentsByCoverage(
+    locality?: string,
+    city?: string,
+    state?: string,
+    limit = 6,
+  ): Promise<any[]> {
+    const localitySlug = this.toSlug(locality || '');
+    const citySlug     = this.toSlug(city     || '');
+    const stateSlug    = this.toSlug(state    || '');
+
+    if (!localitySlug && !citySlug && !stateSlug) return [];
+
+    const db = this.agentLocationMapRepo.manager.connection;
+
+    const areaConditions: string[] = [];
+    const params: any[]            = [];
+
+    if (localitySlug) {
+      areaConditions.push('alm.localitySlug = ?');
+      params.push(localitySlug);
+    }
+    if (citySlug) {
+      // city-level coverage also covers any locality in that city
+      areaConditions.push("(alm.citySlug = ? AND alm.coverageType IN ('city', 'locality'))");
+      params.push(citySlug);
+    }
+    if (stateSlug) {
+      areaConditions.push("(alm.stateSlug = ? AND alm.coverageType = 'state')");
+      params.push(stateSlug);
+    }
+
+    const rows: any[] = await db.query(
+      `SELECT DISTINCT
+         u.id           AS id,
+         ap.id          AS agentProfileId,
+         u.name         AS name,
+         u.phone        AS phone,
+         u.avatar       AS avatar,
+         u.company      AS company,
+         u.city         AS city,
+         u.state        AS state,
+         ap.tick        AS agentTick,
+         ap.rating      AS agentRating,
+         ap.totalDeals  AS totalDeals,
+         ap.experienceYears AS agentExperience,
+         ap.licenseNumber   AS agentLicense,
+         ap.authorityScore  AS authorityScore,
+         GROUP_CONCAT(
+           DISTINCT COALESCE(alm.localityName, alm.cityName, alm.stateName)
+           ORDER BY alm.coverageType
+           SEPARATOR ', '
+         ) AS coverageAreas
+       FROM agent_location_map alm
+       INNER JOIN agent_profiles ap ON ap.id = alm.agentId
+       INNER JOIN users u            ON u.id  = ap.userId
+       WHERE alm.isActive = 1
+         AND ap.tick = 'diamond'
+         AND ap.isActive = 1
+         AND (${areaConditions.join(' OR ')})
+       GROUP BY u.id, ap.id
+       ORDER BY ap.authorityScore DESC, ap.totalDeals DESC
+       LIMIT ?`,
+      [...params, limit],
+    );
+
+    return rows.map((r) => ({
+      id:              r.id,
+      agentProfileId:  r.agentProfileId,
+      name:            r.name,
+      phone:           r.phone,
+      avatar:          r.avatar,
+      company:         r.company,
+      city:            r.city,
+      state:           r.state,
+      agentTick:       r.agentTick,
+      agentRating:     Number(r.agentRating ?? 0),
+      totalDeals:      r.totalDeals ?? 0,
+      agentExperience: r.agentExperience ?? 0,
+      agentLicense:    r.agentLicense ?? null,
+      authorityScore:  Number(r.authorityScore ?? 0),
+      coverageAreas:   r.coverageAreas ?? '',
+      isDiamondAgent:  true,
+    }));
+  }
+
+  // ─── Admin: Coverage Area Management ─────────────────────────────────────────
+
+  async listAdminCoverage(
+    agentProfileId?: string,
+    tick?: string,
+    city?: string,
+    page = 1,
+    limit = 20,
+  ) {
+    const db = this.agentLocationMapRepo.manager.connection;
+
+    const conditions = ['1=1'];
+    const params: any[] = [];
+
+    if (agentProfileId) {
+      conditions.push('alm.agentId = ?');
+      params.push(agentProfileId);
+    }
+    if (tick) {
+      conditions.push('ap.tick = ?');
+      params.push(tick);
+    }
+    if (city) {
+      conditions.push('(alm.citySlug = ? OR alm.cityName LIKE ?)');
+      params.push(this.toSlug(city), `%${city}%`);
+    }
+
+    const where = conditions.join(' AND ');
+
+    const [{ cnt }] = await db.query(
+      `SELECT COUNT(*) AS cnt
+       FROM agent_location_map alm
+       INNER JOIN agent_profiles ap ON ap.id = alm.agentId
+       INNER JOIN users u ON u.id = ap.userId
+       WHERE ${where}`,
+      params,
+    );
+
+    const rows: any[] = await db.query(
+      `SELECT alm.id, alm.agentId, alm.coverageType,
+              alm.stateName, alm.cityName, alm.localityName,
+              alm.stateSlug, alm.citySlug, alm.localitySlug,
+              alm.isActive, alm.approvedAt, alm.approvedBy, alm.createdAt,
+              ap.tick, ap.authorityScore,
+              u.name AS agentName, u.avatar AS agentAvatar
+       FROM agent_location_map alm
+       INNER JOIN agent_profiles ap ON ap.id = alm.agentId
+       INNER JOIN users u ON u.id = ap.userId
+       WHERE ${where}
+       ORDER BY alm.createdAt DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, (page - 1) * limit],
+    );
+
+    return {
+      items: rows,
+      total: Number(cnt),
+      page,
+      limit,
+      totalPages: Math.ceil(Number(cnt) / limit),
+    };
+  }
+
+  async approveCoverage(locationMapId: string, adminUserId: string): Promise<AgentLocationMap> {
+    const loc = await this.agentLocationMapRepo.findOne({ where: { id: locationMapId } });
+    if (!loc) throw new NotFoundException('Coverage mapping not found');
+    loc.isActive   = true;
+    loc.approvedBy = adminUserId;
+    loc.approvedAt = new Date();
+    return this.agentLocationMapRepo.save(loc);
+  }
+
+  async deactivateCoverage(locationMapId: string): Promise<AgentLocationMap> {
+    const loc = await this.agentLocationMapRepo.findOne({ where: { id: locationMapId } });
+    if (!loc) throw new NotFoundException('Coverage mapping not found');
+    loc.isActive = false;
+    return this.agentLocationMapRepo.save(loc);
   }
 
   // ─── Public / Search APIs ─────────────────────────────────────────────────────
@@ -563,5 +762,157 @@ export class AgencyService {
     agency.isActive = false;
     agency.rejectionReason = reason ?? 'Rejected by admin';
     return this.agencyRepo.save(agency);
+  }
+
+  // ─── Premium Slot System ─────────────────────────────────────────────────────
+
+  /** Return active, non-expired premium slots for a city (for search banner) */
+  async getPremiumAgentsByCity(city: string): Promise<PremiumSlot[]> {
+    if (!city) return [];
+    const normalised = city.toLowerCase().trim();
+    const now = new Date();
+    return this.premiumSlotRepo.find({
+      where: {
+        city: normalised,
+        isActive: true,
+        expiresAt: MoreThan(now),
+      },
+      order: { slotNumber: 'ASC' },
+      take: 6,
+    });
+  }
+
+  /** Create or update a premium slot (admin only) */
+  async upsertPremiumSlot(dto: {
+    city: string;
+    slotNumber: number;
+    agentId: string;
+    agencyId?: string;
+    agentName?: string;
+    agentAvatar?: string;
+    agentPhone?: string;
+    price?: number;
+    durationDays?: number;
+    adminNotes?: string;
+  }): Promise<PremiumSlot> {
+    const city = dto.city.toLowerCase().trim();
+    // Deactivate any existing slot at same city + position
+    await this.premiumSlotRepo.update(
+      { city, slotNumber: dto.slotNumber, isActive: true },
+      { isActive: false },
+    );
+    const durationDays = dto.durationDays ?? 30;
+    const startsAt = new Date();
+    const expiresAt = new Date(startsAt.getTime() + durationDays * 86400 * 1000);
+    const slot = this.premiumSlotRepo.create({
+      city,
+      cityId: undefined,
+      slotNumber: dto.slotNumber,
+      agentId: dto.agentId,
+      agencyId: dto.agencyId ?? null,
+      agentName: dto.agentName ?? null,
+      agentAvatar: dto.agentAvatar ?? null,
+      agentPhone: dto.agentPhone ?? null,
+      price: dto.price ?? 0,
+      durationDays,
+      startsAt,
+      expiresAt,
+      isActive: true,
+      adminNotes: dto.adminNotes ?? null,
+    });
+    return this.premiumSlotRepo.save(slot);
+  }
+
+  /** Admin: list all premium slots with optional city filter */
+  async listPremiumSlots(city?: string, page = 1, limit = 20) {
+    const qb = this.premiumSlotRepo.createQueryBuilder('slot')
+      .orderBy('slot.city', 'ASC')
+      .addOrderBy('slot.slotNumber', 'ASC');
+    if (city) qb.where('slot.city = :city', { city: city.toLowerCase() });
+    const [items, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  /** Admin: delete/deactivate a slot */
+  async deactivatePremiumSlot(id: string): Promise<{ message: string }> {
+    const slot = await this.premiumSlotRepo.findOne({ where: { id } });
+    if (!slot) throw new NotFoundException('Slot not found');
+    slot.isActive = false;
+    await this.premiumSlotRepo.save(slot);
+    return { message: 'Slot deactivated' };
+  }
+
+  /** Cron: expire premium slots whose expiresAt has passed */
+  @Cron(CronExpression.EVERY_HOUR)
+  async expirePremiumSlots() {
+    const now = new Date();
+    await this.premiumSlotRepo
+      .createQueryBuilder()
+      .update(PremiumSlot)
+      .set({ isActive: false })
+      .where('isActive = :a', { a: true })
+      .andWhere('expiresAt <= :now', { now })
+      .execute();
+  }
+
+  // ─── Agent Authority Score ───────────────────────────────────────────────────
+
+  /**
+   * Recompute authority score for one agent profile in-place.
+   *
+   * Formula:
+   *   subscriptionWeight 40% — tick: diamond=100, gold=75, blue=50, none=0
+   *   responseSpeed      20% — reserved, default 50
+   *   dealSuccess        20% — totalDeals capped at 50 → scaled 0–100
+   *   reviews            10% — agentRating/5 × 100
+   *   listingQuality     10% — totalListings capped at 30 → scaled 0–100
+   */
+  async computeAndSaveAuthorityScore(profile: AgentProfile): Promise<number> {
+    const tickMap: Record<string, number> = { diamond: 100, gold: 75, blue: 50, none: 0 };
+    const tickScore = tickMap[profile.tick] ?? 0;
+    const responseScore = 50; // reserved
+    const dealScore = Math.min((profile.totalDeals / 50) * 100, 100);
+    const reviewScore = profile.rating ? (Number(profile.rating) / 5) * 100 : 0;
+    const listingScore = Math.min((profile.totalListings / 30) * 100, 100);
+
+    const score =
+      tickScore * 0.40 +
+      responseScore * 0.20 +
+      dealScore * 0.20 +
+      reviewScore * 0.10 +
+      listingScore * 0.10;
+
+    const rounded = Math.round(score * 100) / 100;
+    profile.authorityScore = rounded;
+    profile.authorityScoreUpdatedAt = new Date();
+    await this.agentProfileRepo.save(profile);
+    return rounded;
+  }
+
+  /** Cron: recompute authority scores for all agent profiles every 6 hours */
+  @Cron('0 */6 * * *')
+  async recomputeAllAuthorityScores() {
+    const profiles = await this.agentProfileRepo.find({ where: { isActive: true } });
+    for (const profile of profiles) {
+      await this.computeAndSaveAuthorityScore(profile);
+    }
+  }
+
+  /** Return top agents for a city ranked by authority score */
+  async getTopAgentsByCity(city: string, limit = 12): Promise<AgentProfile[]> {
+    if (!city) return [];
+    return this.agentProfileRepo
+      .createQueryBuilder('ap')
+      .innerJoin(
+        'agent_location_maps',
+        'alm',
+        'alm.agentId = ap.userId AND alm.isActive = true',
+      )
+      .innerJoin('cities', 'ct', 'ct.id = alm.cityId AND LOWER(ct.name) = LOWER(:city)', { city })
+      .where('ap.isActive = true')
+      .orderBy('ap.authorityScore', 'DESC')
+      .addOrderBy('ap.rating', 'DESC')
+      .take(limit)
+      .getMany();
   }
 }

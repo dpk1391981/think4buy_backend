@@ -355,6 +355,28 @@ export class AdminService {
     return this.locationsService.deleteCity(id);
   }
 
+  // ── Localities ────────────────────────────────────────────────────────────────
+
+  async getLocalities(params: { page?: number; limit?: number; city?: string; state?: string; search?: string }) {
+    return this.locationsService.getLocalities(params);
+  }
+
+  async createLocality(data: { city: string; state: string; locality?: string; pincode?: string; latitude?: number; longitude?: number }) {
+    return this.locationsService.createLocality(data);
+  }
+
+  async updateLocality(id: string, data: any) {
+    return this.locationsService.updateLocality(id, data);
+  }
+
+  async deleteLocality(id: string) {
+    return this.locationsService.deleteLocality(id);
+  }
+
+  async bulkImportLocalities(rows: { city: string; state: string; locality?: string; pincode?: string }[]) {
+    return this.locationsService.bulkImportLocalities(rows);
+  }
+
   // ── Countries ────────────────────────────────────────────────────────────────
 
   async getCountries() {
@@ -424,6 +446,7 @@ export class AdminService {
     }
     if (data.metaTitle !== undefined) (property as any).metaTitle = data.metaTitle;
     if (data.metaDescription !== undefined) (property as any).metaDescription = data.metaDescription;
+    if ((data as any).allowIndexing !== undefined) property.allowIndexing = (data as any).allowIndexing;
 
     return this.propertyRepo.save(property);
   }

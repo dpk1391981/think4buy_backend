@@ -58,6 +58,7 @@ import { Agency } from './modules/agency/entities/agency.entity';
 import { AgentProfile } from './modules/agency/entities/agent-profile.entity';
 import { PropertyAgentMap } from './modules/agency/entities/property-agent-map.entity';
 import { AgentLocationMap } from './modules/agency/entities/agent-location-map.entity';
+import { PremiumSlot } from './modules/agency/entities/premium-slot.entity';
 import { LeadsModule } from './modules/leads/leads.module';
 import { Lead } from './modules/leads/entities/lead.entity';
 import { LeadAssignment } from './modules/leads/entities/lead-assignment.entity';
@@ -135,6 +136,7 @@ import { Notification } from './modules/notifications/entities/notification.enti
           AgentProfile,
           PropertyAgentMap,
           AgentLocationMap,
+          PremiumSlot,
           Lead,
           LeadAssignment,
           LeadActivityLog,

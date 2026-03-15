@@ -129,6 +129,11 @@ export class CreatePropertyDto {
   @IsString()
   locality: string;
 
+  @ApiPropertyOptional({ example: 'uuid-of-location-record' })
+  @IsOptional()
+  @IsString()
+  localityId?: string;
+
   @ApiPropertyOptional({ example: 'Oberoi Splendor' })
   @IsOptional()
   @IsString()

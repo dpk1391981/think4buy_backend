@@ -6,6 +6,7 @@ import { Agency } from './entities/agency.entity';
 import { AgentProfile } from './entities/agent-profile.entity';
 import { PropertyAgentMap } from './entities/property-agent-map.entity';
 import { AgentLocationMap } from './entities/agent-location-map.entity';
+import { PremiumSlot } from './entities/premium-slot.entity';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AgentLocationMap } from './entities/agent-location-map.entity';
       AgentProfile,
       PropertyAgentMap,
       AgentLocationMap,
+      PremiumSlot,
     ]),
   ],
   controllers: [AgencyController],

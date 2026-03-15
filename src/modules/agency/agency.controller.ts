@@ -60,6 +60,41 @@ export class AgencyController {
     return this.agencyService.getAgencies(page, limit, search, cityId);
   }
 
+  // ─── Public: Premium Agent Slots (must be before :id to avoid capture) ──────
+
+  @Get('premium-agents')
+  @ApiOperation({ summary: 'Get active premium-slot agents for a city (public)' })
+  @ApiQuery({ name: 'city', required: true })
+  getPremiumAgentsByCity(@Query('city') city: string) {
+    return this.agencyService.getPremiumAgentsByCity(city || '');
+  }
+
+  @Get('top-agents')
+  @ApiOperation({ summary: 'Top agents by authority score for a city (public)' })
+  @ApiQuery({ name: 'city', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  getTopAgentsByCity(
+    @Query('city') city?: string,
+    @Query('limit', new DefaultValuePipe(12), ParseIntPipe) limit?: number,
+  ) {
+    return this.agencyService.getTopAgentsByCity(city || '', limit);
+  }
+
+  @Get('diamond-agents')
+  @ApiOperation({ summary: 'Diamond agents matching a locality/city/state (public)' })
+  @ApiQuery({ name: 'locality', required: false })
+  @ApiQuery({ name: 'city',     required: false })
+  @ApiQuery({ name: 'state',    required: false })
+  @ApiQuery({ name: 'limit',    required: false })
+  getDiamondAgentsByCoverage(
+    @Query('locality') locality?: string,
+    @Query('city')     city?: string,
+    @Query('state')    state?: string,
+    @Query('limit', new DefaultValuePipe(6), ParseIntPipe) limit?: number,
+  ) {
+    return this.agencyService.getDiamondAgentsByCoverage(locality, city, state, limit);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get agency details (public)' })
   getAgency(@Param('id') id: string) {
@@ -359,5 +394,105 @@ export class AgencyController {
   async getMyLocations(@Request() req) {
     const profile = await this.agencyService.getAgentProfileByUserId(req.user.id);
     return this.agencyService.getAgentLocations(profile.id);
+  }
+
+  // ─── Admin: Premium Slot Management ──────────────────────────────────────────
+
+  @Get('admin/premium-slots')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: List all premium slots' })
+  @ApiQuery({ name: 'city', required: false })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  adminListSlots(
+    @Request() req,
+    @Query('city') city?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+  ) {
+    this.assertAdmin(req);
+    return this.agencyService.listPremiumSlots(city, page, limit);
+  }
+
+  @Post('admin/premium-slots')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Create/replace a premium slot' })
+  adminCreateSlot(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.agencyService.upsertPremiumSlot(body);
+  }
+
+  @Delete('admin/premium-slots/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Deactivate a premium slot' })
+  adminDeactivateSlot(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.agencyService.deactivatePremiumSlot(id);
+  }
+
+  // ─── Admin: Diamond Coverage Area Management ──────────────────────────────────
+
+  @Get('admin/coverage')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: List all agent coverage areas' })
+  @ApiQuery({ name: 'agentProfileId', required: false })
+  @ApiQuery({ name: 'tick',           required: false })
+  @ApiQuery({ name: 'city',           required: false })
+  @ApiQuery({ name: 'page',           required: false })
+  @ApiQuery({ name: 'limit',          required: false })
+  adminListCoverage(
+    @Request() req,
+    @Query('agentProfileId') agentProfileId?: string,
+    @Query('tick')           tick?: string,
+    @Query('city')           city?: string,
+    @Query('page',  new DefaultValuePipe(1),  ParseIntPipe) page?: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+  ) {
+    this.assertAdmin(req);
+    return this.agencyService.listAdminCoverage(agentProfileId, tick, city, page, limit);
+  }
+
+  @Post('admin/coverage')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Add coverage area to an agent profile' })
+  adminAddCoverage(
+    @Request() req,
+    @Body() body: { agentProfileId: string } & any,
+  ) {
+    this.assertAdmin(req);
+    const { agentProfileId, ...dto } = body;
+    return this.agencyService.addAgentLocation(agentProfileId, dto);
+  }
+
+  @Patch('admin/coverage/:id/approve')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Approve a coverage area' })
+  adminApproveCoverage(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.agencyService.approveCoverage(id, req.user.id);
+  }
+
+  @Patch('admin/coverage/:id/deactivate')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Deactivate a coverage area' })
+  adminDeactivateCoverage(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.agencyService.deactivateCoverage(id);
+  }
+
+  @Delete('admin/coverage/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Remove a coverage area entirely' })
+  adminRemoveCoverage(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.agencyService.removeAgentLocation(id);
   }
 }

@@ -68,6 +68,23 @@ export class AgentProfile {
   @Column({ type: 'enum', enum: ['none', 'blue', 'gold', 'diamond'], default: 'none' })
   tick: 'none' | 'blue' | 'gold' | 'diamond';
 
+  /**
+   * Composite authority score (0–100) recalculated periodically.
+   *
+   * Formula:
+   *   subscriptionWeight × 40%   (tick: diamond=100, gold=75, blue=50, none=0)
+   *   responseSpeed       × 20%  (reserved — defaults to 50 until tracked)
+   *   dealSuccess         × 20%  (totalDeals, capped at 50 → 100%)
+   *   reviews             × 10%  (rating / 5 × 100)
+   *   listingQuality      × 10%  (totalListings, capped at 30 → 100%)
+   */
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  authorityScore: number;
+
+  /** Timestamp of last authority-score recomputation */
+  @Column({ type: 'timestamp', nullable: true })
+  authorityScoreUpdatedAt: Date;
+
   @OneToMany(() => PropertyAgentMap, (map) => map.agent)
   propertyMaps: PropertyAgentMap[];
 

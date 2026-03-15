@@ -451,12 +451,27 @@ export class PropertiesService {
     const allowedSort = ['createdAt', 'price', 'area', 'viewCount'];
     if (sortBy === 'relevance') {
       // Weighted relevance score:
-      //   isFeatured    → +100
-      //   listingPlan   → FEATURED=80, PREMIUM=60, BASIC=40, FREE=0
-      //   isVerified    → +20
-      //   viewCount     → up to +15 (capped at 500 views → 15 pts)
-      //   recency       → up to +10 (within last 30 days)
-      qb.addSelect(
+      //   isFeatured         → +100
+      //   listingPlan        → FEATURED=80, PREMIUM=60, BASIC=40, FREE=0
+      //   agentTick          → diamond=50, gold=35, blue=20  (via owner join)
+      //   agentSubscription  → +30 if owner has an active premium/featured sub
+      //   isVerified         → +20
+      //   viewCount          → up to +15 (capped at 500 views → 15 pts)
+      //   recency            → up to +10 (within last 30 days)
+      qb
+        .leftJoin(
+          'agent_subscriptions',
+          'agentSub',
+          `agentSub.agentId = property.ownerId
+           AND agentSub.status = 'active'
+           AND agentSub.expiresAt > NOW()`,
+        )
+        .leftJoin(
+          'subscription_plans',
+          'subPlan',
+          'subPlan.id = agentSub.planId',
+        )
+        .addSelect(
         `(
           (CASE WHEN property.isFeatured = 1 THEN 100 ELSE 0 END) +
           (CASE property.listingPlan
@@ -465,6 +480,13 @@ export class PropertiesService {
             WHEN 'basic'    THEN 40
             ELSE 0
           END) +
+          (CASE owner.agentTick
+            WHEN 'diamond' THEN 50
+            WHEN 'gold'    THEN 35
+            WHEN 'blue'    THEN 20
+            ELSE 0
+          END) +
+          (CASE WHEN agentSub.id IS NOT NULL AND subPlan.type IN ('featured','premium') THEN 30 ELSE 0 END) +
           (CASE WHEN property.isVerified = 1 THEN 20 ELSE 0 END) +
           LEAST(CAST(property.viewCount AS UNSIGNED) / 500.0 * 15, 15) +
           GREATEST(10 - DATEDIFF(NOW(), property.updatedAt), 0)

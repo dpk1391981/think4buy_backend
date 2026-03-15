@@ -222,9 +222,14 @@ export class ReassignPropertyDto {
   newAgentId: string;
 }
 
-// ─── Location Assignment DTOs ─────────────────────────────────────────────────
+// ─── Location / Coverage Assignment DTOs ─────────────────────────────────────
 
 export class AssignAgentLocationDto {
+  @ApiPropertyOptional({ enum: ['state', 'city', 'locality'], default: 'city' })
+  @IsOptional()
+  @IsEnum(['state', 'city', 'locality'])
+  coverageType?: 'state' | 'city' | 'locality';
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -238,5 +243,25 @@ export class AssignAgentLocationDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  stateName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   cityId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  cityName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  localityId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  localityName?: string;
 }

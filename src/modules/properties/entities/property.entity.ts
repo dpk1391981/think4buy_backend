@@ -233,6 +233,11 @@ export class Property {
   @Column({ length: 500, nullable: true })
   metaDescription: string;
 
+  // SEO indexing — false by default to avoid thin-content penalties on individual listings.
+  // Admin can flip this to true for premium/high-quality properties worth indexing.
+  @Column({ default: false })
+  allowIndexing: boolean;
+
   // Listing user type
   @Column({ type: 'enum', enum: ListingUserType, default: ListingUserType.OWNER })
   listedBy: ListingUserType;
@@ -262,6 +267,9 @@ export class Property {
 
   @Column({ nullable: true, length: 36 })
   cityId: string;
+
+  @Column({ nullable: true, length: 36 })
+  localityId: string;
 
   @ManyToOne(() => User, (user) => user.properties, { eager: false })
   @JoinColumn({ name: 'owner_id' })

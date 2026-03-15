@@ -321,11 +321,11 @@ export class AdminController {
   }
 
   @Patch('properties/:id/seo')
-  @ApiOperation({ summary: 'Update property SEO slug and meta (admin only)' })
+  @ApiOperation({ summary: 'Update property SEO slug, meta, and indexing flag (admin only)' })
   updatePropertySeo(
     @Request() req,
     @Param('id') id: string,
-    @Body() body: { slug?: string; metaTitle?: string; metaDescription?: string },
+    @Body() body: { slug?: string; metaTitle?: string; metaDescription?: string; allowIndexing?: boolean },
   ) {
     this.assertAdmin(req);
     return this.adminService.updatePropertySeo(id, body);
@@ -431,6 +431,54 @@ export class AdminController {
   deleteCity(@Request() req, @Param('id') id: string) {
     this.assertAdmin(req);
     return this.adminService.deleteCity(id);
+  }
+
+  // ── Localities ───────────────────────────────────────────────────────────────
+  @Get('localities')
+  @ApiOperation({ summary: 'List localities (admin)' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'state', required: false })
+  @ApiQuery({ name: 'city', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  getLocalities(
+    @Request() req,
+    @Query('page') page = 1,
+    @Query('limit') limit = 50,
+    @Query('state') state?: string,
+    @Query('city') city?: string,
+    @Query('search') search?: string,
+  ) {
+    this.assertAdmin(req);
+    return this.adminService.getLocalities({ page: +page, limit: +limit, state, city, search });
+  }
+
+  @Post('localities')
+  @ApiOperation({ summary: 'Create a locality entry' })
+  createLocality(@Request() req, @Body() body: { city: string; state: string; locality?: string; pincode?: string; latitude?: number; longitude?: number }) {
+    this.assertAdmin(req);
+    return this.adminService.createLocality(body);
+  }
+
+  @Patch('localities/:id')
+  @ApiOperation({ summary: 'Update a locality entry' })
+  updateLocality(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.adminService.updateLocality(id, body);
+  }
+
+  @Delete('localities/:id')
+  @ApiOperation({ summary: 'Delete a locality entry' })
+  deleteLocality(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.deleteLocality(id);
+  }
+
+  @Post('localities/bulk-import')
+  @ApiOperation({ summary: 'Bulk import localities from a JSON array' })
+  bulkImportLocalities(@Request() req, @Body() body: { rows: { city: string; state: string; locality?: string; pincode?: string }[] }) {
+    this.assertAdmin(req);
+    return this.adminService.bulkImportLocalities(body.rows || []);
   }
 
   // ── Agency Management ───────────────────────────────────────────────────────

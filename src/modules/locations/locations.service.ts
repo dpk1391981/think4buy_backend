@@ -78,6 +78,16 @@ export class LocationsService {
     return this.cityRepository.find({ where, order: { name: 'ASC' } });
   }
 
+  async getLocalitiesByCityName(city: string, state?: string): Promise<Location[]> {
+    const where: any = { city, isActive: true };
+    if (state) where.state = state;
+    return this.locationRepo.find({
+      where,
+      order: { propertyCount: 'DESC' },
+      take: 50,
+    });
+  }
+
   async getAllCities(page = 1, limit = 50, search?: string, stateId?: string) {
     const qb = this.cityRepository
       .createQueryBuilder('city')
@@ -112,6 +122,46 @@ export class LocationsService {
 
   async deleteCity(id: string) {
     return this.cityRepository.delete(id);
+  }
+
+  // ── Localities (admin CRUD) ───────────────────────────────────────────────
+
+  async getLocalities(params: { page?: number; limit?: number; city?: string; state?: string; search?: string }) {
+    const { page = 1, limit = 50, city, state, search } = params;
+    const qb = this.locationRepo.createQueryBuilder('l');
+    if (state) qb.where('l.state = :state', { state });
+    if (city) qb.andWhere('l.city = :city', { city });
+    if (search) qb.andWhere('(l.locality LIKE :s OR l.city LIKE :s OR l.pincode LIKE :s)', { s: `%${search}%` });
+    qb.orderBy('l.propertyCount', 'DESC').addOrderBy('l.locality', 'ASC').skip((page - 1) * limit).take(limit);
+    const [items, total] = await qb.getManyAndCount();
+    return { items, total, page, limit };
+  }
+
+  async createLocality(data: {
+    city: string;
+    state: string;
+    locality?: string;
+    pincode?: string;
+    latitude?: number;
+    longitude?: number;
+    isActive?: boolean;
+  }) {
+    const loc = this.locationRepo.create({ ...data, isActive: data.isActive ?? true });
+    return this.locationRepo.save(loc);
+  }
+
+  async updateLocality(id: string, data: Partial<Location>) {
+    await this.locationRepo.update(id, data);
+    return this.locationRepo.findOne({ where: { id } });
+  }
+
+  async deleteLocality(id: string) {
+    return this.locationRepo.delete(id);
+  }
+
+  async bulkImportLocalities(rows: { city: string; state: string; locality?: string; pincode?: string }[]) {
+    const entities = rows.map(r => this.locationRepo.create({ ...r, isActive: true }));
+    return this.locationRepo.save(entities);
   }
 
   // ── SEO content lookup ────────────────────────────────────────────────────

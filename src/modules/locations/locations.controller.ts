@@ -20,9 +20,9 @@ export class LocationsController {
   }
 
   @Get('localities')
-  @ApiOperation({ summary: 'Get localities by city' })
-  getLocalities(@Query('city') city: string) {
-    return this.locationsService.getLocalitiesByCity(city);
+  @ApiOperation({ summary: 'Get localities by city (and optionally state)' })
+  getLocalities(@Query('city') city: string, @Query('state') state?: string) {
+    return this.locationsService.getLocalitiesByCityName(city, state);
   }
 
   @Get('states')
