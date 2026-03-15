@@ -13,17 +13,15 @@ import {
   HttpStatus,
   UseInterceptors,
   UploadedFiles,
-  ParseFilePipe,
-  MaxFileSizeValidator,
-  FileTypeValidator,
+  BadRequestException,
   ParseIntPipe,
   DefaultValuePipe,
 } from '@nestjs/common';
 import { OptionalAuthGuard } from '../../common/guards/optional-auth.guard';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { Throttle } from '@nestjs/throttler';
+import { imageMulterOptions } from '../upload/multer.config';
+import { ImageUploadService } from '../upload/image-upload.service';
 import {
   ApiTags,
   ApiOperation,
@@ -39,7 +37,10 @@ import { PropertyStatus, ApprovalStatus } from './entities/property.entity';
 @ApiTags('properties')
 @Controller('properties')
 export class PropertiesController {
-  constructor(private readonly propertiesService: PropertiesService) {}
+  constructor(
+    private readonly propertiesService: PropertiesService,
+    private readonly imageUploadService: ImageUploadService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List properties with filters' })
@@ -193,29 +194,17 @@ export class PropertiesController {
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Upload property images and videos' })
-  @UseInterceptors(
-    FilesInterceptor('images', 11, {
-      storage: diskStorage({
-        destination: './uploads/properties',
-        filename: (_req, file, cb) => {
-          cb(null, `${uuidv4()}${extname(file.originalname)}`);
-        },
-      }),
-      limits: { fileSize: 100 * 1024 * 1024 }, // 100MB for videos
-      fileFilter: (_req, file, cb) => {
-        const allowed = /jpeg|jpg|png|webp|mp4|mov|avi|webm/;
-        const ok = allowed.test(extname(file.originalname).toLowerCase());
-        cb(null, ok);
-      },
-    }),
-  )
-  uploadImages(
+  @ApiOperation({ summary: 'Upload property images (max 20, 5 MB each, JPEG/PNG/WebP)' })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseInterceptors(FilesInterceptor('images', 20, imageMulterOptions(20)))
+  async uploadImages(
     @Param('id') id: string,
     @UploadedFiles() files: Express.Multer.File[],
     @Request() req,
   ) {
-    return this.propertiesService.addImages(id, files, req.user);
+    if (!files?.length) throw new BadRequestException('No images uploaded');
+    const urls = await this.imageUploadService.saveImages(files, 'properties', id);
+    return this.propertiesService.addImages(id, urls, req.user);
   }
 
   @Delete(':id/images/:imageId')

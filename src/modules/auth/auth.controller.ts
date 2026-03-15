@@ -13,13 +13,12 @@ import {
   Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { v4 as uuidv4 } from 'uuid';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { Response, Request as ExpressRequest } from 'express';
 import { Throttle } from '@nestjs/throttler';
+import { imageMulterOptions } from '../upload/multer.config';
+import { ImageUploadService } from '../upload/image-upload.service';
 import { AuthService } from './auth.service';
 import { RegisterDto, LoginDto, SendOtpDto, VerifyOtpDto, OnboardingDto } from './dto/auth.dto';
 
@@ -38,7 +37,10 @@ const cookieOptions = {
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly imageUploadService: ImageUploadService,
+  ) {}
 
   // ── Registration — 10 req/min ────────────────────────────────────────────
 
@@ -171,25 +173,12 @@ export class AuthController {
   @Post('profile/avatar')
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Upload profile avatar' })
-  @UseInterceptors(
-    FileInterceptor('avatar', {
-      storage: diskStorage({
-        destination: './uploads/avatars',
-        filename: (_req, file, cb) => {
-          cb(null, `${uuidv4()}${extname(file.originalname)}`);
-        },
-      }),
-      limits: { fileSize: 3 * 1024 * 1024 },
-      fileFilter: (_req, file, cb) => {
-        const ok = /jpeg|jpg|png|webp/.test(extname(file.originalname).toLowerCase());
-        cb(ok ? null : new BadRequestException('Only jpg/png/webp images allowed'), ok);
-      },
-    }),
-  )
-  uploadAvatar(@UploadedFile() file: Express.Multer.File, @Request() req) {
+  @ApiOperation({ summary: 'Upload profile avatar (max 5 MB, JPEG/PNG/WebP → stored as WebP)' })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseInterceptors(FileInterceptor('avatar', imageMulterOptions(1)))
+  async uploadAvatar(@UploadedFile() file: Express.Multer.File, @Request() req) {
     if (!file) throw new BadRequestException('No file uploaded');
-    const avatarUrl = `/uploads/avatars/${file.filename}`;
+    const avatarUrl = await this.imageUploadService.saveImage(file, 'avatars');
     return this.authService.updateAvatar(req.user.id, avatarUrl);
   }
 

@@ -670,14 +670,14 @@ export class PropertiesService {
     await this.propertyRepo.remove(property);
   }
 
-  async addImages(propertyId: string, files: Express.Multer.File[], user: User) {
+  async addImages(propertyId: string, urls: string[], user: User) {
     const property = await this.findById(propertyId);
     if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
       throw new ForbiddenException();
     }
-    const images = files.map((file, index) =>
+    const images = urls.map((url, index) =>
       this.imageRepo.create({
-        url: `/uploads/${file.filename}`,
+        url,
         propertyId,
         isPrimary: index === 0 && property.images.length === 0,
         sortOrder: property.images.length + index,

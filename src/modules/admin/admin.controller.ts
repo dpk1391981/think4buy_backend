@@ -17,9 +17,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
+import { imageMulterOptions } from '../upload/multer.config';
+import { ImageUploadService } from '../upload/image-upload.service';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -45,6 +46,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly agencyService: AgencyService,
+    private readonly imageUploadService: ImageUploadService,
   ) {}
 
   private assertAdmin(req: any) {
@@ -472,25 +474,13 @@ export class AdminController {
 
   // ── Location Image Upload ────────────────────────────────────────────────────
   @Post('locations/upload')
-  @ApiOperation({ summary: 'Upload image for a city or state' })
-  @UseInterceptors(FileInterceptor('file', {
-    storage: diskStorage({
-      destination: './uploads/locations',
-      filename: (req, file, cb) => {
-        const ext = extname(file.originalname);
-        cb(null, `location-${Date.now()}${ext}`);
-      },
-    }),
-    fileFilter: (req, file, cb) => {
-      if (file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) cb(null, true);
-      else cb(new Error('Only image files allowed'), false);
-    },
-    limits: { fileSize: 5 * 1024 * 1024 },
-  }))
+  @ApiOperation({ summary: 'Upload image for a city or state (max 5 MB, JPEG/PNG/WebP → stored as WebP)' })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseInterceptors(FileInterceptor('file', imageMulterOptions(1)))
   async uploadLocationImage(@Request() req, @UploadedFile() file: Express.Multer.File) {
     this.assertAdmin(req);
     if (!file) throw new BadRequestException('No file uploaded');
-    const url = `/uploads/locations/${file.filename}`;
+    const url = await this.imageUploadService.saveImage(file, 'locations');
     return { url };
   }
 }

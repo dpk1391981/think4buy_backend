@@ -8,12 +8,14 @@ import { PropertyImage } from './entities/property-image.entity';
 import { Amenity } from './entities/amenity.entity';
 import { PropertyView } from './entities/property-view.entity';
 import { WalletModule } from '../wallet/wallet.module';
+import { UploadModule } from '../upload/upload.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Property, PropertyImage, Amenity, PropertyView]),
     WalletModule,
     ScheduleModule.forRoot(),
+    UploadModule,
   ],
   controllers: [PropertiesController],
   providers: [PropertiesService],

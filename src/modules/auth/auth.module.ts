@@ -11,6 +11,7 @@ import { OtpVerification } from './entities/otp-verification.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { MenusModule } from '../menus/menus.module';
 import { AgencyModule } from '../agency/agency.module';
+import { UploadModule } from '../upload/upload.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { AgencyModule } from '../agency/agency.module';
     WalletModule,
     MenusModule,
     AgencyModule,
+    UploadModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
