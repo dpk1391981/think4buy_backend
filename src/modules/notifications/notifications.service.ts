@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, MessageEvent } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Subject, Observable } from 'rxjs';
@@ -33,11 +33,7 @@ export class NotificationsService {
     return this.streams.get(userId)!.asObservable().pipe(
       map(
         (n) =>
-          ({
-            data: JSON.stringify(n),
-            type: 'notification',
-            id: n.id,
-          } as MessageEvent),
+          (({ data: JSON.stringify(n), type: 'notification', id: n.id } as unknown) as MessageEvent),
       ),
     );
   }
