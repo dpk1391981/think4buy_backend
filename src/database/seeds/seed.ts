@@ -2214,7 +2214,7 @@ async function seed() {
     { label: 'Rajendra Nagar Industrial Area Ghaziabad', url: '/commercial-office-space-for-rent-in-rajendra-nagar-industrial-area-ghaziabad.php' },
   ];
   for (const [i, link] of delhiOfficeLinks.entries()) {
-    await footerLinkRepo.save({ groupId: fgOffice.id, label: link.label, url: link.url, sortOrder: i, isActive: true });
+    await footerLinkRepo.save({ groupId: fgOffice.id, label: link.label, url: link.url, sortOrder: i, isActive: false });
   }
 
   console.log('Footer SEO links seeded');
