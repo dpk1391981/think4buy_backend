@@ -20,6 +20,10 @@ export class AnalyticsCronService {
 
   constructor(private readonly analyticsService: AnalyticsService) {}
 
+  private errMsg(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+  }
+
   // ── Category analytics: every hour ──────────────────────────────────────────
   @Cron(CronExpression.EVERY_HOUR)
   async refreshCategories() {
@@ -27,7 +31,7 @@ export class AnalyticsCronService {
     try {
       await this.analyticsService.aggregateCategories();
     } catch (err) {
-      this.logger.error('Category aggregation failed', err?.message);
+      this.logger.error('Category aggregation failed', this.errMsg(err));
     }
   }
 
@@ -37,7 +41,7 @@ export class AnalyticsCronService {
     try {
       await this.analyticsService.aggregateLocations();
     } catch (err) {
-      this.logger.error('Location aggregation failed', err?.message);
+      this.logger.error('Location aggregation failed', this.errMsg(err));
     }
   }
 
@@ -47,7 +51,7 @@ export class AnalyticsCronService {
     try {
       await this.analyticsService.aggregateProperties();
     } catch (err) {
-      this.logger.error('Properties aggregation failed', err?.message);
+      this.logger.error('Properties aggregation failed', this.errMsg(err));
     }
   }
 
@@ -57,7 +61,7 @@ export class AnalyticsCronService {
     try {
       await this.analyticsService.aggregateAgents();
     } catch (err) {
-      this.logger.error('Agents aggregation failed', err?.message);
+      this.logger.error('Agents aggregation failed', this.errMsg(err));
     }
   }
 
@@ -67,15 +71,13 @@ export class AnalyticsCronService {
     try {
       await this.analyticsService.aggregateProjects();
     } catch (err) {
-      this.logger.error('Projects aggregation failed', err?.message);
+      this.logger.error('Projects aggregation failed', this.errMsg(err));
     }
   }
 
   // ── Full refresh on startup (30s delay) ──────────────────────────────────────
   @Cron('*/30 * * * * *')   // fires at :30 seconds — used as one-shot startup delay
   async initialSeed() {
-    // Only run once by checking if analytics tables are empty
-    // We unregister after first run by toggling a flag
     if (this._seeded) return;
     this._seeded = true;
     this.logger.log('Running initial analytics seed on startup…');
@@ -91,7 +93,7 @@ export class AnalyticsCronService {
         this.analyticsService.aggregateProjects(),
       ]);
     } catch (err) {
-      this.logger.error('Initial seed failed', err?.message);
+      this.logger.error('Initial seed failed', this.errMsg(err));
     } finally {
       this.isRunning = false;
     }
@@ -109,7 +111,7 @@ export class AnalyticsCronService {
         [cutoff],
       );
     } catch (err) {
-      this.logger.error('Event purge failed', err?.message);
+      this.logger.error('Event purge failed', this.errMsg(err));
     }
   }
 }
