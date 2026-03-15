@@ -6,6 +6,8 @@ import { LeadAssignment, AssignmentType } from './entities/lead-assignment.entit
 import { LeadActivityLog, ActivityType, ActorType } from './entities/lead-activity-log.entity';
 import { CreateLeadDto, PublicLeadDto, UpdateLeadStatusDto, AssignLeadDto, AddLeadNoteDto, LeadsQueryDto } from './dto/leads.dto';
 import { LeadAssignmentEngineService } from './lead-assignment-engine.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
 
 /** Dedup window: same phone + same property within this many minutes = duplicate */
 const DEDUP_WINDOW_MINUTES = 10;
@@ -22,6 +24,7 @@ export class LeadsService {
     @InjectRepository(LeadActivityLog)
     private activityRepo: Repository<LeadActivityLog>,
     private readonly assignmentEngine: LeadAssignmentEngineService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ── Scoring ────────────────────────────────────────────────────────────────
@@ -118,6 +121,20 @@ export class LeadsService {
       null,
       ActorType.SYSTEM,
     );
+
+    // Notify assigned agent
+    if (agentId) {
+      const propertyRef = dto.propertyId ? ` for property` : '';
+      this.notificationsService.createSilent({
+        userId: agentId,
+        role: 'agent',
+        title: 'New Lead Received',
+        message: `New ${saved.temperature} lead from ${saved.contactName || saved.contactPhone}${propertyRef}.`,
+        type: NotificationType.LEAD,
+        entityType: 'lead',
+        entityId: saved.id,
+      });
+    }
 
     return { lead: saved, isDuplicate: false };
   }

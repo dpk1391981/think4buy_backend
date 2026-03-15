@@ -9,6 +9,7 @@ import { Country } from '../locations/entities/country.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { LocationsModule } from '../locations/locations.module';
 import { AgencyModule } from '../agency/agency.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { AgencyModule } from '../agency/agency.module';
     WalletModule,
     LocationsModule,
     AgencyModule,
+    NotificationsModule,
   ],
   controllers: [AdminController],
   providers: [AdminService],

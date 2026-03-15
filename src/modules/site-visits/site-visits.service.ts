@@ -3,17 +3,32 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SiteVisit, SiteVisitStatus } from './entities/site-visit.entity';
 import { CreateSiteVisitDto, UpdateSiteVisitDto, CompleteVisitDto } from './dto/site-visits.dto';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
 
 @Injectable()
 export class SiteVisitsService {
   constructor(
     @InjectRepository(SiteVisit)
     private visitRepo: Repository<SiteVisit>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(dto: CreateSiteVisitDto): Promise<SiteVisit> {
     const visit = this.visitRepo.create({ ...dto, status: SiteVisitStatus.SCHEDULED });
-    return this.visitRepo.save(visit);
+    const saved = await this.visitRepo.save(visit);
+    if (saved.agentId) {
+      this.notificationsService.createSilent({
+        userId: saved.agentId,
+        role: 'agent',
+        title: 'Site Visit Scheduled',
+        message: `A site visit has been scheduled for ${new Date(saved.scheduledAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.`,
+        type: NotificationType.LEAD,
+        entityType: 'site_visit',
+        entityId: saved.id,
+      });
+    }
+    return saved;
   }
 
   async findByAgent(agentId: string, page = 1, limit = 20, status?: string) {

@@ -74,6 +74,8 @@ import { Menu } from './modules/menus/entities/menu.entity';
 import { RoleMenuPermission } from './modules/menus/entities/role-menu-permission.entity';
 import { AgentFeedbackModule } from './modules/agent-feedback/agent-feedback.module';
 import { AgentFeedback } from './modules/agent-feedback/entities/agent-feedback.entity';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { Notification } from './modules/notifications/entities/notification.entity';
 
 @Module({
   imports: [
@@ -141,6 +143,7 @@ import { AgentFeedback } from './modules/agent-feedback/entities/agent-feedback.
           Menu,
           RoleMenuPermission,
           AgentFeedback,
+          Notification,
           OtpVerification,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
@@ -172,6 +175,7 @@ import { AgentFeedback } from './modules/agent-feedback/entities/agent-feedback.
     ArticlesModule,
     MenusModule,
     AgentFeedbackModule,
+    NotificationsModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)

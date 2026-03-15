@@ -5,6 +5,8 @@ import { IsString, IsNotEmpty, IsOptional, IsEmail, MaxLength } from 'class-vali
 import { Inquiry } from './entities/inquiry.entity';
 import { Property } from '../properties/entities/property.entity';
 import { User, UserRole } from '../users/entities/user.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
 
 export class CreateInquiryDto {
   @IsString()
@@ -40,6 +42,7 @@ export class InquiriesService {
     private propertyRepo: Repository<Property>,
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(propertyId: string, dto: CreateInquiryDto, userId?: string) {
@@ -55,7 +58,19 @@ export class InquiriesService {
       propertyId,
       userId,
     } as any);
-    return this.inquiryRepo.save(inquiry);
+    const saved = await this.inquiryRepo.save(inquiry);
+    // Notify property owner
+    if (property.ownerId) {
+      this.notificationsService.createSilent({
+        userId: property.ownerId,
+        title: 'New Inquiry Received',
+        message: `${dto.name} sent an inquiry about your property.`,
+        type: NotificationType.LEAD,
+        entityType: 'property',
+        entityId: propertyId,
+      });
+    }
+    return saved;
   }
 
   async contactAgent(agentId: string, dto: CreateInquiryDto) {

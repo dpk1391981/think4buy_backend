@@ -18,6 +18,8 @@ import { BoostPlan } from '../wallet/entities/boost-plan.entity';
 import { State } from '../locations/entities/state.entity';
 import { City } from '../locations/entities/city.entity';
 import { Country } from '../locations/entities/country.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
 
 @Injectable()
 export class AdminService {
@@ -28,6 +30,7 @@ export class AdminService {
     @InjectRepository(Country) private countryRepo: Repository<Country>,
     private walletService: WalletService,
     private locationsService: LocationsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async getDashboardStats() {
@@ -112,6 +115,18 @@ export class AdminService {
       await this.userRepo.increment({ id: property.owner.id }, 'agentUsedQuota', 1);
     }
 
+    if (saved.owner?.id) {
+      this.notificationsService.createSilent({
+        userId: saved.owner.id,
+        role: saved.owner.role,
+        title: 'Property Approved',
+        message: `Your property "${saved.title}" has been approved and is now live.`,
+        type: NotificationType.PROPERTY,
+        entityType: 'property',
+        entityId: saved.id,
+      });
+    }
+
     return saved;
   }
 
@@ -132,6 +147,18 @@ export class AdminService {
     // Release quota if property was previously approved
     if (wasApproved && property.owner?.role === UserRole.AGENT) {
       await this.userRepo.decrement({ id: property.owner.id }, 'agentUsedQuota', 1);
+    }
+
+    if (saved.owner?.id) {
+      this.notificationsService.createSilent({
+        userId: saved.owner.id,
+        role: saved.owner.role,
+        title: 'Property Rejected',
+        message: `Your property "${saved.title}" was rejected${reason ? ': ' + reason : '.'} Please review and resubmit.`,
+        type: NotificationType.PROPERTY,
+        entityType: 'property',
+        entityId: saved.id,
+      });
     }
 
     return saved;

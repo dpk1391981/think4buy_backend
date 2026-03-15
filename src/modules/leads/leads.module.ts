@@ -8,6 +8,7 @@ import { LeadAssignment } from './entities/lead-assignment.entity';
 import { LeadActivityLog } from './entities/lead-activity-log.entity';
 import { PropertyAgentMap } from '../agency/entities/property-agent-map.entity';
 import { AgentLocationMap } from '../agency/entities/agent-location-map.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AgentLocationMap } from '../agency/entities/agent-location-map.entity';
       PropertyAgentMap,
       AgentLocationMap,
     ]),
+    NotificationsModule,
   ],
   controllers: [LeadsController],
   providers: [LeadsService, LeadAssignmentEngineService],
