@@ -28,7 +28,7 @@ export class PropertyImage {
   @ManyToOne(() => Property, (property) => property.images, {
     onDelete: 'CASCADE',
   })
-  @JoinColumn({ name: 'property_id' })
+  @JoinColumn({ name: 'propertyId' })
   property: Property;
 
   @Column()
