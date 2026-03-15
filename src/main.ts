@@ -101,7 +101,8 @@ async function bootstrap() {
   });
 
   // ── Static Assets ────────────────────────────────────────────────────────
-  app.useStaticAssets(join(__dirname, '..', 'uploads'), {
+  // Use process.cwd() so this resolves correctly regardless of dist structure
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads',
     // Cache static files for 1 day
     setHeaders: (res) => {
