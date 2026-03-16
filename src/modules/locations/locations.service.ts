@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { Repository, Like, Not, IsNull } from 'typeorm';
 import { Location } from './entities/location.entity';
 import { State } from './entities/state.entity';
 import { City } from './entities/city.entity';
@@ -79,7 +79,7 @@ export class LocationsService {
   }
 
   async getLocalitiesByCityName(city: string, state?: string): Promise<Location[]> {
-    const where: any = { city, isActive: true };
+    const where: any = { city, isActive: true, locality: Not(IsNull()) };
     if (state) where.state = state;
     return this.locationRepo.find({
       where,

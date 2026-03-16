@@ -7,6 +7,7 @@ export enum LeadSource {
   DOWNLOAD_BROCHURE = 'download_brochure',
   CHATBOT = 'chatbot',
   SEO_FORM = 'seo_form',
+  FIND_PROPERTY = 'find_property',
   PROPERTY_ALERT = 'property_alert',
   SEARCH = 'search',
   CONTACT_FORM = 'contact_form',
@@ -88,6 +89,31 @@ export class Lead {
 
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
   budgetMax: number;
+
+  @Column({ length: 100, nullable: true })
+  locality: string;
+
+  @Column({ length: 36, nullable: true })
+  @Index()
+  localityId: string;
+
+  @Column({ length: 20, nullable: true })
+  propertyFor: string;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  areaMin: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  areaMax: number;
+
+  @Column({ length: 20, nullable: true })
+  areaUnit: string;
+
+  @Column({ length: 20, nullable: true })
+  userType: string;
+
+  @Column({ type: 'text', nullable: true })
+  preferredLocalities: string;
 
   @Column({ type: 'text', nullable: true })
   requirement: string;

@@ -37,12 +37,16 @@ export class LeadsService {
     if (
       dto.source === LeadSource.PROPERTY_PAGE ||
       dto.source === LeadSource.CONTACT_FORM ||
-      dto.source === LeadSource.SCHEDULE_VISIT
+      dto.source === LeadSource.SCHEDULE_VISIT ||
+      dto.source === LeadSource.FIND_PROPERTY
     ) score += 15;
     if (dto.source === LeadSource.VIEW_PHONE) score += 25;
     if (dto.source === LeadSource.DOWNLOAD_BROCHURE) score += 10;
     if (dto.propertyId) score += 15;
     if (dto.cityId) score += 5;
+    if ((dto as any).localityId || (dto as any).locality) score += 10;
+    if ((dto as any).propertyFor) score += 5;
+    if ((dto as any).areaMin || (dto as any).areaMax) score += 5;
     return Math.min(score, 100);
   }
 
@@ -212,6 +216,9 @@ export class LeadsService {
     }
     if (query.dateFrom) qb.andWhere('lead.createdAt >= :df', { df: query.dateFrom });
     if (query.dateTo) qb.andWhere('lead.createdAt <= :dt', { dt: query.dateTo });
+    if (query.source) qb.andWhere('lead.source = :source', { source: query.source });
+    if (query.propertyFor) qb.andWhere('lead.propertyFor = :pf', { pf: query.propertyFor });
+    if (query.locality) qb.andWhere('lead.locality LIKE :loc', { loc: `%${query.locality}%` });
 
     const total = await qb.getCount();
     const items = await qb.skip((page - 1) * limit).take(limit).getMany();

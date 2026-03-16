@@ -53,6 +53,40 @@ export class CreateLeadDto {
 
   @IsString()
   @IsOptional()
+  locality?: string;
+
+  @IsString()
+  @IsOptional()
+  localityId?: string;
+
+  @IsString()
+  @IsOptional()
+  propertyFor?: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  areaMin?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  areaMax?: number;
+
+  @IsString()
+  @IsOptional()
+  areaUnit?: string;
+
+  @IsString()
+  @IsOptional()
+  userType?: string;
+
+  @IsString()
+  @IsOptional()
+  preferredLocalities?: string;
+
+  @IsString()
+  @IsOptional()
   requirement?: string;
 
   // Tracking
@@ -123,6 +157,40 @@ export class PublicLeadDto {
   @IsOptional()
   @Type(() => Number)
   budgetMax?: number;
+
+  @IsString()
+  @IsOptional()
+  locality?: string;
+
+  @IsString()
+  @IsOptional()
+  localityId?: string;
+
+  @IsString()
+  @IsOptional()
+  propertyFor?: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  areaMin?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  areaMax?: number;
+
+  @IsString()
+  @IsOptional()
+  areaUnit?: string;
+
+  @IsString()
+  @IsOptional()
+  userType?: string;
+
+  @IsString()
+  @IsOptional()
+  preferredLocalities?: string;
 
   @IsString()
   @IsOptional()
@@ -199,6 +267,15 @@ export class LeadsQueryDto {
 
   @IsOptional()
   agentId?: string;
+
+  @IsOptional()
+  source?: string;
+
+  @IsOptional()
+  propertyFor?: string;
+
+  @IsOptional()
+  locality?: string;
 
   @IsOptional()
   search?: string;
