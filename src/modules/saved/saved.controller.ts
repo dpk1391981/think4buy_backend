@@ -11,6 +11,7 @@ import {
   DefaultValuePipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { SkipThrottle } from '@nestjs/throttler';
 import { SavedService } from './saved.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 
@@ -34,6 +35,7 @@ export class SavedController {
   }
 
   @Get('properties/ids')
+  @SkipThrottle()
   @ApiOperation({ summary: 'Get IDs of all saved properties' })
   getSavedIds(@Request() req) {
     return this.savedService.getSavedIds(req.user.id);

@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { Lead, LeadStatus, LeadSource, LeadTemperature } from './entities/lead.entity';
 import { LeadAssignment, AssignmentType } from './entities/lead-assignment.entity';
 import { LeadActivityLog, ActivityType, ActorType } from './entities/lead-activity-log.entity';
-import { CreateLeadDto, PublicLeadDto, UpdateLeadStatusDto, AssignLeadDto, AddLeadNoteDto, LeadsQueryDto } from './dto/leads.dto';
+import { CreateLeadDto, PublicLeadDto, UpdateLeadStatusDto, AssignLeadDto, AddLeadNoteDto, LeadsQueryDto, BulkAssignDto, BulkStatusDto, AnalyticsQueryDto } from './dto/leads.dto';
 import { LeadAssignmentEngineService } from './lead-assignment-engine.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
@@ -198,16 +198,13 @@ export class LeadsService {
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
-  async findAll(query: LeadsQueryDto) {
-    const page = query.page || 1;
-    const limit = query.limit || 20;
-    const qb = this.leadRepo.createQueryBuilder('lead').orderBy('lead.createdAt', 'DESC');
-
+  private applyFilters(qb: any, query: LeadsQueryDto) {
     if (query.status) qb.andWhere('lead.status = :status', { status: query.status });
     if (query.temperature) qb.andWhere('lead.temperature = :temp', { temp: query.temperature });
     if (query.city) qb.andWhere('lead.city LIKE :city', { city: `%${query.city}%` });
     if (query.propertyType) qb.andWhere('lead.propertyType = :pt', { pt: query.propertyType });
     if (query.agentId) qb.andWhere('lead.assignedAgentId = :agentId', { agentId: query.agentId });
+    if (query.agencyId) qb.andWhere('lead.agencyId = :agencyId', { agencyId: query.agencyId });
     if (query.search) {
       qb.andWhere(
         '(lead.contactName LIKE :s OR lead.contactPhone LIKE :s OR lead.contactEmail LIKE :s)',
@@ -215,11 +212,23 @@ export class LeadsService {
       );
     }
     if (query.dateFrom) qb.andWhere('lead.createdAt >= :df', { df: query.dateFrom });
-    if (query.dateTo) qb.andWhere('lead.createdAt <= :dt', { dt: query.dateTo });
+    if (query.dateTo) {
+      // Include full day
+      const dt = new Date(query.dateTo);
+      dt.setHours(23, 59, 59, 999);
+      qb.andWhere('lead.createdAt <= :dt', { dt: dt.toISOString() });
+    }
     if (query.source) qb.andWhere('lead.source = :source', { source: query.source });
     if (query.propertyFor) qb.andWhere('lead.propertyFor = :pf', { pf: query.propertyFor });
     if (query.locality) qb.andWhere('lead.locality LIKE :loc', { loc: `%${query.locality}%` });
+    if (query.unassigned === 'true') qb.andWhere('lead.assignedAgentId IS NULL');
+  }
 
+  async findAll(query: LeadsQueryDto) {
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const qb = this.leadRepo.createQueryBuilder('lead').orderBy('lead.createdAt', 'DESC');
+    this.applyFilters(qb, query);
     const total = await qb.getCount();
     const items = await qb.skip((page - 1) * limit).take(limit).getMany();
     return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
@@ -309,6 +318,100 @@ export class LeadsService {
     return this.assignmentRepo.find({ where: { leadId }, order: { assignedAt: 'DESC' } });
   }
 
+  // ── Bulk operations ────────────────────────────────────────────────────────
+
+  async bulkAssign(dto: BulkAssignDto, assignedByUserId: string): Promise<{ updated: number }> {
+    let updated = 0;
+    for (const leadId of dto.leadIds) {
+      try {
+        await this.assignLead(leadId, { agentId: dto.agentId, reason: dto.reason || 'Bulk assigned' }, assignedByUserId);
+        updated++;
+      } catch (e) {
+        this.logger.warn(`Bulk assign skipped lead ${leadId}: ${e.message}`);
+      }
+    }
+    return { updated };
+  }
+
+  async bulkUpdateStatus(dto: BulkStatusDto, actorId: string): Promise<{ updated: number }> {
+    let updated = 0;
+    for (const leadId of dto.leadIds) {
+      try {
+        await this.updateStatus(leadId, { status: dto.status, notes: dto.notes }, actorId, ActorType.ADMIN);
+        updated++;
+      } catch (e) {
+        this.logger.warn(`Bulk status skipped lead ${leadId}: ${e.message}`);
+      }
+    }
+    return { updated };
+  }
+
+  async mergeLead(keepId: string, mergeId: string, actorId: string): Promise<Lead> {
+    const keep  = await this.findOne(keepId);
+    const merge = await this.findOne(mergeId);
+    // Mark the merged lead as duplicate pointing to the kept lead
+    merge.status      = LeadStatus.DUPLICATE;
+    merge.duplicateOfId = keepId;
+    await this.leadRepo.save(merge);
+    // Enrich the kept lead with any missing info from the merged lead
+    if (!keep.contactEmail && merge.contactEmail)  keep.contactEmail  = merge.contactEmail;
+    if (!keep.city        && merge.city)           keep.city          = merge.city;
+    if (!keep.locality    && merge.locality)       keep.locality      = merge.locality;
+    if (!keep.propertyType && merge.propertyType)  keep.propertyType  = merge.propertyType;
+    if (!keep.budgetMin   && merge.budgetMin)      keep.budgetMin     = merge.budgetMin;
+    if (!keep.budgetMax   && merge.budgetMax)      keep.budgetMax     = merge.budgetMax;
+    if (!keep.requirement && merge.requirement)    keep.requirement   = merge.requirement;
+    const saved = await this.leadRepo.save(keep);
+    await this.logActivity(keepId, ActivityType.NOTE_ADDED, null, null,
+      `Merged with duplicate lead ${mergeId}`, actorId, ActorType.ADMIN);
+    return saved;
+  }
+
+  // ── Export ─────────────────────────────────────────────────────────────────
+
+  async exportCsv(query: LeadsQueryDto): Promise<string> {
+    const qb = this.leadRepo.createQueryBuilder('lead').orderBy('lead.createdAt', 'DESC');
+    this.applyFilters(qb, query);
+    const leads = await qb.take(10000).getMany(); // cap at 10k rows
+
+    const cols = [
+      { key: 'id',              header: 'Lead ID'        },
+      { key: 'contactName',     header: 'Name'           },
+      { key: 'contactPhone',    header: 'Phone'          },
+      { key: 'contactEmail',    header: 'Email'          },
+      { key: 'city',            header: 'City'           },
+      { key: 'state',           header: 'State'          },
+      { key: 'locality',        header: 'Locality'       },
+      { key: 'propertyType',    header: 'Property Type'  },
+      { key: 'propertyFor',     header: 'Looking To'     },
+      { key: 'budgetMin',       header: 'Budget Min'     },
+      { key: 'budgetMax',       header: 'Budget Max'     },
+      { key: 'areaMin',         header: 'Area Min'       },
+      { key: 'areaMax',         header: 'Area Max'       },
+      { key: 'areaUnit',        header: 'Area Unit'      },
+      { key: 'source',          header: 'Source'         },
+      { key: 'status',          header: 'Status'         },
+      { key: 'temperature',     header: 'Temperature'    },
+      { key: 'leadScore',       header: 'Lead Score'     },
+      { key: 'assignedAgentId', header: 'Assigned Agent' },
+      { key: 'agencyId',        header: 'Agency ID'      },
+      { key: 'requirement',     header: 'Requirement'    },
+      { key: 'notes',           header: 'Notes'          },
+      { key: 'utmSource',       header: 'UTM Source'     },
+      { key: 'utmMedium',       header: 'UTM Medium'     },
+      { key: 'utmCampaign',     header: 'UTM Campaign'   },
+      { key: 'createdAt',       header: 'Created At'     },
+      { key: 'updatedAt',       header: 'Updated At'     },
+    ];
+
+    const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = cols.map(c => escape(c.header)).join(',');
+    const rows   = leads.map(lead =>
+      cols.map(c => escape((lead as any)[c.key])).join(',')
+    );
+    return [header, ...rows].join('\r\n');
+  }
+
   // ── Analytics ──────────────────────────────────────────────────────────────
 
   async getStats(agentId?: string) {
@@ -336,6 +439,88 @@ export class LeadsService {
 
     const total = Object.values(statusMap).reduce((a, b) => a + b, 0);
     return { total, byStatus: statusMap, byTemperature: tempMap };
+  }
+
+  async getAnalytics(params: AnalyticsQueryDto) {
+    const db = this.leadRepo.manager.connection;
+
+    const whereClauses: string[] = [];
+    const sqlParams: any[] = [];
+
+    if (params.dateFrom) { whereClauses.push('createdAt >= ?'); sqlParams.push(params.dateFrom); }
+    if (params.dateTo)   { whereClauses.push('createdAt <= ?'); sqlParams.push(`${params.dateTo} 23:59:59`); }
+    if (params.agentId)  { whereClauses.push('assignedAgentId = ?'); sqlParams.push(params.agentId); }
+    if (params.city)     { whereClauses.push('city LIKE ?'); sqlParams.push(`%${params.city}%`); }
+
+    const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const [total, byStatus, byTemp, bySource, byCity, byType, dailyTrend, agentPerf] = await Promise.all([
+      db.query(`SELECT COUNT(*) as cnt FROM leads ${where}`, sqlParams),
+      db.query(`SELECT status, COUNT(*) as cnt FROM leads ${where} GROUP BY status ORDER BY cnt DESC`, sqlParams),
+      db.query(`SELECT temperature, COUNT(*) as cnt FROM leads ${where} GROUP BY temperature`, sqlParams),
+      db.query(`SELECT source, COUNT(*) as cnt FROM leads ${where} GROUP BY source ORDER BY cnt DESC`, sqlParams),
+      db.query(`SELECT city, COUNT(*) as cnt FROM leads ${where} AND city IS NOT NULL AND city != '' GROUP BY city ORDER BY cnt DESC LIMIT 10`
+        .replace('AND city', whereClauses.length ? 'AND city' : 'WHERE city'), sqlParams),
+      db.query(`SELECT propertyType, COUNT(*) as cnt FROM leads ${where} AND propertyType IS NOT NULL GROUP BY propertyType ORDER BY cnt DESC`
+        .replace('AND propertyType', whereClauses.length ? 'AND propertyType' : 'WHERE propertyType'), sqlParams),
+      db.query(
+        `SELECT DATE(createdAt) as date, COUNT(*) as cnt FROM leads WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY DATE(createdAt) ORDER BY date ASC`,
+        [],
+      ),
+      db.query(
+        `SELECT l.assignedAgentId as agentId,
+          COALESCE(u.name, l.assignedAgentId) as agentName,
+          COALESCE(u.city, '') as agentCity,
+          REPLACE(l.assignedAgentId, '-', '') as agentUid,
+          COUNT(*) as total,
+          SUM(CASE WHEN l.status = 'deal_won' THEN 1 ELSE 0 END) as won,
+          SUM(CASE WHEN l.status = 'deal_lost' THEN 1 ELSE 0 END) as lost,
+          SUM(CASE WHEN l.status = 'new' THEN 1 ELSE 0 END) as newCount
+         FROM leads l
+         LEFT JOIN users u ON u.id = l.assignedAgentId
+         WHERE l.assignedAgentId IS NOT NULL
+         GROUP BY l.assignedAgentId, u.name, u.city
+         ORDER BY total DESC
+         LIMIT 10`,
+        [],
+      ),
+    ]);
+
+    const toMap = (rows: any[]) => {
+      const m: Record<string, number> = {};
+      rows.forEach(r => { const key = Object.keys(r).find(k => k !== 'cnt')!; m[r[key] || 'unknown'] = Number(r.cnt); });
+      return m;
+    };
+
+    // Today
+    const today = new Date(); today.setHours(0,0,0,0);
+    const todayCount = await db.query(`SELECT COUNT(*) as cnt FROM leads WHERE createdAt >= ?`, [today.toISOString()]);
+
+    return {
+      total:          Number(total[0]?.cnt ?? 0),
+      today:          Number(todayCount[0]?.cnt ?? 0),
+      byStatus:       toMap(byStatus),
+      byTemperature:  toMap(byTemp),
+      bySource:       toMap(bySource),
+      byCity:         toMap(byCity),
+      byPropertyType: toMap(byType),
+      dailyTrend:     dailyTrend.map((r: any) => ({ date: r.date, count: Number(r.cnt) })),
+      agentPerformance: agentPerf.map((r: any) => {
+        const name = r.agentName || r.agentId;
+        const city = (r.agentCity || 'india').toLowerCase().replace(/\s+/g, '-');
+        const slug = `${name.toLowerCase().replace(/\s+/g, '-')}-in-${city}-${r.agentUid}`;
+        return {
+          agentId:        r.agentId,
+          agentName:      name,
+          agentSlug:      slug,
+          total:          Number(r.total),
+          won:            Number(r.won),
+          lost:           Number(r.lost),
+          newCount:       Number(r.newCount),
+          conversionRate: r.total > 0 ? Math.round((Number(r.won) / Number(r.total)) * 100) : 0,
+        };
+      }),
+    };
   }
 
   // ── Internals ──────────────────────────────────────────────────────────────

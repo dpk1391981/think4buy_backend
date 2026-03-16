@@ -1,4 +1,8 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller, Get, Post, Patch, Body, Param, Query,
+  UseGuards, Request, HttpCode, HttpStatus, Res, Header,
+} from '@nestjs/common';
+import { Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -10,6 +14,9 @@ import {
   AssignLeadDto,
   AddLeadNoteDto,
   LeadsQueryDto,
+  BulkAssignDto,
+  BulkStatusDto,
+  AnalyticsQueryDto,
 } from './dto/leads.dto';
 
 @ApiTags('leads')
@@ -33,6 +40,46 @@ export class LeadsController {
         ? 'Your inquiry has already been received. Our team will reach out shortly.'
         : 'Thank you! Our team will contact you shortly.',
     };
+  }
+
+  // ── Analytics & Export (before :id routes) ────────────────────────────────
+
+  @Get('analytics')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Comprehensive lead analytics' })
+  analytics(@Query() query: AnalyticsQueryDto) {
+    return this.leadsService.getAnalytics(query);
+  }
+
+  @Get('export')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Export leads as CSV' })
+  async exportCsv(@Query() query: LeadsQueryDto, @Res() res: Response) {
+    const csv = await this.leadsService.exportCsv(query);
+    const filename = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('\uFEFF' + csv); // BOM for Excel UTF-8 compatibility
+  }
+
+  // ── Bulk operations ────────────────────────────────────────────────────────
+
+  @Patch('bulk/assign')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Bulk assign leads to an agent' })
+  bulkAssign(@Body() dto: BulkAssignDto, @Request() req) {
+    return this.leadsService.bulkAssign(dto, req.user.id);
+  }
+
+  @Patch('bulk/status')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Bulk update lead statuses' })
+  bulkStatus(@Body() dto: BulkStatusDto, @Request() req) {
+    return this.leadsService.bulkUpdateStatus(dto, req.user.id);
   }
 
   // ── Authenticated endpoints ────────────────────────────────────────────────
@@ -116,5 +163,13 @@ export class LeadsController {
   @ApiBearerAuth()
   assignments(@Param('id') id: string) {
     return this.leadsService.getAssignments(id);
+  }
+
+  @Post(':id/merge/:sourceId')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Merge duplicate lead into this lead' })
+  mergeLead(@Param('id') id: string, @Param('sourceId') sourceId: string, @Request() req) {
+    return this.leadsService.mergeLead(id, sourceId, req.user.id);
   }
 }

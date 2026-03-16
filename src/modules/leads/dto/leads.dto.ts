@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsNumber, IsEmail, IsUUID, Length, Matches } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsNumber, IsEmail, IsUUID, IsArray, Length, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 import { LeadSource, LeadStatus, LeadPropertyType } from '../entities/lead.entity';
 
@@ -269,6 +269,9 @@ export class LeadsQueryDto {
   agentId?: string;
 
   @IsOptional()
+  agencyId?: string;
+
+  @IsOptional()
   source?: string;
 
   @IsOptional()
@@ -285,4 +288,47 @@ export class LeadsQueryDto {
 
   @IsOptional()
   dateTo?: string;
+
+  @IsOptional()
+  unassigned?: string;
+}
+
+export class BulkAssignDto {
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  leadIds: string[];
+
+  @IsUUID()
+  agentId: string;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
+}
+
+export class BulkStatusDto {
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  leadIds: string[];
+
+  @IsEnum(LeadStatus)
+  status: LeadStatus;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+}
+
+export class AnalyticsQueryDto {
+  @IsOptional()
+  dateFrom?: string;
+
+  @IsOptional()
+  dateTo?: string;
+
+  @IsOptional()
+  agentId?: string;
+
+  @IsOptional()
+  city?: string;
 }
