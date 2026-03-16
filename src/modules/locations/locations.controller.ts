@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { LocationsService } from './locations.service';
 
 @ApiTags('locations')
@@ -31,10 +32,31 @@ export class LocationsController {
     return this.locationsService.getStates(true);
   }
 
+  @Get('states-with-stats')
+  @SkipThrottle()
+  @ApiOperation({ summary: 'All active states with city count + property category breakdown' })
+  getStatesWithStats() {
+    return this.locationsService.getStatesWithStats();
+  }
+
+  @Get('states/by-slug/:slug')
+  @SkipThrottle()
+  @ApiOperation({ summary: 'Get state details + cities by state slug (public)' })
+  getStateBySlug(@Param('slug') slug: string) {
+    return this.locationsService.getStateBySlug(slug);
+  }
+
   @Get('states/:stateId/cities')
   @ApiOperation({ summary: 'Get cities for a given state (public)' })
   getCitiesByState(@Param('stateId') stateId: string) {
     return this.locationsService.getCitiesByState(stateId, true);
+  }
+
+  @Get('top-cities')
+  @SkipThrottle()
+  @ApiOperation({ summary: 'Top 12 cities by active property count with type breakdown' })
+  getTopCities() {
+    return this.locationsService.getTopCities();
   }
 
   @Get('seo')

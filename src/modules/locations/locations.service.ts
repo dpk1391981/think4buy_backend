@@ -75,7 +75,28 @@ export class LocationsService {
   async getCitiesByState(stateId: string, onlyActive = true) {
     const where: any = { stateId };
     if (onlyActive) where.isActive = true;
-    return this.cityRepository.find({ where, order: { name: 'ASC' } });
+    return this.cityRepository.find({ where, order: { propertyCount: 'DESC', name: 'ASC' } });
+  }
+
+  async getStateBySlug(slug: string) {
+    // Match by slug field, or by name lowercased+hyphenated as fallback
+    const state = await this.stateRepository
+      .createQueryBuilder('s')
+      .where('s.isActive = true')
+      .andWhere(
+        '(s.slug = :slug OR LOWER(REPLACE(s.name, " ", "-")) = :slug)',
+        { slug: slug.toLowerCase() },
+      )
+      .getOne();
+
+    if (!state) return null;
+
+    const cities = await this.cityRepository.find({
+      where: { stateId: state.id, isActive: true },
+      order: { propertyCount: 'DESC', name: 'ASC' },
+    });
+
+    return { ...state, cities };
   }
 
   async getLocalitiesByCityName(city: string, state?: string): Promise<Location[]> {
@@ -162,6 +183,84 @@ export class LocationsService {
   async bulkImportLocalities(rows: { city: string; state: string; locality?: string; pincode?: string }[]) {
     const entities = rows.map(r => this.locationRepo.create({ ...r, isActive: true }));
     return this.locationRepo.save(entities);
+  }
+
+  // ── States with stats ────────────────────────────────────────────────────
+
+  async getStatesWithStats() {
+    const rows: any[] = await this.stateRepository.manager.query(
+      `SELECT
+        s.id,
+        s.name,
+        s.slug,
+        s.code,
+        s.imageUrl                         AS imageUrl,
+        s.propertyCount                    AS propertyCount,
+        (SELECT COUNT(*) FROM cities c WHERE c.state_id = s.id AND c.isActive = 1) AS cityCount,
+        COUNT(DISTINCT p.id)               AS totalListings,
+        COALESCE(SUM(CASE WHEN p.category = 'buy'        THEN 1 ELSE 0 END), 0) AS buyCount,
+        COALESCE(SUM(CASE WHEN p.category = 'rent'       THEN 1 ELSE 0 END), 0) AS rentCount,
+        COALESCE(SUM(CASE WHEN p.category = 'commercial' THEN 1 ELSE 0 END), 0) AS commercialCount
+       FROM states s
+       LEFT JOIN properties p
+         ON LOWER(p.state) = LOWER(s.name)
+        AND p.status = 'active'
+       WHERE s.isActive = 1
+       GROUP BY s.id, s.name, s.slug, s.code, s.imageUrl, s.propertyCount
+       ORDER BY totalListings DESC, s.propertyCount DESC`,
+    );
+
+    return rows.map(r => ({
+      id:              r.id,
+      name:            r.name,
+      slug:            r.slug || r.name.toLowerCase().replace(/\s+/g, '-'),
+      code:            r.code,
+      imageUrl:        r.imageUrl || null,
+      cityCount:       Number(r.cityCount),
+      // Fall back to denormalized propertyCount when no properties are joined yet
+      totalListings:   Number(r.totalListings) || Number(r.propertyCount) || 0,
+      buyCount:        Number(r.buyCount),
+      rentCount:       Number(r.rentCount),
+      commercialCount: Number(r.commercialCount),
+    }));
+  }
+
+  // ── Top Cities ───────────────────────────────────────────────────────────
+
+  async getTopCities(limit = 12) {
+    const rows: any[] = await this.cityRepository.manager.query(
+      `SELECT
+        c.id,
+        c.name        AS cityName,
+        c.slug,
+        c.imageUrl    AS image,
+        COUNT(p.id)   AS total,
+        SUM(CASE WHEN p.type IN ('plot','land')                                          THEN 1 ELSE 0 END) AS plots,
+        SUM(CASE WHEN p.type IN ('apartment','studio','penthouse','builder_floor','co_living') THEN 1 ELSE 0 END) AS flats,
+        SUM(CASE WHEN p.type IN ('house','villa','farm_house')                           THEN 1 ELSE 0 END) AS independentHouse
+       FROM cities c
+       INNER JOIN properties p
+         ON LOWER(p.city) = LOWER(c.name)
+        AND p.status = 'active'
+       WHERE c.isActive = 1
+       GROUP BY c.id, c.name, c.slug, c.imageUrl
+       ORDER BY total DESC
+       LIMIT ?`,
+      [limit],
+    );
+
+    return rows.map(r => ({
+      id:       r.id,
+      cityName: r.cityName,
+      slug:     r.slug || r.cityName.toLowerCase().replace(/\s+/g, '-'),
+      image:    r.image || null,
+      counts: {
+        plots:           Number(r.plots),
+        flats:           Number(r.flats),
+        independentHouse: Number(r.independentHouse),
+        total:           Number(r.total),
+      },
+    }));
   }
 
   // ── SEO content lookup ────────────────────────────────────────────────────
