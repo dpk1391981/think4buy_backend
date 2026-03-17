@@ -5,6 +5,7 @@ import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
 import { Property } from './entities/property.entity';
 import { PropertyImage } from './entities/property-image.entity';
+import { PropertyStatusHistory } from './entities/property-status-history.entity';
 import { Amenity } from './entities/amenity.entity';
 import { PropertyView } from './entities/property-view.entity';
 import { WalletModule } from '../wallet/wallet.module';
@@ -12,7 +13,7 @@ import { UploadModule } from '../upload/upload.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Property, PropertyImage, Amenity, PropertyView]),
+    TypeOrmModule.forFeature([Property, PropertyImage, PropertyStatusHistory, Amenity, PropertyView]),
     WalletModule,
     ScheduleModule.forRoot(),
     UploadModule,

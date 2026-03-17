@@ -52,11 +52,12 @@ export enum ListingUserType {
 }
 
 export enum PropertyStatus {
-  ACTIVE = 'active',
-  SOLD = 'sold',
-  RENTED = 'rented',
-  INACTIVE = 'inactive',
-  PENDING = 'pending',
+  ACTIVE     = 'active',
+  UNDER_DEAL = 'under_deal',
+  SOLD       = 'sold',
+  RENTED     = 'rented',
+  INACTIVE   = 'inactive',
+  PENDING    = 'pending',
 }
 
 export enum ApprovalStatus {
@@ -179,6 +180,15 @@ export class Property {
   @Column({ type: 'enum', enum: PropertyStatus, default: PropertyStatus.ACTIVE })
   @Index()
   status: PropertyStatus;
+
+  @Column({ type: 'datetime', nullable: true })
+  statusUpdatedAt: Date;
+
+  @Column({ nullable: true, length: 36 })
+  statusUpdatedBy: string;   // userId who last changed status
+
+  @Column({ type: 'text', nullable: true })
+  statusNote: string;        // optional note on last status change
 
   @Column({ default: false })
   isDraft: boolean;

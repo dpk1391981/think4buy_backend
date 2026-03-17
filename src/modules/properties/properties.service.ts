@@ -19,6 +19,7 @@ import {
   ListingUserType,
 } from './entities/property.entity';
 import { PropertyImage } from './entities/property-image.entity';
+import { PropertyStatusHistory } from './entities/property-status-history.entity';
 import { Amenity } from './entities/amenity.entity';
 import { PropertyView } from './entities/property-view.entity';
 import { CreatePropertyDto } from './dto/create-property.dto';
@@ -53,6 +54,8 @@ export class PropertiesService {
     private amenityRepo: Repository<Amenity>,
     @InjectRepository(PropertyView)
     private viewRepo: Repository<PropertyView>,
+    @InjectRepository(PropertyStatusHistory)
+    private statusHistoryRepo: Repository<PropertyStatusHistory>,
     private walletService: WalletService,
   ) {}
 
@@ -1064,5 +1067,99 @@ export class PropertiesService {
         maxLng: filters.maxLng,
       });
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Property Status Management
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Valid transitions by role:
+   *  owner/agent: active → under_deal, under_deal → active, active/under_deal → sold/rented, any → inactive
+   *  admin: any → any
+   */
+  private readonly ALLOWED_TRANSITIONS: Record<string, PropertyStatus[]> = {
+    [PropertyStatus.ACTIVE]:     [PropertyStatus.UNDER_DEAL, PropertyStatus.SOLD, PropertyStatus.RENTED, PropertyStatus.INACTIVE],
+    [PropertyStatus.UNDER_DEAL]: [PropertyStatus.ACTIVE, PropertyStatus.SOLD, PropertyStatus.RENTED, PropertyStatus.INACTIVE],
+    [PropertyStatus.SOLD]:       [PropertyStatus.ACTIVE],   // admin can re-activate
+    [PropertyStatus.RENTED]:     [PropertyStatus.ACTIVE],
+    [PropertyStatus.INACTIVE]:   [PropertyStatus.ACTIVE],
+    [PropertyStatus.PENDING]:    [PropertyStatus.ACTIVE, PropertyStatus.INACTIVE],
+  };
+
+  async updatePropertyStatus(
+    propertyId: string,
+    newStatus: PropertyStatus,
+    requestingUser: User,
+    note?: string,
+  ): Promise<Property> {
+    const property = await this.propertyRepo.findOne({ where: { id: propertyId } });
+    if (!property) throw new NotFoundException('Property not found');
+
+    const isAdmin = requestingUser.role === UserRole.ADMIN;
+    const isOwner = property.ownerId === requestingUser.id;
+    const isAssignedAgent = property.agentId === requestingUser.id;
+
+    if (!isAdmin && !isOwner && !isAssignedAgent) {
+      throw new ForbiddenException('You do not have permission to change the status of this property');
+    }
+
+    // Admins can do any transition; owners/agents are restricted
+    if (!isAdmin) {
+      const allowed = this.ALLOWED_TRANSITIONS[property.status] ?? [];
+      if (!allowed.includes(newStatus)) {
+        throw new BadRequestException(
+          `Cannot transition from "${property.status}" to "${newStatus}"`,
+        );
+      }
+    }
+
+    const oldStatus = property.status;
+
+    // Persist history record
+    await this.statusHistoryRepo.save(
+      this.statusHistoryRepo.create({
+        propertyId,
+        oldStatus,
+        newStatus,
+        updatedBy:     requestingUser.id,
+        updatedByRole: requestingUser.role,
+        note,
+      }),
+    );
+
+    // Update the property
+    property.status          = newStatus;
+    property.statusUpdatedAt = new Date();
+    property.statusUpdatedBy = requestingUser.id;
+    property.statusNote      = note ?? null;
+
+    this.logger.log(
+      `Property ${propertyId} status changed: ${oldStatus} → ${newStatus} by user ${requestingUser.id}`,
+    );
+
+    return this.propertyRepo.save(property);
+  }
+
+  /** Get status history for a property (owner/agent/admin only) */
+  async getPropertyStatusHistory(
+    propertyId: string,
+    requestingUser: User,
+  ): Promise<PropertyStatusHistory[]> {
+    const property = await this.propertyRepo.findOne({ where: { id: propertyId } });
+    if (!property) throw new NotFoundException('Property not found');
+
+    const isAdmin = requestingUser.role === UserRole.ADMIN;
+    const isOwner = property.ownerId === requestingUser.id;
+    const isAssignedAgent = property.agentId === requestingUser.id;
+
+    if (!isAdmin && !isOwner && !isAssignedAgent) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    return this.statusHistoryRepo.find({
+      where: { propertyId },
+      order: { createdAt: 'DESC' },
+    });
   }
 }

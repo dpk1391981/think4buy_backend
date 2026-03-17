@@ -237,4 +237,24 @@ export class PropertiesController {
   ) {
     return this.propertiesService.boostProperty(id, body.boostPlanId, req.user);
   }
+
+  @Patch(':id/status')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update property status (active/under_deal/sold/rented/inactive)' })
+  updateStatus(
+    @Param('id') id: string,
+    @Body() body: { status: PropertyStatus; note?: string },
+    @Request() req,
+  ) {
+    return this.propertiesService.updatePropertyStatus(id, body.status, req.user, body.note);
+  }
+
+  @Get(':id/status-history')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get status change history for a property' })
+  getStatusHistory(@Param('id') id: string, @Request() req) {
+    return this.propertiesService.getPropertyStatusHistory(id, req.user);
+  }
 }

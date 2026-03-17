@@ -130,7 +130,24 @@ export class AnalyticsService {
   }) {
     const limit = Math.min(filters.limit || 12, 20);
 
-    // Build location-aware WHERE
+    // ── Always fetch live listing counts so the displayed number matches the
+    //    listing page exactly (cache can be stale between cron runs).
+    const liveQb = this.dataSource
+      .createQueryBuilder()
+      .select('p.type', 'propertyType')
+      .addSelect('COUNT(*)', 'cnt')
+      .from('properties', 'p')
+      .where('p.approvalStatus = :s', { s: 'approved' })
+      .andWhere("p.status = 'active'")
+      .groupBy('p.type');
+
+    if (filters.city)        liveQb.andWhere('p.city = :city',   { city:  filters.city  });
+    else if (filters.state)  liveQb.andWhere('p.state = :state', { state: filters.state });
+
+    const liveCounts: { propertyType: string; cnt: string }[] = await liveQb.getRawMany();
+    const liveCountMap = new Map(liveCounts.map(r => [r.propertyType, parseInt(r.cnt)]));
+
+    // ── Build location-aware WHERE for cache (used for rank / trending only) ──
     const qb = this.catRepo
       .createQueryBuilder('c')
       .orderBy('c.rank', 'ASC')
@@ -149,23 +166,27 @@ export class AnalyticsService {
 
     const rows = await qb.getMany();
 
-    // If cache is empty, fall back to live query
+    // If cache is empty, fall back to live query (already uses live counts)
     if (rows.length === 0) {
       return this.getLiveCategoryData(filters, limit);
     }
 
-    return rows.map(r => ({
-      propertyType:  r.propertyType,
-      label:         r.label,
-      icon:          r.icon,
-      totalListings: r.totalListings,
-      totalViews:    r.totalViews,
-      totalSearches: r.totalSearches,
-      score:         Number(r.score),
-      rank:          r.rank,
-      isTrending:    r.isTrending,
-      trendingScore: Number(r.trendingScore),
-    }));
+    // Merge: live count for totalListings, cache for rank/trending/views/searches
+    return rows
+      .map(r => ({
+        propertyType:  r.propertyType,
+        label:         r.label,
+        icon:          r.icon,
+        totalListings: liveCountMap.get(r.propertyType) ?? r.totalListings,
+        totalViews:    r.totalViews,
+        totalSearches: r.totalSearches,
+        score:         Number(r.score),
+        rank:          r.rank,
+        isTrending:    r.isTrending,
+        trendingScore: Number(r.trendingScore),
+      }))
+      .filter(r => r.totalListings > 0)   // hide types with no active listings
+      .sort((a, b) => a.rank - b.rank);
   }
 
   /** Live fallback: count properties by type from main DB */
