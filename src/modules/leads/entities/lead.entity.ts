@@ -160,6 +160,10 @@ export class Lead {
   @Column({ length: 50, nullable: true })
   deviceType: string;
 
+  /** Logged-in user who submitted this lead (links back to buyer account) */
+  @Column({ length: 36, nullable: true })
+  contactUserId: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -73,7 +73,7 @@ export class InquiriesService {
     return saved;
   }
 
-  async contactAgent(agentId: string, dto: CreateInquiryDto) {
+  async contactAgent(agentId: string, dto: CreateInquiryDto, userId?: string) {
     const agent = await this.userRepo.findOne({ where: { id: agentId, role: UserRole.AGENT } });
     if (!agent) throw new NotFoundException('Agent not found');
 
@@ -84,8 +84,20 @@ export class InquiriesService {
       message: dto.message,
       type:    (dto.type as any) ?? 'general',
       agentId,
+      userId,
     } as any);
-    return this.inquiryRepo.save(inquiry);
+    const saved = await this.inquiryRepo.save(inquiry) as any;
+    // Notify the agent
+    this.notificationsService.createSilent({
+      userId: agentId,
+      role: 'agent',
+      title: 'New Inquiry Received',
+      message: `${dto.name} sent you a direct inquiry.`,
+      type: NotificationType.LEAD,
+      entityType: 'inquiry',
+      entityId: saved.id,
+    });
+    return saved;
   }
 
   async findByAgent(agentId: string) {
@@ -98,6 +110,14 @@ export class InquiriesService {
   async findByProperty(propertyId: string) {
     return this.inquiryRepo.find({
       where: { propertyId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async findByBuyer(userId: string) {
+    return this.inquiryRepo.find({
+      where: { userId },
+      relations: ['property'],
       order: { createdAt: 'DESC' },
     });
   }

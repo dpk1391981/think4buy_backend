@@ -20,6 +20,7 @@ import { City } from '../locations/entities/city.entity';
 import { Country } from '../locations/entities/country.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
+import { AlertsService } from '../alerts/alerts.service';
 
 @Injectable()
 export class AdminService {
@@ -31,6 +32,7 @@ export class AdminService {
     private walletService: WalletService,
     private locationsService: LocationsService,
     private readonly notificationsService: NotificationsService,
+    private readonly alertsService: AlertsService,
   ) {}
 
   async getDashboardStats() {
@@ -124,6 +126,18 @@ export class AdminService {
         type: NotificationType.PROPERTY,
         entityType: 'property',
         entityId: saved.id,
+      });
+    }
+
+    // Notify buyers whose property alerts match this newly approved property
+    if (!wasAlreadyApproved) {
+      this.alertsService.checkAlertsForProperty({
+        id: saved.id,
+        title: saved.title,
+        city: (saved as any).city,
+        locality: (saved as any).locality,
+        category: (saved as any).category,
+        price: (saved as any).price,
       });
     }
 

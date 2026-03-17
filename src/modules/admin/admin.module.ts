@@ -11,6 +11,7 @@ import { LocationsModule } from '../locations/locations.module';
 import { AgencyModule } from '../agency/agency.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { UploadModule } from '../upload/upload.module';
+import { AlertsModule } from '../alerts/alerts.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { UploadModule } from '../upload/upload.module';
     AgencyModule,
     NotificationsModule,
     UploadModule,
+    AlertsModule,
   ],
   controllers: [AdminController],
   providers: [AdminService],

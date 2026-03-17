@@ -8,6 +8,8 @@ import { CreateLeadDto, PublicLeadDto, UpdateLeadStatusDto, AssignLeadDto, AddLe
 import { LeadAssignmentEngineService } from './lead-assignment-engine.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
+import { MessagingQueueService } from '../messaging/messaging-queue.service';
+import { User } from '../users/entities/user.entity';
 
 /** Dedup window: same phone + same property within this many minutes = duplicate */
 const DEDUP_WINDOW_MINUTES = 10;
@@ -23,8 +25,11 @@ export class LeadsService {
     private assignmentRepo: Repository<LeadAssignment>,
     @InjectRepository(LeadActivityLog)
     private activityRepo: Repository<LeadActivityLog>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
     private readonly assignmentEngine: LeadAssignmentEngineService,
     private readonly notificationsService: NotificationsService,
+    private readonly messagingQueue: MessagingQueueService,
   ) {}
 
   // ── Scoring ────────────────────────────────────────────────────────────────
@@ -80,28 +85,46 @@ export class LeadsService {
 
   // ── Public capture (no auth) ───────────────────────────────────────────────
 
+  /** Strip country code/spaces so phone is always 10 Indian digits */
+  private normalizePhone(raw: string): string {
+    const digits = (raw || '').replace(/\D/g, '');
+    if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
+    if (digits.length === 11 && digits.startsWith('0'))  return digits.slice(1);
+    return digits.slice(-10);
+  }
+
   async capturePublic(dto: PublicLeadDto): Promise<{ lead: Lead; isDuplicate: boolean }> {
-    const existing = await this.findDuplicate(dto.contactPhone, dto.propertyId);
+    const phone = this.normalizePhone(dto.contactPhone);
+    dto = { ...dto, contactPhone: phone };
+    const existing = await this.findDuplicate(phone, dto.propertyId);
     if (existing) {
       this.logger.debug(`Dedup hit: lead ${existing.id} for ${dto.contactPhone}`);
       return { lead: existing, isDuplicate: true };
     }
 
     const score = this.calcScore(dto);
-    const agentId = await this.assignmentEngine.resolveAgent({
-      propertyId: dto.propertyId,
-      cityId: dto.cityId,
-      city: dto.city,
-    });
+    // Use the explicitly-requested agent (e.g. from agent profile page) before
+    // falling back to the auto-assignment engine.
+    const agentId =
+      (dto as any).assignedAgentId ??
+      (await this.assignmentEngine.resolveAgent({
+        propertyId: dto.propertyId,
+        cityId: dto.cityId,
+        city: dto.city,
+      }));
+
+    // Strip assignedAgentId so the spread below doesn't double-write it
+    const { assignedAgentId: _unused, contactUserId, ...leadFields } = dto as any;
 
     const lead = this.leadRepo.create({
-      ...dto,
+      ...leadFields,
       leadScore: score,
       temperature: this.getTemperature(score),
       status: LeadStatus.NEW,
       assignedAgentId: agentId ?? null,
+      contactUserId: contactUserId ?? null,
     });
-    const saved = await this.leadRepo.save(lead);
+    const saved = await this.leadRepo.save(lead) as unknown as Lead;
 
     if (agentId) {
       await this.assignmentRepo.save(
@@ -140,6 +163,26 @@ export class LeadsService {
       });
     }
 
+    // Trigger messaging queue event (look up agent contact details if assigned)
+    const agentUser = agentId ? await this.userRepo.findOne({ where: { id: agentId } }) : null;
+    this.messagingQueue.trigger('lead_created', {
+      buyer: {
+        userId:  contactUserId ?? undefined,
+        name:    saved.contactName,
+        phone:   saved.contactPhone,
+        email:   saved.contactEmail,
+      },
+      agent: agentUser ? {
+        userId: agentUser.id,
+        name:   agentUser.name,
+        phone:  agentUser.phone,
+        email:  agentUser.email,
+      } : undefined,
+      property_title: dto.propertyId ?? '',
+      source:         saved.source,
+      lead_id:        saved.id,
+    }).catch(() => {});
+
     return { lead: saved, isDuplicate: false };
   }
 
@@ -169,7 +212,7 @@ export class LeadsService {
       status: LeadStatus.NEW,
       assignedAgentId: agentId,
     });
-    const saved = await this.leadRepo.save(lead);
+    const saved = await this.leadRepo.save(lead) as unknown as Lead;
 
     if (agentId) {
       await this.assignmentRepo.save(
@@ -246,6 +289,18 @@ export class LeadsService {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
+  /** Human-readable status labels for buyer notifications */
+  private readonly STATUS_LABEL: Partial<Record<LeadStatus, string>> = {
+    [LeadStatus.CONTACTED]:            'An agent has reviewed your inquiry and will contact you.',
+    [LeadStatus.FOLLOW_UP]:            'An agent will follow up with you soon.',
+    [LeadStatus.SITE_VISIT_SCHEDULED]: 'Your site visit has been scheduled — our agent will reach out to confirm.',
+    [LeadStatus.SITE_VISIT_COMPLETED]: 'Your site visit has been recorded. We hope it went well!',
+    [LeadStatus.NEGOTIATION]:          'Your inquiry has entered the negotiation stage.',
+    [LeadStatus.DEAL_IN_PROGRESS]:     'Great news — your deal is currently in progress.',
+    [LeadStatus.DEAL_WON]:             'Congratulations! Your deal has been successfully closed.',
+    [LeadStatus.DEAL_LOST]:            'Unfortunately your inquiry could not proceed this time.',
+  };
+
   async updateStatus(
     id: string,
     dto: UpdateLeadStatusDto,
@@ -267,6 +322,34 @@ export class LeadsService {
       actorId,
       actorType,
     );
+
+    // Notify the buyer (if we have their user account)
+    const buyerMsg = this.STATUS_LABEL[dto.status];
+    if (lead.contactUserId && buyerMsg) {
+      this.notificationsService.createSilent({
+        userId: lead.contactUserId,
+        title: 'Update on your property inquiry',
+        message: buyerMsg + (dto.notes ? ` Note from agent: ${dto.notes}` : ''),
+        type: NotificationType.LEAD,
+        entityType: 'lead',
+        entityId: id,
+      });
+    }
+
+    // Trigger messaging queue event
+    this.messagingQueue.trigger('lead_status_updated', {
+      buyer: {
+        userId: lead.contactUserId ?? undefined,
+        name:   lead.contactName,
+        phone:  lead.contactPhone,
+        email:  lead.contactEmail,
+      },
+      agent: lead.assignedAgentId ? { userId: lead.assignedAgentId } : undefined,
+      new_status: dto.status,
+      notes:      dto.notes ?? '',
+      lead_id:    id,
+    }).catch(() => {});
+
     return saved;
   }
 
@@ -306,8 +389,20 @@ export class LeadsService {
   }
 
   async addNote(id: string, dto: AddLeadNoteDto, actorId: string): Promise<LeadActivityLog> {
-    await this.findOne(id);
-    return this.logActivity(id, ActivityType.NOTE_ADDED, null, null, dto.notes, actorId, ActorType.AGENT);
+    const lead = await this.findOne(id);
+    const log = await this.logActivity(id, ActivityType.NOTE_ADDED, null, null, dto.notes, actorId, ActorType.AGENT);
+    // Notify the buyer that the agent has sent them a message
+    if (lead.contactUserId) {
+      this.notificationsService.createSilent({
+        userId: lead.contactUserId,
+        title: 'Message from your agent',
+        message: dto.notes,
+        type: NotificationType.LEAD,
+        entityType: 'lead',
+        entityId: id,
+      });
+    }
+    return log;
   }
 
   async getActivities(leadId: string): Promise<LeadActivityLog[]> {

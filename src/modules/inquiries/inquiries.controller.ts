@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { OptionalAuthGuard } from '../../common/guards/optional-auth.guard';
 import { InquiriesService, CreateInquiryDto } from './inquiries.service';
 
 @ApiTags('inquiries')
@@ -20,21 +21,25 @@ export class InquiriesController {
   constructor(private readonly inquiriesService: InquiriesService) {}
 
   @Post('property/:propertyId')
+  @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: 'Send inquiry for a property' })
   create(
     @Param('propertyId') propertyId: string,
     @Body() dto: CreateInquiryDto,
+    @Request() req,
   ) {
-    return this.inquiriesService.create(propertyId, dto);
+    return this.inquiriesService.create(propertyId, dto, req.user?.id);
   }
 
   @Post('agent/:agentId')
+  @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: 'Send a direct inquiry to an agent — public, no login required' })
   contactAgent(
     @Param('agentId') agentId: string,
     @Body() dto: CreateInquiryDto,
+    @Request() req,
   ) {
-    return this.inquiriesService.contactAgent(agentId, dto);
+    return this.inquiriesService.contactAgent(agentId, dto, req.user?.id);
   }
 
   @Get('property/:propertyId')
@@ -51,6 +56,22 @@ export class InquiriesController {
   @ApiOperation({ summary: 'Get inquiries received on my properties' })
   getMyInquiries(@Request() req) {
     return this.inquiriesService.findByOwner(req.user.id);
+  }
+
+  @Get('agent-inbox')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get direct inquiries sent to me as an agent' })
+  getAgentInbox(@Request() req) {
+    return this.inquiriesService.findByAgent(req.user.id);
+  }
+
+  @Get('buyer-enquiries')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Get the logged-in buyer's own submitted enquiries" })
+  getBuyerEnquiries(@Request() req) {
+    return this.inquiriesService.findByBuyer(req.user.id);
   }
 
   @Get('my')

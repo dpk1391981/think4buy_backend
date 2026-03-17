@@ -32,8 +32,13 @@ export class LeadAssignmentEngineService {
   ) {}
 
   /**
-   * Returns the best agentId for the given lead context.
+   * Returns the best agent's **users.id** for the given lead context.
    * Returns null if no agent can be found.
+   *
+   * NOTE: PropertyAgentMap and AgentLocationMap store agent_profiles.id, not
+   * users.id.  All returned values are converted to users.id via
+   * resolveUserId() so that leads.assignedAgentId is always a users.id and
+   * can be matched against req.user.id in controllers.
    */
   async resolveAgent(params: {
     propertyId?: string;
@@ -49,11 +54,12 @@ export class LeadAssignmentEngineService {
         select: ['agentId'],
       });
       if (maps.length > 0) {
-        const agentIds = maps.map((m) => m.agentId);
-        const best = await this.leastLoadedAgent(agentIds);
+        const agentProfileIds = maps.map((m) => m.agentId);
+        const best = await this.leastLoadedByProfileId(agentProfileIds);
         if (best) {
-          this.logger.debug(`Assigned via property map → agent ${best}`);
-          return best;
+          const userId = await this.resolveUserId(best);
+          this.logger.debug(`Assigned via property map → agent ${userId}`);
+          return userId;
         }
       }
     }
@@ -65,11 +71,12 @@ export class LeadAssignmentEngineService {
         select: ['agentId'],
       });
       if (maps.length > 0) {
-        const agentIds = [...new Set(maps.map((m) => m.agentId))];
-        const best = await this.leastLoadedAgent(agentIds);
+        const agentProfileIds = [...new Set(maps.map((m) => m.agentId))];
+        const best = await this.leastLoadedByProfileId(agentProfileIds);
         if (best) {
-          this.logger.debug(`Assigned via city map (${cityId}) → agent ${best}`);
-          return best;
+          const userId = await this.resolveUserId(best);
+          this.logger.debug(`Assigned via city map (${cityId}) → agent ${userId}`);
+          return userId;
         }
       }
     }
@@ -81,11 +88,12 @@ export class LeadAssignmentEngineService {
       .getRawMany<{ agentId: string }>();
 
     if (allMaps.length > 0) {
-      const agentIds = allMaps.map((m) => m.agentId);
-      const best = await this.leastLoadedAgent(agentIds);
+      const agentProfileIds = allMaps.map((m) => m.agentId);
+      const best = await this.leastLoadedByProfileId(agentProfileIds);
       if (best) {
-        this.logger.debug(`Assigned via global round-robin → agent ${best}`);
-        return best;
+        const userId = await this.resolveUserId(best);
+        this.logger.debug(`Assigned via global round-robin → agent ${userId}`);
+        return userId;
       }
     }
 
@@ -94,18 +102,42 @@ export class LeadAssignmentEngineService {
   }
 
   /**
-   * Among the given agentIds, return the one with the fewest active leads.
+   * Resolve an agent_profiles.id → users.id.
+   * Falls back to the profileId itself if no row is found (safe fallback).
    */
-  private async leastLoadedAgent(agentIds: string[]): Promise<string | null> {
-    if (agentIds.length === 0) return null;
-    if (agentIds.length === 1) return agentIds[0];
+  private async resolveUserId(agentProfileId: string): Promise<string> {
+    const rows: any[] = await this.leadRepo.manager.query(
+      'SELECT userId FROM agent_profiles WHERE id = ? LIMIT 1',
+      [agentProfileId],
+    );
+    return rows[0]?.userId ?? agentProfileId;
+  }
 
-    // Count active leads per agent
+  /**
+   * Among the given agent_profile IDs, return the one whose user has the
+   * fewest active leads.  We join through agent_profiles to get the userId
+   * so the lead-count query uses the same users.id space as the leads table.
+   */
+  private async leastLoadedByProfileId(agentProfileIds: string[]): Promise<string | null> {
+    if (agentProfileIds.length === 0) return null;
+    if (agentProfileIds.length === 1) return agentProfileIds[0];
+
+    // Resolve all profile IDs to user IDs in one query
+    const profileRows: any[] = await this.leadRepo.manager.query(
+      `SELECT id, userId FROM agent_profiles WHERE id IN (${agentProfileIds.map(() => '?').join(',')})`,
+      agentProfileIds,
+    );
+    if (profileRows.length === 0) return agentProfileIds[0];
+
+    const userIds = profileRows.map((r) => r.userId).filter(Boolean);
+    if (userIds.length === 0) return agentProfileIds[0];
+
+    // Count open leads per userId
     const rows: { agentId: string; cnt: string }[] = await this.leadRepo
       .createQueryBuilder('l')
       .select('l.assignedAgentId', 'agentId')
       .addSelect('COUNT(*)', 'cnt')
-      .where('l.assignedAgentId IN (:...ids)', { ids: agentIds })
+      .where('l.assignedAgentId IN (:...ids)', { ids: userIds })
       .andWhere('l.status NOT IN (:...closed)', {
         closed: ['deal_won', 'deal_lost', 'junk', 'duplicate'],
       })
@@ -115,16 +147,16 @@ export class LeadAssignmentEngineService {
     const loadMap = new Map<string, number>();
     rows.forEach((r) => loadMap.set(r.agentId, Number(r.cnt)));
 
-    // Return the agent with fewest open leads (default 0 if not in map)
-    let best = agentIds[0];
-    let bestLoad = loadMap.get(best) ?? 0;
-    for (const id of agentIds) {
-      const load = loadMap.get(id) ?? 0;
+    // Find the profile whose user has the fewest open leads
+    let bestProfileId = profileRows[0].id;
+    let bestLoad = loadMap.get(profileRows[0].userId) ?? 0;
+    for (const row of profileRows) {
+      const load = loadMap.get(row.userId) ?? 0;
       if (load < bestLoad) {
-        best = id;
+        bestProfileId = row.id;
         bestLoad = load;
       }
     }
-    return best;
+    return bestProfileId;
   }
 }

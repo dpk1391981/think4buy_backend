@@ -1,5 +1,13 @@
 import { IsString, IsOptional, IsEnum, IsNumber, IsEmail, IsUUID, IsArray, Length, Matches } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
+
+/** Strips country code / spaces so phone is always a 10-digit Indian number */
+function normalizeIndianPhone({ value }: { value: string }): string {
+  const digits = (value || '').replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
+  if (digits.length === 11 && digits.startsWith('0'))  return digits.slice(1);
+  return digits.slice(-10);
+}
 import { LeadSource, LeadStatus, LeadPropertyType } from '../entities/lead.entity';
 
 export class CreateLeadDto {
@@ -124,6 +132,7 @@ export class PublicLeadDto {
   @Length(2, 100)
   contactName: string;
 
+  @Transform(normalizeIndianPhone)
   @IsString()
   @Matches(/^[6-9]\d{9}$/, { message: 'Enter a valid 10-digit Indian mobile number' })
   contactPhone: string;
@@ -215,6 +224,16 @@ export class PublicLeadDto {
   @IsString()
   @IsOptional()
   deviceType?: string;
+
+  /** Optional: directly assign this lead to a specific agent (e.g. from agent profile page) */
+  @IsString()
+  @IsOptional()
+  assignedAgentId?: string;
+
+  /** Logged-in buyer's user.id — used to notify them on status changes */
+  @IsString()
+  @IsOptional()
+  contactUserId?: string;
 }
 
 export class UpdateLeadStatusDto {

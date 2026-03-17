@@ -766,20 +766,56 @@ export class AgencyService {
 
   // ─── Premium Slot System ─────────────────────────────────────────────────────
 
-  /** Return active, non-expired premium slots for a city (for search banner) */
-  async getPremiumAgentsByCity(city: string): Promise<PremiumSlot[]> {
-    if (!city) return [];
-    const normalised = city.toLowerCase().trim();
+  /** Return active, non-expired premium slots with full agent data (for sponsored banner) */
+  async getPremiumAgentsByCity(city: string): Promise<any[]> {
     const now = new Date();
-    return this.premiumSlotRepo.find({
-      where: {
-        city: normalised,
-        isActive: true,
-        expiresAt: MoreThan(now),
-      },
-      order: { slotNumber: 'ASC' },
-      take: 6,
-    });
+    const qb = this.premiumSlotRepo
+      .createQueryBuilder('ps')
+      .innerJoin('users', 'u', 'u.id = ps.agentId')
+      .where('ps.isActive = true')
+      .andWhere('ps.expiresAt > :now', { now })
+      .orderBy('ps.slotNumber', 'ASC')
+      .take(12)
+      .select([
+        'ps.id                          AS slotId',
+        'u.id                           AS id',
+        'u.name                         AS name',
+        'u.avatar                       AS avatar',
+        'u.phone                        AS phone',
+        'u.company                      AS company',
+        'COALESCE(u.city, ps.city)      AS city',
+        'u.state                        AS state',
+        'u.agentTick                    AS agentTick',
+        'u.agentRating                  AS agentRating',
+        'u.agentExperience              AS agentExperience',
+        'u.totalDeals                   AS totalDeals',
+        'u.agentUsedQuota               AS agentUsedQuota',
+        'u.isVerified                   AS isVerified',
+        'u.agentBio                     AS agentBio',
+      ]);
+
+    if (city) {
+      qb.andWhere('ps.city = :city', { city: city.toLowerCase().trim() });
+    }
+
+    const rows = await qb.getRawMany();
+    return rows.map(r => ({
+      id:              r.id,
+      slotId:          r.slotId,
+      name:            r.name || 'Featured Agent',
+      avatar:          r.avatar || null,
+      phone:           r.phone || null,
+      company:         r.company || null,
+      city:            r.city || null,
+      state:           r.state || null,
+      agentTick:       r.agentTick || 'verified',
+      agentRating:     r.agentRating != null ? Number(r.agentRating) : 0,
+      agentExperience: r.agentExperience != null ? Number(r.agentExperience) : 0,
+      totalDeals:      r.totalDeals != null ? Number(r.totalDeals) : 0,
+      agentUsedQuota:  r.agentUsedQuota != null ? Number(r.agentUsedQuota) : 0,
+      isVerified:      r.isVerified === 1 || r.isVerified === true || r.isVerified === '1',
+      agentBio:        r.agentBio || null,
+    }));
   }
 
   /** Create or update a premium slot (admin only) */
@@ -898,21 +934,54 @@ export class AgencyService {
     }
   }
 
-  /** Return top agents for a city ranked by authority score */
-  async getTopAgentsByCity(city: string, limit = 12): Promise<AgentProfile[]> {
-    if (!city) return [];
-    return this.agentProfileRepo
-      .createQueryBuilder('ap')
-      .innerJoin(
-        'agent_location_maps',
-        'alm',
-        'alm.agentId = ap.userId AND alm.isActive = true',
-      )
-      .innerJoin('cities', 'ct', 'ct.id = alm.cityId AND LOWER(ct.name) = LOWER(:city)', { city })
-      .where('ap.isActive = true')
-      .orderBy('ap.authorityScore', 'DESC')
-      .addOrderBy('ap.rating', 'DESC')
+  /** Return top ticked agents — city-scoped or global — shaped for the frontend Agent interface */
+  async getTopAgentsByCity(city: string, limit = 12): Promise<any[]> {
+    const qb = this.premiumSlotRepo.manager
+      .createQueryBuilder()
+      .from('users', 'u')
+      .where('u.agentTick != :none', { none: 'none' })
+      .andWhere('u.isActive = true')
+      .orderBy('u.agentRating', 'DESC')
+      .addOrderBy('u.totalDeals', 'DESC')
       .take(limit)
-      .getMany();
+      .select([
+        'u.id               AS id',
+        'u.name             AS name',
+        'u.avatar           AS avatar',
+        'u.phone            AS phone',
+        'u.company          AS company',
+        'u.city             AS city',
+        'u.state            AS state',
+        'u.agentTick        AS agentTick',
+        'u.agentRating      AS agentRating',
+        'u.agentExperience  AS agentExperience',
+        'u.totalDeals       AS totalDeals',
+        'u.agentUsedQuota   AS agentUsedQuota',
+        'u.isVerified       AS isVerified',
+        'u.agentBio         AS agentBio',
+      ]);
+
+    if (city) {
+      qb.andWhere('LOWER(u.city) = LOWER(:city)', { city });
+    }
+
+    const rows = await qb.getRawMany();
+    return rows.map(r => ({
+      id:              r.id,
+      name:            r.name,
+      avatar:          r.avatar || null,
+      phone:           r.phone || null,
+      company:         r.company || null,
+      city:            r.city || null,
+      state:           r.state || null,
+      agentTick:       r.agentTick || 'none',
+      agentRating:     r.agentRating != null ? Number(r.agentRating) : 0,
+      agentExperience: r.agentExperience != null ? Number(r.agentExperience) : 0,
+      totalDeals:      r.totalDeals != null ? Number(r.totalDeals) : 0,
+      agentUsedQuota:  r.agentUsedQuota != null ? Number(r.agentUsedQuota) : 0,
+      isVerified:      r.isVerified === 1 || r.isVerified === true || r.isVerified === '1',
+      agentBio:        r.agentBio || null,
+    }));
+
   }
 }

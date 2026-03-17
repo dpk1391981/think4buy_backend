@@ -3,6 +3,7 @@ import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { BullModule } from '@nestjs/bullmq';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { BotDetectionMiddleware } from './common/middleware/bot-detection.middleware';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -78,6 +79,11 @@ import { AgentFeedbackModule } from './modules/agent-feedback/agent-feedback.mod
 import { AgentFeedback } from './modules/agent-feedback/entities/agent-feedback.entity';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { Notification } from './modules/notifications/entities/notification.entity';
+import { MessagingModule } from './modules/messaging/messaging.module';
+import { MessageService as MsgService } from './modules/messaging/entities/message-service.entity';
+import { MessageTemplate } from './modules/messaging/entities/message-template.entity';
+import { EventTemplateMapping } from './modules/messaging/entities/event-template-mapping.entity';
+import { MessageLog } from './modules/messaging/entities/message-log.entity';
 
 @Module({
   imports: [
@@ -90,6 +96,19 @@ import { Notification } from './modules/notifications/entities/notification.enti
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60_000, limit: 100 },
     ]),
+    // Redis queue for async messaging (BullMQ)
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host:     config.get('REDIS_HOST', 'localhost'),
+          port:     config.get<number>('REDIS_PORT', 6379),
+          password: config.get('REDIS_PASSWORD') || undefined,
+          db:       config.get<number>('REDIS_DB', 0),
+        },
+      }),
+      inject: [ConfigService],
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
@@ -149,6 +168,10 @@ import { Notification } from './modules/notifications/entities/notification.enti
           AgentFeedback,
           Notification,
           OtpVerification,
+          MsgService,
+          MessageTemplate,
+          EventTemplateMapping,
+          MessageLog,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -180,6 +203,7 @@ import { Notification } from './modules/notifications/entities/notification.enti
     MenusModule,
     AgentFeedbackModule,
     NotificationsModule,
+    MessagingModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)
