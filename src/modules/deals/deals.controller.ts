@@ -9,7 +9,8 @@ export class DealsController {
 
   @Post()
   @UseGuards(AuthGuard('jwt'))
-  create(@Body() dto: CreateDealDto) {
+  create(@Request() req, @Body() dto: CreateDealDto) {
+    dto.agentId = req.user.agentProfileId || req.user.id;
     return this.dealsService.create(dto);
   }
 

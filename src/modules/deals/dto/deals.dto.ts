@@ -1,20 +1,24 @@
 import { IsString, IsOptional, IsEnum, IsNumber, IsDateString, IsUUID } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { DealStage, SellerType } from '../entities/deal.entity';
 
 export class CreateDealDto {
   @IsUUID()
   leadId: string;
 
+  // Injected from JWT in controller — not required from body
   @IsUUID()
-  agentId: string;
+  @IsOptional()
+  agentId?: string;
 
   @IsUUID()
   @IsOptional()
   agencyId?: string;
 
+  // Empty string from frontend should be treated as absent
   @IsUUID()
   @IsOptional()
+  @Transform(({ value }) => value === '' ? undefined : value)
   propertyId?: string;
 
   @IsEnum(SellerType)
@@ -33,6 +37,11 @@ export class CreateDealDto {
   @IsOptional()
   @Type(() => Number)
   bookingAmount?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  commissionRate?: number;
 
   @IsString()
   @IsOptional()

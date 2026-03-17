@@ -47,6 +47,9 @@ export class Deal {
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
   bookingAmount: number;
 
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, default: 2 })
+  commissionRate: number;
+
   @Column({ type: 'enum', enum: DealStage, default: DealStage.SHORTLISTED })
   @Index()
   stage: DealStage;
