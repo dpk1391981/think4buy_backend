@@ -45,6 +45,13 @@ export class SubscriptionPlan {
   @Column({ default: 0 })
   sortOrder: number;
 
+  /**
+   * Agent badge granted by this plan.
+   * Enterprise → gold | Featured → silver | Premium → bronze | Basic → verified | none → no badge
+   */
+  @Column({ type: 'enum', enum: ['none', 'verified', 'bronze', 'silver', 'gold'], default: 'none' })
+  agentBadge: 'none' | 'verified' | 'bronze' | 'silver' | 'gold';
+
   @CreateDateColumn()
   createdAt: Date;
 

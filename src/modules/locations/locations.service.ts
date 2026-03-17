@@ -28,17 +28,18 @@ export class LocationsService {
     });
   }
 
-  async getCities(): Promise<Location[]> {
-    return this.locationRepo
-      .createQueryBuilder('location')
-      .select(['location.city', 'location.state'])
-      .addSelect('SUM(location.propertyCount)', 'totalCount')
-      .where('location.isActive = true')
-      .groupBy('location.city')
-      .addGroupBy('location.state')
-      .orderBy('totalCount', 'DESC')
-      .limit(20)
-      .getMany();
+  async getCities(): Promise<{ id: string; name: string; stateName?: string; stateId?: string }[]> {
+    const cities = await this.cityRepository.find({
+      where: { isActive: true },
+      relations: ['state'],
+      order: { propertyCount: 'DESC', name: 'ASC' },
+    });
+    return cities.map(c => ({
+      id: c.id,
+      name: c.name,
+      stateName: c.state?.name,
+      stateId: c.stateId,
+    }));
   }
 
   async getLocalitiesByCity(city: string): Promise<Location[]> {

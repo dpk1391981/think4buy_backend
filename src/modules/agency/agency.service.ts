@@ -421,12 +421,12 @@ export class AgencyService {
     return this.agentLocationMapRepo.find({ where: { agentId }, order: { createdAt: 'DESC' } });
   }
 
-  // ─── Diamond Agent Coverage Search ───────────────────────────────────────────
+  // ─── Top Agent Coverage Search (Gold / Silver / Bronze / Verified) ──────────
 
   /**
-   * Returns diamond-badge agents whose coverage areas match the query.
+   * Returns top-badge agents (gold/silver/bronze) whose coverage areas match the query.
    * Matching priority: locality slug > city slug > state slug.
-   * Used to render "Top Diamond Agents" banner above search results.
+   * Used to render "Top Agents" banner above search results.
    */
   async getDiamondAgentsByCoverage(
     locality?: string,
@@ -484,7 +484,7 @@ export class AgencyService {
        INNER JOIN agent_profiles ap ON ap.id = alm.agentId
        INNER JOIN users u            ON u.id  = ap.userId
        WHERE alm.isActive = 1
-         AND ap.tick = 'diamond'
+         AND ap.tick IN ('gold', 'silver', 'bronze')
          AND ap.isActive = 1
          AND (${areaConditions.join(' OR ')})
        GROUP BY u.id, ap.id
@@ -861,14 +861,14 @@ export class AgencyService {
    * Recompute authority score for one agent profile in-place.
    *
    * Formula:
-   *   subscriptionWeight 40% — tick: diamond=100, gold=75, blue=50, none=0
+   *   subscriptionWeight 40% — tick: gold=100, silver=75, bronze=50, verified=25, none=0
    *   responseSpeed      20% — reserved, default 50
    *   dealSuccess        20% — totalDeals capped at 50 → scaled 0–100
    *   reviews            10% — agentRating/5 × 100
    *   listingQuality     10% — totalListings capped at 30 → scaled 0–100
    */
   async computeAndSaveAuthorityScore(profile: AgentProfile): Promise<number> {
-    const tickMap: Record<string, number> = { diamond: 100, gold: 75, blue: 50, none: 0 };
+    const tickMap: Record<string, number> = { gold: 100, silver: 75, bronze: 50, verified: 25, none: 0 };
     const tickScore = tickMap[profile.tick] ?? 0;
     const responseScore = 50; // reserved
     const dealScore = Math.min((profile.totalDeals / 50) * 100, 100);

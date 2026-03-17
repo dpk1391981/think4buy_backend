@@ -116,34 +116,98 @@ async function seed() {
   // ─── Locations ────────────────────────────────────────────────────────────────
   const locationRepo = dataSource.getRepository(Location);
   const LOCATIONS = [
-    { city: 'Mumbai', state: 'Maharashtra', locality: 'Bandra West', pincode: '400050', propertyCount: 450, latitude: 19.0596, longitude: 72.8295 },
-    { city: 'Mumbai', state: 'Maharashtra', locality: 'Powai', pincode: '400076', propertyCount: 320, latitude: 19.1197, longitude: 72.9054 },
-    { city: 'Mumbai', state: 'Maharashtra', locality: 'Andheri East', pincode: '400069', propertyCount: 280, latitude: 19.1136, longitude: 72.8697 },
-    { city: 'Mumbai', state: 'Maharashtra', locality: 'Juhu', pincode: '400049', propertyCount: 190, latitude: 19.1075, longitude: 72.8263 },
-    { city: 'Delhi', state: 'Delhi', locality: 'Greater Kailash', pincode: '110048', propertyCount: 310, latitude: 28.5494, longitude: 77.2397 },
-    { city: 'Delhi', state: 'Delhi', locality: 'Vasant Kunj', pincode: '110070', propertyCount: 245, latitude: 28.5204, longitude: 77.1583 },
-    { city: 'Delhi', state: 'Delhi', locality: 'Dwarka', pincode: '110075', propertyCount: 380, latitude: 28.5921, longitude: 77.0460 },
-    { city: 'Delhi', state: 'Delhi', locality: 'Saket', pincode: '110017', propertyCount: 210, latitude: 28.5244, longitude: 77.2167 },
-    { city: 'Bangalore', state: 'Karnataka', locality: 'Koramangala', pincode: '560034', propertyCount: 520, latitude: 12.9352, longitude: 77.6245 },
-    { city: 'Bangalore', state: 'Karnataka', locality: 'Whitefield', pincode: '560066', propertyCount: 480, latitude: 12.9698, longitude: 77.7500 },
-    { city: 'Bangalore', state: 'Karnataka', locality: 'Indiranagar', pincode: '560038', propertyCount: 350, latitude: 12.9719, longitude: 77.6412 },
-    { city: 'Bangalore', state: 'Karnataka', locality: 'HSR Layout', pincode: '560102', propertyCount: 290, latitude: 12.9116, longitude: 77.6389 },
-    { city: 'Noida', state: 'Uttar Pradesh', locality: 'Sector 62', pincode: '201309', propertyCount: 340, latitude: 28.6269, longitude: 77.3716 },
-    { city: 'Noida', state: 'Uttar Pradesh', locality: 'Sector 137', pincode: '201304', propertyCount: 420, latitude: 28.5025, longitude: 77.3940 },
-    { city: 'Gurgaon', state: 'Haryana', locality: 'DLF Phase 2', pincode: '122002', propertyCount: 380, latitude: 28.4932, longitude: 77.0893 },
-    { city: 'Gurgaon', state: 'Haryana', locality: 'Sohna Road', pincode: '122018', propertyCount: 290, latitude: 28.4089, longitude: 77.0415 },
-    { city: 'Hyderabad', state: 'Telangana', locality: 'Gachibowli', pincode: '500032', propertyCount: 460, latitude: 17.4417, longitude: 78.3482 },
-    { city: 'Hyderabad', state: 'Telangana', locality: 'Kondapur', pincode: '500084', propertyCount: 380, latitude: 17.4604, longitude: 78.3574 },
-    { city: 'Pune', state: 'Maharashtra', locality: 'Baner', pincode: '411045', propertyCount: 340, latitude: 18.5590, longitude: 73.7868 },
-    { city: 'Pune', state: 'Maharashtra', locality: 'Viman Nagar', pincode: '411014', propertyCount: 260, latitude: 18.5679, longitude: 73.9143 },
-    { city: 'Chennai', state: 'Tamil Nadu', locality: 'Anna Nagar', pincode: '600040', propertyCount: 310, latitude: 13.0850, longitude: 80.2101 },
-    { city: 'Chennai', state: 'Tamil Nadu', locality: 'OMR', pincode: '600097', propertyCount: 280, latitude: 12.8996, longitude: 80.2209 },
-    { city: 'Kolkata', state: 'West Bengal', locality: 'Salt Lake', pincode: '700064', propertyCount: 240, latitude: 22.5745, longitude: 88.4145 },
-    { city: 'Ahmedabad', state: 'Gujarat', locality: 'Prahlad Nagar', pincode: '380015', propertyCount: 190, latitude: 23.0225, longitude: 72.5170 },
-    { city: 'Jaipur', state: 'Rajasthan', locality: 'Vaishali Nagar', pincode: '302021', propertyCount: 160, latitude: 26.9124, longitude: 75.7373 },
-    { city: 'Ghaziabad', state: 'Uttar Pradesh', locality: 'Indirapuram', pincode: '201014', propertyCount: 310, latitude: 28.6406, longitude: 77.3718 },
-    { city: 'Lucknow', state: 'Uttar Pradesh', locality: 'Gomti Nagar', pincode: '226010', propertyCount: 220, latitude: 26.8631, longitude: 81.0043 },
-    { city: 'Kochi', state: 'Kerala', locality: 'Kakkanad', pincode: '682030', propertyCount: 175, latitude: 10.0261, longitude: 76.3084 },
+    // ── Mumbai ───────────────────────────────────────────────────────────────
+    { city: 'Mumbai', state: 'Maharashtra', locality: 'Bandra West',     pincode: '400050', propertyCount: 450, latitude: 19.0596,  longitude: 72.8295 },
+    { city: 'Mumbai', state: 'Maharashtra', locality: 'Powai',            pincode: '400076', propertyCount: 320, latitude: 19.1197,  longitude: 72.9054 },
+    { city: 'Mumbai', state: 'Maharashtra', locality: 'Andheri East',     pincode: '400069', propertyCount: 280, latitude: 19.1136,  longitude: 72.8697 },
+    { city: 'Mumbai', state: 'Maharashtra', locality: 'Juhu',             pincode: '400049', propertyCount: 190, latitude: 19.1075,  longitude: 72.8263 },
+    { city: 'Mumbai', state: 'Maharashtra', locality: 'Malad West',       pincode: '400064', propertyCount: 215, latitude: 19.1800,  longitude: 72.8484 },
+    { city: 'Mumbai', state: 'Maharashtra', locality: 'Kandivali East',   pincode: '400101', propertyCount: 180, latitude: 19.2113,  longitude: 72.8694 },
+    { city: 'Mumbai', state: 'Maharashtra', locality: 'Borivali West',    pincode: '400092', propertyCount: 165, latitude: 19.2307,  longitude: 72.8545 },
+    { city: 'Mumbai', state: 'Maharashtra', locality: 'Thane West',       pincode: '400601', propertyCount: 295, latitude: 19.2183,  longitude: 72.9781 },
+    // ── Delhi (comprehensive) ─────────────────────────────────────────────────
+    { city: 'Delhi', state: 'Delhi', locality: 'Greater Kailash I',       pincode: '110048', propertyCount: 310, latitude: 28.5494,  longitude: 77.2397 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Greater Kailash II',      pincode: '110048', propertyCount: 265, latitude: 28.5454,  longitude: 77.2488 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Vasant Kunj',             pincode: '110070', propertyCount: 245, latitude: 28.5204,  longitude: 77.1583 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Dwarka Sector 10',        pincode: '110075', propertyCount: 380, latitude: 28.5921,  longitude: 77.0460 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Dwarka Sector 12',        pincode: '110075', propertyCount: 290, latitude: 28.5962,  longitude: 77.0312 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Dwarka Sector 22',        pincode: '110077', propertyCount: 220, latitude: 28.5537,  longitude: 77.0590 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Saket',                   pincode: '110017', propertyCount: 210, latitude: 28.5244,  longitude: 77.2167 },
+    { city: 'Delhi', state: 'Delhi', locality: 'South Extension Part I',  pincode: '110049', propertyCount: 175, latitude: 28.5702,  longitude: 77.2201 },
+    { city: 'Delhi', state: 'Delhi', locality: 'South Extension Part II', pincode: '110049', propertyCount: 160, latitude: 28.5673,  longitude: 77.2270 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Defence Colony',          pincode: '110024', propertyCount: 230, latitude: 28.5705,  longitude: 77.2373 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Lajpat Nagar',            pincode: '110024', propertyCount: 195, latitude: 28.5672,  longitude: 77.2430 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Rohini Sector 3',         pincode: '110085', propertyCount: 310, latitude: 28.7206,  longitude: 77.1085 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Rohini Sector 7',         pincode: '110085', propertyCount: 275, latitude: 28.7160,  longitude: 77.1255 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Janakpuri',               pincode: '110058', propertyCount: 340, latitude: 28.6289,  longitude: 77.0847 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Uttam Nagar',             pincode: '110059', propertyCount: 285, latitude: 28.6208,  longitude: 77.0595 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Pitampura',               pincode: '110034', propertyCount: 260, latitude: 28.7005,  longitude: 77.1310 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Paschim Vihar',           pincode: '110063', propertyCount: 220, latitude: 28.6672,  longitude: 77.0879 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Patel Nagar',             pincode: '110008', propertyCount: 190, latitude: 28.6525,  longitude: 77.1615 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Karol Bagh',              pincode: '110005', propertyCount: 240, latitude: 28.6512,  longitude: 77.1900 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Connaught Place',         pincode: '110001', propertyCount: 155, latitude: 28.6329,  longitude: 77.2195 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Rajouri Garden',          pincode: '110027', propertyCount: 200, latitude: 28.6493,  longitude: 77.1211 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Naraina',                 pincode: '110028', propertyCount: 170, latitude: 28.6363,  longitude: 77.1391 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Vikaspuri',               pincode: '110018', propertyCount: 185, latitude: 28.6419,  longitude: 77.0710 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Tilak Nagar',             pincode: '110018', propertyCount: 165, latitude: 28.6421,  longitude: 77.0962 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Shahdara',                pincode: '110032', propertyCount: 145, latitude: 28.6695,  longitude: 77.2895 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Preet Vihar',             pincode: '110092', propertyCount: 175, latitude: 28.6441,  longitude: 77.3032 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Mayur Vihar Phase 1',     pincode: '110091', propertyCount: 215, latitude: 28.6067,  longitude: 77.2940 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Mayur Vihar Phase 3',     pincode: '110096', propertyCount: 180, latitude: 28.5952,  longitude: 77.3152 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Vasundhara Enclave',      pincode: '110096', propertyCount: 195, latitude: 28.6001,  longitude: 77.3194 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Kondli',                  pincode: '110096', propertyCount: 140, latitude: 28.6124,  longitude: 77.3285 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Patparganj',              pincode: '110092', propertyCount: 205, latitude: 28.6210,  longitude: 77.2960 },
+    { city: 'Delhi', state: 'Delhi', locality: 'IP Extension',            pincode: '110092', propertyCount: 160, latitude: 28.6366,  longitude: 77.2941 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Nehru Place',             pincode: '110019', propertyCount: 130, latitude: 28.5486,  longitude: 77.2504 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Okhla Phase 1',           pincode: '110020', propertyCount: 120, latitude: 28.5356,  longitude: 77.2697 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Malviya Nagar',           pincode: '110017', propertyCount: 195, latitude: 28.5297,  longitude: 77.2082 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Hauz Khas',               pincode: '110016', propertyCount: 225, latitude: 28.5494,  longitude: 77.2001 },
+    { city: 'Delhi', state: 'Delhi', locality: 'Green Park',              pincode: '110016', propertyCount: 185, latitude: 28.5588,  longitude: 77.2021 },
+    // ── Bangalore ─────────────────────────────────────────────────────────────
+    { city: 'Bangalore', state: 'Karnataka', locality: 'Koramangala',     pincode: '560034', propertyCount: 520, latitude: 12.9352,  longitude: 77.6245 },
+    { city: 'Bangalore', state: 'Karnataka', locality: 'Whitefield',      pincode: '560066', propertyCount: 480, latitude: 12.9698,  longitude: 77.7500 },
+    { city: 'Bangalore', state: 'Karnataka', locality: 'Indiranagar',     pincode: '560038', propertyCount: 350, latitude: 12.9719,  longitude: 77.6412 },
+    { city: 'Bangalore', state: 'Karnataka', locality: 'HSR Layout',      pincode: '560102', propertyCount: 290, latitude: 12.9116,  longitude: 77.6389 },
+    { city: 'Bangalore', state: 'Karnataka', locality: 'Electronic City', pincode: '560100', propertyCount: 310, latitude: 12.8450,  longitude: 77.6630 },
+    { city: 'Bangalore', state: 'Karnataka', locality: 'Sarjapur Road',   pincode: '560035', propertyCount: 275, latitude: 12.9102,  longitude: 77.6860 },
+    // ── Noida ──────────────────────────────────────────────────────────────────
+    { city: 'Noida', state: 'Uttar Pradesh', locality: 'Sector 62',       pincode: '201309', propertyCount: 340, latitude: 28.6269,  longitude: 77.3716 },
+    { city: 'Noida', state: 'Uttar Pradesh', locality: 'Sector 137',      pincode: '201304', propertyCount: 420, latitude: 28.5025,  longitude: 77.3940 },
+    { city: 'Noida', state: 'Uttar Pradesh', locality: 'Sector 150',      pincode: '201310', propertyCount: 380, latitude: 28.4788,  longitude: 77.4201 },
+    { city: 'Noida', state: 'Uttar Pradesh', locality: 'Sector 18',       pincode: '201301', propertyCount: 190, latitude: 28.5692,  longitude: 77.3219 },
+    // ── Gurgaon ────────────────────────────────────────────────────────────────
+    { city: 'Gurgaon', state: 'Haryana', locality: 'DLF Phase 2',         pincode: '122002', propertyCount: 380, latitude: 28.4932,  longitude: 77.0893 },
+    { city: 'Gurgaon', state: 'Haryana', locality: 'Sohna Road',          pincode: '122018', propertyCount: 290, latitude: 28.4089,  longitude: 77.0415 },
+    { city: 'Gurgaon', state: 'Haryana', locality: 'Golf Course Road',    pincode: '122002', propertyCount: 420, latitude: 28.4595,  longitude: 77.1026 },
+    { city: 'Gurgaon', state: 'Haryana', locality: 'Sector 56',           pincode: '122011', propertyCount: 260, latitude: 28.4192,  longitude: 77.1020 },
+    // ── Hyderabad ──────────────────────────────────────────────────────────────
+    { city: 'Hyderabad', state: 'Telangana', locality: 'Gachibowli',      pincode: '500032', propertyCount: 460, latitude: 17.4417,  longitude: 78.3482 },
+    { city: 'Hyderabad', state: 'Telangana', locality: 'Kondapur',        pincode: '500084', propertyCount: 380, latitude: 17.4604,  longitude: 78.3574 },
+    { city: 'Hyderabad', state: 'Telangana', locality: 'Madhapur',        pincode: '500081', propertyCount: 340, latitude: 17.4484,  longitude: 78.3915 },
+    { city: 'Hyderabad', state: 'Telangana', locality: 'Banjara Hills',   pincode: '500034', propertyCount: 295, latitude: 17.4126,  longitude: 78.4480 },
+    // ── Pune ───────────────────────────────────────────────────────────────────
+    { city: 'Pune', state: 'Maharashtra', locality: 'Baner',              pincode: '411045', propertyCount: 340, latitude: 18.5590,  longitude: 73.7868 },
+    { city: 'Pune', state: 'Maharashtra', locality: 'Viman Nagar',        pincode: '411014', propertyCount: 260, latitude: 18.5679,  longitude: 73.9143 },
+    { city: 'Pune', state: 'Maharashtra', locality: 'Kothrud',            pincode: '411038', propertyCount: 220, latitude: 18.5074,  longitude: 73.8076 },
+    { city: 'Pune', state: 'Maharashtra', locality: 'Wakad',              pincode: '411057', propertyCount: 195, latitude: 18.5985,  longitude: 73.7611 },
+    // ── Chennai ────────────────────────────────────────────────────────────────
+    { city: 'Chennai', state: 'Tamil Nadu', locality: 'Anna Nagar',       pincode: '600040', propertyCount: 310, latitude: 13.0850,  longitude: 80.2101 },
+    { city: 'Chennai', state: 'Tamil Nadu', locality: 'OMR',              pincode: '600097', propertyCount: 280, latitude: 12.8996,  longitude: 80.2209 },
+    { city: 'Chennai', state: 'Tamil Nadu', locality: 'Velachery',        pincode: '600042', propertyCount: 240, latitude: 12.9822,  longitude: 80.2183 },
+    { city: 'Chennai', state: 'Tamil Nadu', locality: 'Porur',            pincode: '600116', propertyCount: 185, latitude: 13.0357,  longitude: 80.1573 },
+    // ── Other cities ───────────────────────────────────────────────────────────
+    { city: 'Kolkata', state: 'West Bengal', locality: 'Salt Lake',       pincode: '700064', propertyCount: 240, latitude: 22.5745,  longitude: 88.4145 },
+    { city: 'Kolkata', state: 'West Bengal', locality: 'New Town',        pincode: '700156', propertyCount: 210, latitude: 22.5958,  longitude: 88.4803 },
+    { city: 'Ahmedabad', state: 'Gujarat', locality: 'Prahlad Nagar',     pincode: '380015', propertyCount: 190, latitude: 23.0225,  longitude: 72.5170 },
+    { city: 'Ahmedabad', state: 'Gujarat', locality: 'SG Highway',        pincode: '380054', propertyCount: 165, latitude: 23.0418,  longitude: 72.5035 },
+    { city: 'Jaipur', state: 'Rajasthan', locality: 'Vaishali Nagar',     pincode: '302021', propertyCount: 160, latitude: 26.9124,  longitude: 75.7373 },
+    { city: 'Jaipur', state: 'Rajasthan', locality: 'Malviya Nagar',      pincode: '302017', propertyCount: 135, latitude: 26.8609,  longitude: 75.8095 },
+    { city: 'Ghaziabad', state: 'Uttar Pradesh', locality: 'Indirapuram', pincode: '201014', propertyCount: 310, latitude: 28.6406,  longitude: 77.3718 },
+    { city: 'Ghaziabad', state: 'Uttar Pradesh', locality: 'Raj Nagar Extension', pincode: '201017', propertyCount: 255, latitude: 28.6814, longitude: 77.4134 },
+    { city: 'Lucknow', state: 'Uttar Pradesh', locality: 'Gomti Nagar',   pincode: '226010', propertyCount: 220, latitude: 26.8631,  longitude: 81.0043 },
+    { city: 'Lucknow', state: 'Uttar Pradesh', locality: 'Aliganj',       pincode: '226024', propertyCount: 180, latitude: 26.8870,  longitude: 80.9564 },
+    { city: 'Kochi', state: 'Kerala', locality: 'Kakkanad',               pincode: '682030', propertyCount: 175, latitude: 10.0261,  longitude: 76.3084 },
+    { city: 'Kochi', state: 'Kerala', locality: 'Edapally',               pincode: '682024', propertyCount: 145, latitude: 10.0286,  longitude: 76.3175 },
   ];
   for (const loc of LOCATIONS) {
     await locationRepo.save(locationRepo.create({ ...loc, isActive: true }));
@@ -157,10 +221,10 @@ async function seed() {
   const seller = await userRepo.save({ name: 'Rajesh Kumar', email: 'seller@example.com', phone: '9876543210', password: await bcrypt.hash('Seller@123', 10), role: UserRole.SELLER, city: 'Mumbai', state: 'Maharashtra', isVerified: true });
   const seller2 = await userRepo.save({ name: 'Priya Sharma', email: 'seller2@example.com', phone: '9845123456', password: await bcrypt.hash('Seller2@123', 10), role: UserRole.SELLER, city: 'Bangalore', state: 'Karnataka', isVerified: true });
   const seller3 = await userRepo.save({ name: 'Mohammed Aziz', email: 'seller3@example.com', phone: '9712345678', password: await bcrypt.hash('Seller3@123', 10), role: UserRole.SELLER, city: 'Hyderabad', state: 'Telangana', isVerified: true });
-  const agent1 = await userRepo.save({ name: 'Amit Verma', email: 'agent1@example.com', phone: '9811223344', password: await bcrypt.hash('Agent1@123', 10), role: UserRole.AGENT, city: 'Mumbai', state: 'Maharashtra', company: 'PropElite Realty', isVerified: true, agentLicense: 'MH-RERA-A12345', agentBio: 'Senior consultant with 12 years in Mumbai luxury residential and commercial. Expert in Bandra, Juhu, Powai.', agentExperience: 12, agentRating: 4.8, totalDeals: 340, agentTick: 'gold' });
-  const agent2 = await userRepo.save({ name: 'Sunita Nair', email: 'agent2@example.com', phone: '9988776655', password: await bcrypt.hash('Agent2@123', 10), role: UserRole.AGENT, city: 'Bangalore', state: 'Karnataka', company: 'HomeFirst Properties', isVerified: true, agentLicense: 'KA-RERA-B67890', agentBio: 'Top-performing agent in Bangalore tech corridors. Expert in Whitefield, Koramangala, HSR Layout.', agentExperience: 8, agentRating: 4.6, totalDeals: 215, agentTick: 'blue' });
-  const agent3 = await userRepo.save({ name: 'Vikram Singh', email: 'agent3@example.com', phone: '9776655443', password: await bcrypt.hash('Agent3@123', 10), role: UserRole.AGENT, city: 'Delhi', state: 'Delhi', company: 'Capital Estates', isVerified: true, agentLicense: 'DL-RERA-C11223', agentBio: 'NCR specialist covering Delhi, Gurgaon and Noida. 15 years expertise in luxury villas and commercial.', agentExperience: 15, agentRating: 4.9, totalDeals: 480, agentTick: 'diamond' });
-  const agent4 = await userRepo.save({ name: 'Deepa Menon', email: 'agent4@example.com', phone: '9999999999', password: await bcrypt.hash('Agent4@123', 10), role: UserRole.AGENT, city: 'Hyderabad', state: 'Telangana', company: 'Saffron Realty', isVerified: true, agentLicense: 'TS-RERA-D44556', agentBio: 'Hyderabad specialist with 10 years. Expert in Gachibowli, Kondapur, and HITEC City. Helped 300+ IT professionals.', agentExperience: 10, agentRating: 4.7, totalDeals: 298, agentTick: 'gold' });
+  const agent1 = await userRepo.save({ name: 'Amit Verma', email: 'agent1@example.com', phone: '9811223344', password: await bcrypt.hash('Agent1@123', 10), role: UserRole.AGENT, city: 'Mumbai', state: 'Maharashtra', company: 'PropElite Realty', isVerified: true, agentLicense: 'MH-RERA-A12345', agentBio: 'Senior consultant with 12 years in Mumbai luxury residential and commercial. Expert in Bandra, Juhu, Powai.', agentExperience: 12, agentRating: 4.8, totalDeals: 340, agentTick: 'silver' });
+  const agent2 = await userRepo.save({ name: 'Sunita Nair', email: 'agent2@example.com', phone: '9988776655', password: await bcrypt.hash('Agent2@123', 10), role: UserRole.AGENT, city: 'Bangalore', state: 'Karnataka', company: 'HomeFirst Properties', isVerified: true, agentLicense: 'KA-RERA-B67890', agentBio: 'Top-performing agent in Bangalore tech corridors. Expert in Whitefield, Koramangala, HSR Layout.', agentExperience: 8, agentRating: 4.6, totalDeals: 215, agentTick: 'bronze' });
+  const agent3 = await userRepo.save({ name: 'Vikram Singh', email: 'agent3@example.com', phone: '9776655443', password: await bcrypt.hash('Agent3@123', 10), role: UserRole.AGENT, city: 'Delhi', state: 'Delhi', company: 'Capital Estates', isVerified: true, agentLicense: 'DL-RERA-C11223', agentBio: 'NCR specialist covering Delhi, Gurgaon and Noida. 15 years expertise in luxury villas and commercial.', agentExperience: 15, agentRating: 4.9, totalDeals: 480, agentTick: 'gold' });
+  const agent4 = await userRepo.save({ name: 'Deepa Menon', email: 'agent4@example.com', phone: '9999999999', password: await bcrypt.hash('Agent4@123', 10), role: UserRole.AGENT, city: 'Hyderabad', state: 'Telangana', company: 'Saffron Realty', isVerified: true, agentLicense: 'TS-RERA-D44556', agentBio: 'Hyderabad specialist with 10 years. Expert in Gachibowli, Kondapur, and HITEC City. Helped 300+ IT professionals.', agentExperience: 10, agentRating: 4.7, totalDeals: 298, agentTick: 'silver' });
 
   console.log('Created users (admin, 3 sellers, 4 agents)');
 
@@ -194,10 +258,10 @@ async function seed() {
   // ─── Subscription Plans ───────────────────────────────────────────────────────
   const subPlanRepo = dataSource.getRepository(SubscriptionPlan);
   await subPlanRepo.save([
-    { name: 'Basic Plan', type: PlanType.BASIC, price: 499, durationDays: 30, tokensIncluded: 50, maxListings: 5, features: ['5 Listings', '50 Tokens', 'Basic Analytics', 'Email Support'], isActive: true, sortOrder: 0 },
-    { name: 'Premium Plan', type: PlanType.PREMIUM, price: 1499, durationDays: 30, tokensIncluded: 150, maxListings: 15, features: ['15 Listings', '150 Tokens', 'Advanced Analytics', 'Priority Support', 'Featured Badge'], isActive: true, sortOrder: 1 },
-    { name: 'Featured Plan', type: PlanType.FEATURED, price: 3999, durationDays: 30, tokensIncluded: 500, maxListings: 50, features: ['50 Listings', '500 Tokens', 'Top Placement', 'Dedicated Support', 'Homepage Showcase'], isActive: true, sortOrder: 2 },
-    { name: 'Enterprise Plan', type: PlanType.ENTERPRISE, price: 9999, durationDays: 30, tokensIncluded: 2000, maxListings: 200, features: ['Unlimited Listings', '2000 Tokens', 'API Access', 'Account Manager', 'Custom Branding'], isActive: true, sortOrder: 3 },
+    { name: 'Basic Plan', type: PlanType.BASIC, price: 499, durationDays: 30, tokensIncluded: 50, maxListings: 5, features: ['5 Listings', '50 Tokens', 'Basic Analytics', 'Email Support'], isActive: true, sortOrder: 0, agentBadge: 'verified' },
+    { name: 'Premium Plan', type: PlanType.PREMIUM, price: 1499, durationDays: 30, tokensIncluded: 150, maxListings: 15, features: ['15 Listings', '150 Tokens', 'Advanced Analytics', 'Priority Support', 'Bronze Badge'], isActive: true, sortOrder: 1, agentBadge: 'bronze' },
+    { name: 'Featured Plan', type: PlanType.FEATURED, price: 3999, durationDays: 30, tokensIncluded: 500, maxListings: 50, features: ['50 Listings', '500 Tokens', 'Top Placement', 'Dedicated Support', 'Silver Badge'], isActive: true, sortOrder: 2, agentBadge: 'silver' },
+    { name: 'Enterprise Plan', type: PlanType.ENTERPRISE, price: 9999, durationDays: 30, tokensIncluded: 2000, maxListings: 200, features: ['Unlimited Listings', '2000 Tokens', 'API Access', 'Account Manager', 'Gold Badge'], isActive: true, sortOrder: 3, agentBadge: 'gold' },
   ]);
 
   // ─── Countries ────────────────────────────────────────────────────────────────
@@ -401,8 +465,8 @@ async function seed() {
     type: PropertyType.BUILDER_FLOOR, category: PropertyCategory.BUY, price: 22000000, priceUnit: 'total',
     area: 1800, areaUnit: 'sqft', bedrooms: 3, bathrooms: 3, floorNumber: 0, totalFloors: 3,
     furnishingStatus: FurnishingStatus.SEMI_FURNISHED, possessionStatus: PossessionStatus.READY_TO_MOVE,
-    city: 'Delhi', state: 'Delhi', locality: 'Greater Kailash',
-    address: 'GK-II, Greater Kailash, New Delhi', pincode: '110048', latitude: 28.5494, longitude: 77.2397, status: PropertyStatus.ACTIVE,
+    city: 'Delhi', state: 'Delhi', locality: 'Greater Kailash II',
+    address: 'GK-II, Greater Kailash, New Delhi', pincode: '110048', latitude: 28.5454, longitude: 77.2488, status: PropertyStatus.ACTIVE,
     isFeatured: true, isVerified: true, listingPlan: ListingPlan.FEATURED,
     listingExpiresAt: futureDate(90), boostExpiresAt: futureDate(20), approvalStatus: ApprovalStatus.APPROVED,
     listedBy: ListingUserType.AGENT, viewCount: 1680, owner: agent3, ownerId: agent3.id,
@@ -427,7 +491,7 @@ async function seed() {
     type: PropertyType.APARTMENT, category: PropertyCategory.BUY, price: 8500000, priceUnit: 'total',
     area: 1100, areaUnit: 'sqft', bedrooms: 2, bathrooms: 2, floorNumber: 3, totalFloors: 10,
     furnishingStatus: FurnishingStatus.UNFURNISHED, possessionStatus: PossessionStatus.READY_TO_MOVE,
-    city: 'Delhi', state: 'Delhi', locality: 'Dwarka', society: 'DDA Flats',
+    city: 'Delhi', state: 'Delhi', locality: 'Dwarka Sector 10', society: 'DDA Flats',
     address: 'Sector 6, Dwarka, New Delhi', pincode: '110075', latitude: 28.5921, longitude: 77.0460, status: PropertyStatus.ACTIVE,
     isVerified: false, listingPlan: ListingPlan.FREE, approvalStatus: ApprovalStatus.APPROVED,
     listedBy: ListingUserType.OWNER, viewCount: 560, owner: seller, ownerId: seller.id,
@@ -1339,10 +1403,10 @@ async function seed() {
       totalDeals: 340,
       totalListings: 0,
       bio: 'Senior consultant with 12 years in Mumbai luxury residential and commercial. Expert in Bandra, Juhu, Powai.',
-      tick: 'gold' as const,
+      tick: 'silver' as const,
       isActive: true,
       metaTitle: 'Amit Verma – Senior Real Estate Consultant in Mumbai | Think4BuySale',
-      metaDescription: 'Amit Verma is a gold-tick verified real estate consultant with 12 years of expertise in Mumbai luxury residential and commercial properties. Expert in Bandra, Juhu, and Powai.',
+      metaDescription: 'Amit Verma is a silver-badge verified real estate consultant with 12 years of expertise in Mumbai luxury residential and commercial properties. Expert in Bandra, Juhu, and Powai.',
       introContent: 'With over 12 years of experience in Mumbai\'s dynamic real estate market, Amit Verma has established himself as one of the city\'s most trusted property consultants. Specialising in luxury residential properties and premium commercial spaces across Bandra, Juhu, Powai, and South Mumbai, Amit brings deep market knowledge and a client-first approach to every transaction.',
       seoContent: 'Amit Verma operates as a senior consultant under PropElite Realty, one of Mumbai\'s leading real estate agencies. His expertise spans the full spectrum of Mumbai real estate — from 2 BHK apartments in Andheri to penthouse suites in Worli, from co-working spaces in BKC to retail showrooms on Linking Road.\n\nWith 340+ successful transactions and a 4.8-star rating from verified clients, Amit has earned a reputation for transparent dealings, comprehensive market guidance, and excellent post-sale support. He holds a valid MahaRERA agent registration (MH-RERA-A12345).\n\nAreas of coverage: Bandra West, Bandra East, Khar, Santa Cruz, Juhu, Vile Parle, Andheri West, Powai, Vikhroli, and South Mumbai (Lower Parel, Worli, Prabhadevi).',
     },
@@ -1355,12 +1419,12 @@ async function seed() {
       totalDeals: 215,
       totalListings: 0,
       bio: 'Top-performing agent in Bangalore tech corridors. Expert in Whitefield, Koramangala, HSR Layout.',
-      tick: 'blue' as const,
+      tick: 'bronze' as const,
       isActive: true,
       metaTitle: 'Sunita Nair – Real Estate Agent in Bangalore | Think4BuySale',
-      metaDescription: 'Sunita Nair is a verified real estate agent with 8 years of expertise in Bangalore tech corridors. Expert in Whitefield, Koramangala, HSR Layout, and Electronic City.',
+      metaDescription: 'Sunita Nair is a bronze-badge verified real estate agent with 8 years of expertise in Bangalore tech corridors. Expert in Whitefield, Koramangala, HSR Layout, and Electronic City.',
       introContent: 'Sunita Nair is Bangalore\'s go-to real estate expert for IT professionals and startups looking to buy or rent in the city\'s most sought-after tech corridors. With 8 years of on-ground experience in Whitefield, Koramangala, HSR Layout, and Sarjapur Road, Sunita brings unparalleled local expertise and a strong network of property owners and developers.',
-      seoContent: 'As a blue-tick verified agent with HomeFirst Realty, Sunita Nair has facilitated over 215 property transactions across Bangalore\'s eastern and southern corridors. She specialises in 2 and 3 BHK apartments catering to IT professionals relocating to Bangalore, new project bookings from reputed developers, and rental management for NRI property owners.\n\nSunita holds a valid Karnataka RERA agent registration (KA-RERA-B67890) and is fluent in English, Kannada, Hindi, and Malayalam — making her the ideal consultant for clients from diverse backgrounds.\n\nAreas of coverage: Whitefield, Marathahalli, Sarjapur Road, Koramangala, HSR Layout, Bellandur, Hebbal, and Electronic City.',
+      seoContent: 'As a bronze-badge verified agent with HomeFirst Realty, Sunita Nair has facilitated over 215 property transactions across Bangalore\'s eastern and southern corridors. She specialises in 2 and 3 BHK apartments catering to IT professionals relocating to Bangalore, new project bookings from reputed developers, and rental management for NRI property owners.\n\nSunita holds a valid Karnataka RERA agent registration (KA-RERA-B67890) and is fluent in English, Kannada, Hindi, and Malayalam — making her the ideal consultant for clients from diverse backgrounds.\n\nAreas of coverage: Whitefield, Marathahalli, Sarjapur Road, Koramangala, HSR Layout, Bellandur, Hebbal, and Electronic City.',
     },
     {
       userId: agent3.id,
@@ -1371,11 +1435,11 @@ async function seed() {
       totalDeals: 480,
       totalListings: 0,
       bio: 'NCR specialist covering Delhi, Gurgaon and Noida. 15 years expertise in luxury villas and commercial.',
-      tick: 'diamond' as const,
+      tick: 'gold' as const,
       isActive: true,
-      metaTitle: 'Vikram Singh – Diamond-Tier Real Estate Expert in Delhi NCR | Think4BuySale',
-      metaDescription: 'Vikram Singh is a diamond-tick verified real estate expert with 15 years of experience in Delhi NCR. Specialises in luxury villas, commercial properties, and high-value transactions in Gurgaon and Noida.',
-      introContent: 'Vikram Singh is one of Delhi NCR\'s most accomplished real estate professionals, with 15 years of experience spanning luxury residential, premium commercial, and industrial properties across Delhi, Gurgaon, and Noida. As a diamond-tick verified agent under Capital Properties NCR, Vikram has managed some of the region\'s most high-profile property transactions.',
+      metaTitle: 'Vikram Singh – Gold-Badge Real Estate Expert in Delhi NCR | Think4BuySale',
+      metaDescription: 'Vikram Singh is a gold-badge verified real estate expert with 15 years of experience in Delhi NCR. Specialises in luxury villas, commercial properties, and high-value transactions in Gurgaon and Noida.',
+      introContent: 'Vikram Singh is one of Delhi NCR\'s most accomplished real estate professionals, with 15 years of experience spanning luxury residential, premium commercial, and industrial properties across Delhi, Gurgaon, and Noida. As a gold-badge agent under Capital Properties NCR, Vikram has managed some of the region\'s most high-profile property transactions.',
       seoContent: 'With 480+ successful deals and a near-perfect 4.9-star rating, Vikram Singh\'s track record speaks for itself. He specialises in luxury villa communities in Gurgaon (DLF City, Golf Course Extension), high-rise luxury apartments in South Delhi and Noida Expressway, Grade A commercial leasing in Cyber City Gurgaon and Sector 62 Noida, and pre-leased commercial investment properties.\n\nVikram holds a Delhi RERA agent registration (DL-RERA-C11223) and maintains close relationships with top developers including DLF, Godrej Properties, M3M, and ATS.\n\nAreas of coverage: South Delhi (GK, Vasant Kunj, Saket), Golf Course Road Gurgaon, Cyber City, Noida Expressway (Sector 137–150), Greater Noida West.',
     },
     {
@@ -1387,12 +1451,12 @@ async function seed() {
       totalDeals: 298,
       totalListings: 0,
       bio: 'Hyderabad specialist with 10 years. Expert in Gachibowli, Kondapur, and HITEC City.',
-      tick: 'gold' as const,
+      tick: 'silver' as const,
       isActive: true,
       metaTitle: 'Priya Sharma – Real Estate Agent in Hyderabad | Think4BuySale',
-      metaDescription: 'Priya Sharma is a gold-tick verified real estate agent with 10 years of expertise in Hyderabad. Expert in Gachibowli, Kondapur, HITEC City, and Financial District properties.',
+      metaDescription: 'Priya Sharma is a silver-badge verified real estate agent with 10 years of expertise in Hyderabad. Expert in Gachibowli, Kondapur, HITEC City, and Financial District properties.',
       introContent: 'Priya Sharma is Hyderabad\'s trusted real estate specialist, with 10 years of deep expertise in the city\'s booming IT corridors and premium residential markets. Based with Saffron Realty Hyderabad, Priya has helped hundreds of IT professionals, NRI investors, and families find their perfect home or commercial space in the Cyberabad belt.',
-      seoContent: 'As a gold-tick verified agent, Priya Sharma has completed 298+ transactions across Hyderabad\'s most dynamic markets. Her expertise covers 2 and 3 BHK apartment purchases and rentals in Kondapur and Gachibowli, luxury villa communities in Kokapet and Nallagandla, commercial office leasing in HITEC City and Financial District, and new project advisory for buyers looking at Telangana RERA registered projects.\n\nPriya holds a valid Telangana RERA agent registration (TS-RERA-D44556) and speaks English, Hindi, Telugu, and Marathi.\n\nAreas of coverage: HITEC City, Gachibowli, Kondapur, Madhapur, Financial District, Kokapet, Miyapur, Kukatpally, and Manikonda.',
+      seoContent: 'As a silver-badge verified agent, Priya Sharma has completed 298+ transactions across Hyderabad\'s most dynamic markets. Her expertise covers 2 and 3 BHK apartment purchases and rentals in Kondapur and Gachibowli, luxury villa communities in Kokapet and Nallagandla, commercial office leasing in HITEC City and Financial District, and new project advisory for buyers looking at Telangana RERA registered projects.\n\nPriya holds a valid Telangana RERA agent registration (TS-RERA-D44556) and speaks English, Hindi, Telugu, and Marathi.\n\nAreas of coverage: HITEC City, Gachibowli, Kondapur, Madhapur, Financial District, Kokapet, Miyapur, Kukatpally, and Manikonda.',
     },
   ]);
   console.log('Agent profiles seeded');

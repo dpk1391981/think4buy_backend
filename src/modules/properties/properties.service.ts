@@ -456,7 +456,7 @@ export class PropertiesService {
       // Weighted relevance score:
       //   isFeatured         → +100
       //   listingPlan        → FEATURED=80, PREMIUM=60, BASIC=40, FREE=0
-      //   agentTick          → diamond=50, gold=35, blue=20  (via owner join)
+      //   agentTick          → gold=50, silver=35, bronze=20, verified=10  (via owner join)
       //   agentSubscription  → +30 if owner has an active premium/featured sub
       //   isVerified         → +20
       //   viewCount          → up to +15 (capped at 500 views → 15 pts)
@@ -484,9 +484,10 @@ export class PropertiesService {
             ELSE 0
           END) +
           (CASE owner.agentTick
-            WHEN 'diamond' THEN 50
-            WHEN 'gold'    THEN 35
-            WHEN 'blue'    THEN 20
+            WHEN 'gold'     THEN 50
+            WHEN 'silver'   THEN 35
+            WHEN 'bronze'   THEN 20
+            WHEN 'verified' THEN 10
             ELSE 0
           END) +
           (CASE WHEN agentSub.id IS NOT NULL AND subPlan.type IN ('featured','premium') THEN 30 ELSE 0 END) +

@@ -30,8 +30,8 @@ export class UpdateAgentDto {
   @ApiPropertyOptional() @IsOptional() @IsString() agentBio?: string;
   @ApiPropertyOptional() @IsOptional() @IsInt() agentExperience?: number;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) agentFreeQuota?: number;
-  @ApiPropertyOptional({ enum: ['none', 'blue', 'gold', 'diamond'] })
-  @IsOptional() @IsEnum(['none', 'blue', 'gold', 'diamond']) agentTick?: 'none' | 'blue' | 'gold' | 'diamond';
+  @ApiPropertyOptional({ enum: ['none', 'verified', 'bronze', 'silver', 'gold'] })
+  @IsOptional() @IsEnum(['none', 'verified', 'bronze', 'silver', 'gold']) agentTick?: 'none' | 'verified' | 'bronze' | 'silver' | 'gold';
 }
 
 export class UpdateAgentQuotaDto {

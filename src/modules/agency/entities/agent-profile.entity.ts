@@ -65,14 +65,14 @@ export class AgentProfile {
   @Column({ type: 'text', nullable: true })
   seoContent: string;
 
-  @Column({ type: 'enum', enum: ['none', 'blue', 'gold', 'diamond'], default: 'none' })
-  tick: 'none' | 'blue' | 'gold' | 'diamond';
+  @Column({ type: 'enum', enum: ['none', 'verified', 'bronze', 'silver', 'gold'], default: 'none' })
+  tick: 'none' | 'verified' | 'bronze' | 'silver' | 'gold';
 
   /**
    * Composite authority score (0–100) recalculated periodically.
    *
    * Formula:
-   *   subscriptionWeight × 40%   (tick: diamond=100, gold=75, blue=50, none=0)
+   *   subscriptionWeight × 40%   (tick: gold=100, silver=75, bronze=50, verified=25, none=0)
    *   responseSpeed       × 20%  (reserved — defaults to 50 until tracked)
    *   dealSuccess         × 20%  (totalDeals, capped at 50 → 100%)
    *   reviews             × 10%  (rating / 5 × 100)

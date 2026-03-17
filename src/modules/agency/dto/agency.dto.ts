@@ -188,10 +188,10 @@ export class UpdateAgentProfileDto {
   @IsString()
   bio?: string;
 
-  @ApiPropertyOptional({ enum: ['none', 'blue', 'gold', 'diamond'] })
+  @ApiPropertyOptional({ enum: ['none', 'verified', 'bronze', 'silver', 'gold'] })
   @IsOptional()
-  @IsEnum(['none', 'blue', 'gold', 'diamond'])
-  tick?: 'none' | 'blue' | 'gold' | 'diamond';
+  @IsEnum(['none', 'verified', 'bronze', 'silver', 'gold'])
+  tick?: 'none' | 'verified' | 'bronze' | 'silver' | 'gold';
 
   @ApiPropertyOptional()
   @IsOptional()

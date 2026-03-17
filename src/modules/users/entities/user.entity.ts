@@ -92,8 +92,8 @@ export class User {
   agentUsedQuota: number; // listings consumed
 
   // Agent Tick/Badge System
-  @Column({ type: 'enum', enum: ['none', 'blue', 'gold', 'diamond'], default: 'none' })
-  agentTick: 'none' | 'blue' | 'gold' | 'diamond';
+  @Column({ type: 'enum', enum: ['none', 'verified', 'bronze', 'silver', 'gold'], default: 'none' })
+  agentTick: 'none' | 'verified' | 'bronze' | 'silver' | 'gold';
 
   // Daily Credit System for Agents
   @Column({ type: 'int', default: 0 })
