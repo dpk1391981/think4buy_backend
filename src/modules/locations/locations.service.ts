@@ -28,12 +28,14 @@ export class LocationsService {
     });
   }
 
-  async getCities(): Promise<{ id: string; name: string; stateName?: string; stateId?: string }[]> {
-    const cities = await this.cityRepository.find({
-      where: { isActive: true },
-      relations: ['state'],
-      order: { propertyCount: 'DESC', name: 'ASC' },
-    });
+  async getCities(search?: string, limit = 50): Promise<{ id: string; name: string; stateName?: string; stateId?: string }[]> {
+    const qb = this.cityRepository
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.state', 'state')
+      .where('c.isActive = true');
+    if (search?.trim()) qb.andWhere('c.name LIKE :search', { search: `%${search.trim()}%` });
+    qb.orderBy('c.propertyCount', 'DESC').addOrderBy('c.name', 'ASC').take(limit);
+    const cities = await qb.getMany();
     return cities.map(c => ({
       id: c.id,
       name: c.name,
@@ -100,14 +102,16 @@ export class LocationsService {
     return { ...state, cities };
   }
 
-  async getLocalitiesByCityName(city: string, state?: string): Promise<Location[]> {
-    const where: any = { city, isActive: true, locality: Not(IsNull()) };
-    if (state) where.state = state;
-    return this.locationRepo.find({
-      where,
-      order: { propertyCount: 'DESC' },
-      take: 50,
-    });
+  async getLocalitiesByCityName(city: string, state?: string, search?: string): Promise<Location[]> {
+    const qb = this.locationRepo
+      .createQueryBuilder('l')
+      .where('l.city = :city', { city })
+      .andWhere('l.isActive = true')
+      .andWhere('l.locality IS NOT NULL');
+    if (state) qb.andWhere('l.state = :state', { state });
+    if (search?.trim()) qb.andWhere('l.locality LIKE :search', { search: `%${search.trim()}%` });
+    qb.orderBy('l.propertyCount', 'DESC').addOrderBy('l.locality', 'ASC').take(200);
+    return qb.getMany();
   }
 
   async getAllCities(page = 1, limit = 50, search?: string, stateId?: string) {

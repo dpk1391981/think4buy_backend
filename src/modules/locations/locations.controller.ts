@@ -15,15 +15,22 @@ export class LocationsController {
   }
 
   @Get('cities')
-  @ApiOperation({ summary: 'Get all cities' })
-  getCities() {
-    return this.locationsService.getCities();
+  @ApiOperation({ summary: 'Get cities — optional ?search=&limit= for async typeahead' })
+  getCities(
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.locationsService.getCities(search, limit ? Math.min(parseInt(limit, 10), 200) : 50);
   }
 
   @Get('localities')
-  @ApiOperation({ summary: 'Get localities by city (and optionally state)' })
-  getLocalities(@Query('city') city: string, @Query('state') state?: string) {
-    return this.locationsService.getLocalitiesByCityName(city, state);
+  @ApiOperation({ summary: 'Get localities by city — optional ?search= for typeahead' })
+  getLocalities(
+    @Query('city') city: string,
+    @Query('state') state?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.locationsService.getLocalitiesByCityName(city, state, search);
   }
 
   @Get('states')
