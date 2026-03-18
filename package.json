@@ -25,7 +25,11 @@
     "seed:messaging": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-messaging.ts",
     "correct-locations": "node -r dotenv/config -r ts-node/register src/database/seeds/correct-locations.ts",
     "correct-locations:dry": "DRY_RUN=true node -r dotenv/config -r ts-node/register src/database/seeds/correct-locations.ts",
-    "correct-locations:geocode": "GEOCODE=true node -r dotenv/config -r ts-node/register src/database/seeds/correct-locations.ts"
+    "correct-locations:geocode": "GEOCODE=true node -r dotenv/config -r ts-node/register src/database/seeds/correct-locations.ts",
+    "seed:locations-xlsx": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-locations-xlsx.ts",
+    "seed:locations-xlsx:dry": "DRY_RUN=true node -r dotenv/config -r ts-node/register src/database/seeds/seed-locations-xlsx.ts",
+    "seed:locations-xlsx:geocode": "GEOCODE=true node -r dotenv/config -r ts-node/register src/database/seeds/seed-locations-xlsx.ts",
+    "seed:locations-xlsx:geocode-force": "GEOCODE=true FORCE_GEO=true node -r dotenv/config -r ts-node/register src/database/seeds/seed-locations-xlsx.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",
@@ -62,7 +66,8 @@
     "sharp": "^0.34.5",
     "slugify": "^1.6.6",
     "typeorm": "^0.3.17",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",
