@@ -1,14 +1,14 @@
 /**
  * Seed: Locations from XLSX files  (upsert + auto-detect edition)
  *
- * AUTO-DETECT: Scans /locations/*.xlsx automatically.
+ * AUTO-DETECT: Scans backend/locations/*.xlsx automatically.
  *   Any new file dropped in that folder with columns [City, Locality] is picked up.
  *
  * SINGLE FILE: Process only one file:
  *   FILE=mumbai_localities_list.xlsx npm run seed:locations-xlsx
  *   FILE=mumbai                      npm run seed:locations-xlsx   (partial match)
  *
- * State mapping for unknown cities comes from /locations/city-config.json.
+ * State mapping for unknown cities comes from backend/locations/city-config.json.
  * If a new city is found with no mapping, the seed prints clear instructions
  * and writes a starter entry into city-config.json so you just fill it in.
  *
@@ -40,7 +40,7 @@ import { Country }  from '../../modules/locations/entities/country.entity';
 
 // ─── Paths & flags ────────────────────────────────────────────────────────────
 
-const LOCATIONS_DIR  = path.resolve(__dirname, '../../../../locations');
+const LOCATIONS_DIR  = path.resolve(__dirname, '../../../locations');
 const CITY_CONFIG_FILE = path.join(LOCATIONS_DIR, 'city-config.json');
 
 const DRY_RUN   = process.env.DRY_RUN   === 'true';
