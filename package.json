@@ -29,7 +29,8 @@
     "seed:locations-xlsx": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-locations-xlsx.ts",
     "seed:locations-xlsx:dry": "DRY_RUN=true node -r dotenv/config -r ts-node/register src/database/seeds/seed-locations-xlsx.ts",
     "seed:locations-xlsx:geocode": "GEOCODE=true node -r dotenv/config -r ts-node/register src/database/seeds/seed-locations-xlsx.ts",
-    "seed:locations-xlsx:geocode-force": "GEOCODE=true FORCE_GEO=true node -r dotenv/config -r ts-node/register src/database/seeds/seed-locations-xlsx.ts"
+    "seed:locations-xlsx:geocode-force": "GEOCODE=true FORCE_GEO=true node -r dotenv/config -r ts-node/register src/database/seeds/seed-locations-xlsx.ts",
+    "reset:production": "node -r dotenv/config -r ts-node/register src/database/seeds/reset-production.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",
