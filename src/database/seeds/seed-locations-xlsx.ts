@@ -1,54 +1,89 @@
 /**
- * Seed: Locations from XLSX files  (upsert edition)
+ * Seed: Locations from XLSX files  (upsert + auto-detect edition)
  *
- * Reads the 7 city XLSX files from /locations/ folder and upserts:
- *   - cities    table  (insert new / update existing)
- *   - locations table  (insert new / update existing)
+ * AUTO-DETECT: Scans /locations/*.xlsx automatically.
+ *   Any new file dropped in that folder with columns [City, Locality] is picked up.
  *
- * Geocoding fallback chain (when GEOCODE=true):
+ * SINGLE FILE: Process only one file:
+ *   FILE=mumbai_localities_list.xlsx npm run seed:locations-xlsx
+ *   FILE=mumbai                      npm run seed:locations-xlsx   (partial match)
+ *
+ * State mapping for unknown cities comes from /locations/city-config.json.
+ * If a new city is found with no mapping, the seed prints clear instructions
+ * and writes a starter entry into city-config.json so you just fill it in.
+ *
+ * Geocoding fallback chain (GEOCODE=true):
  *   1. Nominatim: "{locality}, {city}, India"
- *   2. Nominatim: "{city}, India"  (city-level pincode)
- *   3. Nearest already-resolved locality in same city (by lat/lng distance)
+ *   2. Nearest already-resolved locality (Haversine distance)
+ *   3. City-level pincode / coords
  *
  * Commands:
- *   npm run seed:locations-xlsx              — upsert all rows, no geocoding
- *   npm run seed:locations-xlsx:dry          — preview only, no DB writes
- *   npm run seed:locations-xlsx:geocode      — upsert + fetch pincodes/coords
+ *   npm run seed:locations-xlsx                   upsert all files, no geocoding
+ *   npm run seed:locations-xlsx:dry               preview, no DB writes
+ *   npm run seed:locations-xlsx:geocode           upsert + geocode missing pincode/coords
+ *   npm run seed:locations-xlsx:geocode-force     upsert + re-geocode every row
+ *   FILE=mumbai npm run seed:locations-xlsx       process only file(s) matching "mumbai"
  */
 
 import * as dotenv from 'dotenv';
 dotenv.config();
 
+import * as fs   from 'fs';
 import * as path from 'path';
 import * as XLSX from 'xlsx';
 import * as https from 'https';
 import { DataSource } from 'typeorm';
 import { Location } from '../../modules/locations/entities/location.entity';
-import { City } from '../../modules/locations/entities/city.entity';
-import { State } from '../../modules/locations/entities/state.entity';
-import { Country } from '../../modules/locations/entities/country.entity';
+import { City }     from '../../modules/locations/entities/city.entity';
+import { State }    from '../../modules/locations/entities/state.entity';
+import { Country }  from '../../modules/locations/entities/country.entity';
 
-// ─── Config ───────────────────────────────────────────────────────────────────
+// ─── Paths & flags ────────────────────────────────────────────────────────────
 
-const LOCATIONS_DIR = path.resolve(__dirname, '../../../../locations');
-const DRY_RUN  = process.env.DRY_RUN  === 'true';
-const GEOCODE  = process.env.GEOCODE  === 'true';
-// When GEOCODE=true, also update rows that already have a pincode (re-geocode all)
+const LOCATIONS_DIR  = path.resolve(__dirname, '../../../../locations');
+const CITY_CONFIG_FILE = path.join(LOCATIONS_DIR, 'city-config.json');
+
+const DRY_RUN   = process.env.DRY_RUN   === 'true';
+const GEOCODE   = process.env.GEOCODE   === 'true';
 const FORCE_GEO = process.env.FORCE_GEO === 'true';
+const FILE_FILTER = (process.env.FILE ?? '').trim().toLowerCase(); // partial filename match
 
-// City → State mapping
-const CITY_STATE_MAP: Record<string, { state: string; stateCode: string }> = {
-  'Bangalore':     { state: 'Karnataka',    stateCode: 'KA' },
-  'Delhi':         { state: 'Delhi',        stateCode: 'DL' },
+// ─── Built-in city → state map (fallback if not in city-config.json) ─────────
+
+const BUILTIN_CITY_STATE: Record<string, { state: string; stateCode: string }> = {
+  'Bangalore':     { state: 'Karnataka',     stateCode: 'KA' },
+  'Bengaluru':     { state: 'Karnataka',     stateCode: 'KA' },
+  'Delhi':         { state: 'Delhi',         stateCode: 'DL' },
+  'New Delhi':     { state: 'Delhi',         stateCode: 'DL' },
   'Ghaziabad':     { state: 'Uttar Pradesh', stateCode: 'UP' },
   'Greater Noida': { state: 'Uttar Pradesh', stateCode: 'UP' },
-  'Gurgaon':       { state: 'Haryana',      stateCode: 'HR' },
-  'Hyderabad':     { state: 'Telangana',    stateCode: 'TS' },
+  'Gurgaon':       { state: 'Haryana',       stateCode: 'HR' },
+  'Gurugram':      { state: 'Haryana',       stateCode: 'HR' },
+  'Hyderabad':     { state: 'Telangana',     stateCode: 'TS' },
   'Noida':         { state: 'Uttar Pradesh', stateCode: 'UP' },
+  'Mumbai':        { state: 'Maharashtra',   stateCode: 'MH' },
+  'Pune':          { state: 'Maharashtra',   stateCode: 'MH' },
+  'Nagpur':        { state: 'Maharashtra',   stateCode: 'MH' },
+  'Chennai':       { state: 'Tamil Nadu',    stateCode: 'TN' },
+  'Kolkata':       { state: 'West Bengal',   stateCode: 'WB' },
+  'Ahmedabad':     { state: 'Gujarat',       stateCode: 'GJ' },
+  'Surat':         { state: 'Gujarat',       stateCode: 'GJ' },
+  'Jaipur':        { state: 'Rajasthan',     stateCode: 'RJ' },
+  'Lucknow':       { state: 'Uttar Pradesh', stateCode: 'UP' },
+  'Agra':          { state: 'Uttar Pradesh', stateCode: 'UP' },
+  'Varanasi':      { state: 'Uttar Pradesh', stateCode: 'UP' },
+  'Kochi':         { state: 'Kerala',        stateCode: 'KL' },
+  'Faridabad':     { state: 'Haryana',       stateCode: 'HR' },
+  'Chandigarh':    { state: 'Chandigarh',    stateCode: 'CH' },
+  'Indore':        { state: 'Madhya Pradesh',stateCode: 'MP' },
+  'Bhopal':        { state: 'Madhya Pradesh',stateCode: 'MP' },
+  'Coimbatore':    { state: 'Tamil Nadu',    stateCode: 'TN' },
+  'Mysore':        { state: 'Karnataka',     stateCode: 'KA' },
+  'Mysuru':        { state: 'Karnataka',     stateCode: 'KA' },
 };
 
-// City-level SEO / display meta
-const CITY_META: Record<string, { slug: string; imageUrl?: string; isFeatured?: boolean }> = {
+// Built-in SEO meta per city
+const BUILTIN_CITY_META: Record<string, { slug: string; imageUrl?: string; isFeatured?: boolean }> = {
   'Bangalore':     { slug: 'bangalore',     isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=600&q=80' },
   'Delhi':         { slug: 'delhi',         isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80' },
   'Ghaziabad':     { slug: 'ghaziabad',     isFeatured: false },
@@ -56,7 +91,54 @@ const CITY_META: Record<string, { slug: string; imageUrl?: string; isFeatured?: 
   'Gurgaon':       { slug: 'gurgaon',       isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1615853481284-a29fefdbc57f?w=600&q=80' },
   'Hyderabad':     { slug: 'hyderabad',     isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1572445373025-8b4b3ab7dd21?w=600&q=80' },
   'Noida':         { slug: 'noida',         isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1592492152545-9695d3f473f4?w=600&q=80' },
+  'Mumbai':        { slug: 'mumbai',        isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1529253355930-ddbe423a2ac7?w=600&q=80' },
+  'Pune':          { slug: 'pune',          isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1570168007204-dfb528c6958f?w=600&q=80' },
+  'Chennai':       { slug: 'chennai',       isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=600&q=80' },
+  'Kolkata':       { slug: 'kolkata',       isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1558431382-27e303142255?w=600&q=80' },
+  'Ahmedabad':     { slug: 'ahmedabad',     isFeatured: false },
+  'Jaipur':        { slug: 'jaipur',        isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1477587458883-47145ed94245?w=600&q=80' },
+  'Lucknow':       { slug: 'lucknow',       isFeatured: false },
+  'Kochi':         { slug: 'kochi',         isFeatured: false },
 };
+
+// ─── city-config.json loader/writer ──────────────────────────────────────────
+
+interface CityConfigEntry {
+  state:     string;
+  stateCode: string;
+  slug?:     string;
+  imageUrl?: string;
+  isFeatured?: boolean;
+}
+
+type CityConfig = Record<string, CityConfigEntry>;
+
+function loadCityConfig(): CityConfig {
+  if (!fs.existsSync(CITY_CONFIG_FILE)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(CITY_CONFIG_FILE, 'utf-8')) as CityConfig;
+  } catch {
+    console.warn(`⚠️  city-config.json is invalid JSON — ignoring`);
+    return {};
+  }
+}
+
+function saveCityConfig(config: CityConfig): void {
+  fs.writeFileSync(CITY_CONFIG_FILE, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+}
+
+/** Merge built-in + city-config.json, city-config.json takes priority */
+function buildCityStateMap(): Record<string, CityConfigEntry> {
+  const base: CityConfig = {};
+  for (const [city, info] of Object.entries(BUILTIN_CITY_STATE)) {
+    base[city] = {
+      ...info,
+      ...(BUILTIN_CITY_META[city] ?? { slug: city.toLowerCase().replace(/\s+/g, '-') }),
+    };
+  }
+  const custom = loadCityConfig();
+  return { ...base, ...custom };
+}
 
 // ─── DataSource ───────────────────────────────────────────────────────────────
 
@@ -71,7 +153,7 @@ const dataSource = new DataSource({
   synchronize: false,
 });
 
-// ─── Geocoding helpers ────────────────────────────────────────────────────────
+// ─── Geocoding (Nominatim) ────────────────────────────────────────────────────
 
 interface GeoResult {
   pincode:   string | null;
@@ -80,7 +162,6 @@ interface GeoResult {
   source:    'locality' | 'city' | 'nearby' | 'none';
 }
 
-// Resolved point tracked per city for "nearby" fallback
 interface ResolvedPoint {
   locality:  string;
   pincode:   string;
@@ -92,7 +173,7 @@ function httpsGet(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers: { 'User-Agent': 'think4buysale-seeder/1.0' } }, (res) => {
       let data = '';
-      res.on('data', (chunk) => (data += chunk));
+      res.on('data', (c) => (data += c));
       res.on('end', () => resolve(data));
     });
     req.on('error', reject);
@@ -100,23 +181,16 @@ function httpsGet(url: string): Promise<string> {
   });
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2
-    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  const R = 6371, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function findNearestPoint(lat: number, lon: number, pool: ResolvedPoint[]): ResolvedPoint | null {
-  if (pool.length === 0) return null;
-  let best: ResolvedPoint | null = null;
-  let bestDist = Infinity;
+function nearestPoint(lat: number, lon: number, pool: ResolvedPoint[]): ResolvedPoint | null {
+  let best: ResolvedPoint | null = null, bestDist = Infinity;
   for (const pt of pool) {
     const d = haversineKm(lat, lon, pt.latitude, pt.longitude);
     if (d < bestDist) { bestDist = d; best = pt; }
@@ -124,154 +198,191 @@ function findNearestPoint(lat: number, lon: number, pool: ResolvedPoint[]): Reso
   return best;
 }
 
-/** Call Nominatim with a query string, return first hit's geo data */
 async function nominatim(query: string): Promise<{ lat: number; lon: number; pincode: string | null } | null> {
   try {
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=1&countrycodes=in`;
     const raw = await httpsGet(url);
-    const results = JSON.parse(raw);
-    if (!results || results.length === 0) return null;
-    const top = results[0];
-    return {
-      lat:     parseFloat(top.lat),
-      lon:     parseFloat(top.lon),
-      pincode: top.address?.postcode ?? null,
-    };
-  } catch {
-    return null;
-  }
+    const res = JSON.parse(raw);
+    if (!res?.length) return null;
+    return { lat: parseFloat(res[0].lat), lon: parseFloat(res[0].lon), pincode: res[0].address?.postcode ?? null };
+  } catch { return null; }
 }
 
-/**
- * Geocode a locality with 3-tier fallback:
- *   1. "{locality}, {city}, India"
- *   2. "{city}, India"  → city-level pincode
- *   3. Nearest already-resolved locality in same city
- */
+async function geocodeCity(cityName: string) {
+  const hit = await nominatim(`${cityName}, India`);
+  await sleep(1100);
+  return hit ? { pincode: hit.pincode, latitude: hit.lat, longitude: hit.lon }
+             : { pincode: null, latitude: null, longitude: null };
+}
+
 async function geocodeWithFallback(
-  locality: string,
-  city: string,
+  locality: string, city: string,
   cityGeo: { pincode: string | null; latitude: number | null; longitude: number | null },
-  resolvedPool: ResolvedPoint[],
+  pool: ResolvedPoint[],
 ): Promise<GeoResult> {
+  // Tier 1 — exact locality
+  const hit = await nominatim(`${locality}, ${city}, India`);
+  await sleep(1100);
 
-  // ── Tier 1: exact locality ────────────────────────────────────────────────
-  const localityHit = await nominatim(`${locality}, ${city}, India`);
-  await sleep(1100); // Nominatim: 1 req/sec
-
-  if (localityHit) {
-    if (localityHit.pincode) {
-      return {
-        pincode:   localityHit.pincode,
-        latitude:  localityHit.lat,
-        longitude: localityHit.lon,
-        source:    'locality',
-      };
-    }
-
-    // Tier 1 gave lat/lng but no pincode → try nearby from resolved pool
-    const near = findNearestPoint(localityHit.lat, localityHit.lon, resolvedPool);
-    if (near) {
-      return {
-        pincode:   near.pincode,
-        latitude:  localityHit.lat,   // keep own coordinates
-        longitude: localityHit.lon,
-        source:    'nearby',
-      };
-    }
-
-    // Still no pincode → fall through to city pincode with own lat/lng
-    if (cityGeo.pincode) {
-      return {
-        pincode:   cityGeo.pincode,
-        latitude:  localityHit.lat,
-        longitude: localityHit.lon,
-        source:    'city',
-      };
-    }
+  if (hit) {
+    if (hit.pincode) return { pincode: hit.pincode, latitude: hit.lat, longitude: hit.lon, source: 'locality' };
+    // Tier 2 — nearby resolved locality
+    const near = nearestPoint(hit.lat, hit.lon, pool);
+    if (near) return { pincode: near.pincode, latitude: hit.lat, longitude: hit.lon, source: 'nearby' };
+    // Tier 3 — city pincode with own coords
+    if (cityGeo.pincode) return { pincode: cityGeo.pincode, latitude: hit.lat, longitude: hit.lon, source: 'city' };
   }
 
-  // ── Tier 2: city-level fallback ───────────────────────────────────────────
-  if (cityGeo.pincode) {
-    return {
-      pincode:   cityGeo.pincode,
-      latitude:  cityGeo.latitude,
-      longitude: cityGeo.longitude,
-      source:    'city',
-    };
-  }
+  // Tier 3 — city pincode with city coords
+  if (cityGeo.pincode) return { pincode: cityGeo.pincode, latitude: cityGeo.latitude, longitude: cityGeo.longitude, source: 'city' };
 
-  // ── Tier 3: nearest resolved locality ────────────────────────────────────
-  // (city geo also unavailable – rare edge case)
-  if (resolvedPool.length > 0) {
-    const near = resolvedPool[resolvedPool.length - 1]; // last resolved as rough proxy
-    return {
-      pincode:   near.pincode,
-      latitude:  near.latitude,
-      longitude: near.longitude,
-      source:    'nearby',
-    };
+  // Tier 4 — last resort: first available in pool
+  if (pool.length > 0) {
+    const pt = pool[pool.length - 1];
+    return { pincode: pt.pincode, latitude: pt.latitude, longitude: pt.longitude, source: 'nearby' };
   }
 
   return { pincode: null, latitude: null, longitude: null, source: 'none' };
 }
 
-/** Geocode the city itself (once per city, used as fallback pincode) */
-async function geocodeCity(cityName: string): Promise<{ pincode: string | null; latitude: number | null; longitude: number | null }> {
-  const hit = await nominatim(`${cityName}, India`);
-  await sleep(1100);
-  if (!hit) return { pincode: null, latitude: null, longitude: null };
-  return { pincode: hit.pincode, latitude: hit.lat, longitude: hit.lon };
+// ─── XLSX file discovery ──────────────────────────────────────────────────────
+
+interface LocalityRow { city: string; locality: string; file: string; }
+
+function discoverFiles(): string[] {
+  const all = fs.readdirSync(LOCATIONS_DIR).filter((f) => f.endsWith('.xlsx'));
+  if (!FILE_FILTER) return all;
+
+  const matched = all.filter((f) => f.toLowerCase().includes(FILE_FILTER));
+  if (matched.length === 0) {
+    console.error(`\n❌  No xlsx file matching FILE="${FILE_FILTER}" found in ${LOCATIONS_DIR}`);
+    console.error(`   Available files:\n${all.map((f) => `     - ${f}`).join('\n')}`);
+    process.exit(1);
+  }
+  return matched;
 }
 
-// ─── Read XLSX files ──────────────────────────────────────────────────────────
-
-interface LocalityRow { city: string; locality: string; }
-
-function readXlsxFiles(): LocalityRow[] {
-  const fs = require('fs') as typeof import('fs');
-  const files = fs.readdirSync(LOCATIONS_DIR).filter((f: string) => f.endsWith('.xlsx'));
+function readXlsxFiles(files: string[]): LocalityRow[] {
   const rows: LocalityRow[] = [];
-
   for (const file of files) {
-    const wb = XLSX.readFile(path.join(LOCATIONS_DIR, file));
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const data = XLSX.utils.sheet_to_json<{ City: string; Locality: string }>(ws);
-    for (const row of data) {
-      if (row.City && row.Locality) {
-        rows.push({ city: row.City.trim(), locality: row.Locality.trim() });
-      }
+    const wb   = XLSX.readFile(path.join(LOCATIONS_DIR, file));
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json<Record<string, string>>(ws);
+
+    // Detect column names case-insensitively
+    const sample    = data[0] ?? {};
+    const cityCol   = Object.keys(sample).find((k) => k.toLowerCase() === 'city');
+    const localCol  = Object.keys(sample).find((k) => k.toLowerCase() === 'locality');
+
+    if (!cityCol || !localCol) {
+      console.warn(`  ⚠️  Skipping ${file} — missing "City" or "Locality" columns (found: ${Object.keys(sample).join(', ')})`);
+      continue;
     }
-    console.log(`  Read ${data.length} rows from ${file}`);
+
+    let count = 0;
+    for (const row of data) {
+      const city     = String(row[cityCol]  ?? '').trim();
+      const locality = String(row[localCol] ?? '').trim();
+      if (city && locality) { rows.push({ city, locality, file }); count++; }
+    }
+    console.log(`  ✅ ${file}  →  ${count} rows  (City="${cityCol}", Locality="${localCol}")`);
   }
   return rows;
+}
+
+// ─── Unknown city handler ─────────────────────────────────────────────────────
+
+/**
+ * For cities not in any map: write a placeholder to city-config.json,
+ * print clear instructions, and skip the city in this run.
+ */
+function handleUnknownCities(unknownCities: Set<string>): void {
+  if (unknownCities.size === 0) return;
+
+  const config = loadCityConfig();
+  let added = false;
+
+  console.log('\n⚠️  UNKNOWN CITIES — not in built-in map or city-config.json:');
+  for (const city of unknownCities) {
+    console.log(`   - ${city}`);
+    if (!config[city]) {
+      config[city] = {
+        state:     'TODO — fill state name e.g. Maharashtra',
+        stateCode: 'TODO — fill 2-letter code e.g. MH',
+        slug:      city.toLowerCase().replace(/\s+/g, '-'),
+        isFeatured: false,
+      };
+      added = true;
+    }
+  }
+
+  if (added) {
+    saveCityConfig(config);
+    console.log(`\n   📝 Placeholder entries written to: ${CITY_CONFIG_FILE}`);
+  }
+
+  console.log(`
+   ─────────────────────────────────────────────────────────
+   To add a new city, edit:  ${CITY_CONFIG_FILE}
+   Fill in the "state" and "stateCode" fields, then re-run.
+
+   Example entry for Mumbai:
+   {
+     "Mumbai": {
+       "state": "Maharashtra",
+       "stateCode": "MH",
+       "slug": "mumbai",
+       "isFeatured": true,
+       "imageUrl": "https://..."
+     }
+   }
+   ─────────────────────────────────────────────────────────
+`);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`\n🏙️  Seed: Locations from XLSX  (upsert + geocode fallback)`);
+  console.log(`\n🏙️  Seed: Locations from XLSX  (auto-detect + upsert)`);
   console.log(`   DRY_RUN=${DRY_RUN}  GEOCODE=${GEOCODE}  FORCE_GEO=${FORCE_GEO}`);
-  console.log(`   Locations dir: ${LOCATIONS_DIR}\n`);
+  console.log(`   DIR: ${LOCATIONS_DIR}`);
+  if (FILE_FILTER) console.log(`   FILE filter: "${FILE_FILTER}"`);
+  console.log();
 
-  console.log('📂 Reading XLSX files...');
-  const allRows = readXlsxFiles();
-  console.log(`   Total rows: ${allRows.length}`);
+  // 1. Discover & read files
+  const files   = discoverFiles();
+  console.log(`📂 Found ${files.length} file(s): ${files.join(', ')}`);
+  const allRows = readXlsxFiles(files);
+  console.log(`   Total rows: ${allRows.length}\n`);
 
-  // Group by city
-  const byCityMap = new Map<string, string[]>();
+  // 2. Build city→state map (built-in + city-config.json)
+  const cityStateMap = buildCityStateMap();
+
+  // 3. Group rows by city, detect unknowns
+  const byCityMap    = new Map<string, string[]>();
+  const unknownCities = new Set<string>();
+
   for (const { city, locality } of allRows) {
     if (!byCityMap.has(city)) byCityMap.set(city, []);
     byCityMap.get(city)!.push(locality);
+    if (!cityStateMap[city]) unknownCities.add(city);
   }
-  console.log(`   Cities found: ${[...byCityMap.keys()].join(', ')}\n`);
 
-  // ── Dry run ──────────────────────────────────────────────────────────────
+  handleUnknownCities(unknownCities);
+
+  const knownCities = [...byCityMap.keys()].filter((c) => cityStateMap[c]);
+  console.log(`   Known cities (will process)  : ${knownCities.join(', ')}`);
+  if (unknownCities.size) {
+    console.log(`   Unknown cities (will skip)   : ${[...unknownCities].join(', ')}`);
+  }
+
+  // 4. Dry run
   if (DRY_RUN) {
-    console.log('DRY RUN — listing what would be upserted:\n');
-    for (const [city, localities] of byCityMap) {
-      const stateInfo = CITY_STATE_MAP[city];
-      console.log(`  ${city} (${stateInfo?.state ?? 'UNKNOWN STATE'}) → ${localities.length} localities`);
+    console.log('\nDRY RUN — listing what would be upserted:\n');
+    for (const city of knownCities) {
+      const localities = byCityMap.get(city)!;
+      const info = cityStateMap[city];
+      console.log(`  ${city} (${info.state}) → ${localities.length} localities`);
       localities.slice(0, 5).forEach((l) => console.log(`    - ${l}`));
       if (localities.length > 5) console.log(`    ... and ${localities.length - 5} more`);
     }
@@ -279,178 +390,152 @@ async function main() {
     return;
   }
 
-  // ── Connect DB ───────────────────────────────────────────────────────────
+  // 5. Connect DB
   await dataSource.initialize();
-  console.log('✅ DB connected\n');
+  console.log('\n✅ DB connected\n');
 
   const stateRepo    = dataSource.getRepository(State);
   const cityRepo     = dataSource.getRepository(City);
   const locationRepo = dataSource.getRepository(Location);
 
-  let citiesInserted = 0;
-  let citiesUpdated  = 0;
-  let locInserted    = 0;
-  let locUpdated     = 0;
-  let locUnchanged   = 0;
+  let citiesInserted = 0, citiesUpdated = 0;
+  let locInserted = 0, locUpdated = 0, locUnchanged = 0;
 
-  // ── Process each city ────────────────────────────────────────────────────
-  for (const [cityName, localities] of byCityMap) {
-    const stateInfo = CITY_STATE_MAP[cityName];
-    if (!stateInfo) {
-      console.warn(`⚠️  No state mapping for "${cityName}" — skipping`);
-      continue;
-    }
+  // 6. Process each known city
+  for (const cityName of knownCities) {
+    const info      = cityStateMap[cityName];
+    const localities = byCityMap.get(cityName)!;
 
-    const stateEntity = await stateRepo.findOne({ where: { code: stateInfo.stateCode } });
+    const stateEntity = await stateRepo.findOne({ where: { code: info.stateCode } });
     if (!stateEntity) {
-      console.warn(`⚠️  State "${stateInfo.state}" not in DB — run main seed first`);
+      console.warn(`  ⚠️  State "${info.state}" (${info.stateCode}) not found in DB — run main seed first, then retry`);
       continue;
     }
 
-    // ── Upsert city ────────────────────────────────────────────────────────
+    // ── Upsert city ──────────────────────────────────────────────────────────
     let cityEntity = await cityRepo.findOne({ where: { name: cityName, stateId: stateEntity.id } });
-    const meta = CITY_META[cityName] ?? { slug: cityName.toLowerCase().replace(/\s+/g, '-') };
+    const slug = info.slug ?? cityName.toLowerCase().replace(/\s+/g, '-');
 
     if (!cityEntity) {
       cityEntity = await cityRepo.save(cityRepo.create({
         name:            cityName,
         stateId:         stateEntity.id,
         isActive:        true,
-        isFeatured:      meta.isFeatured ?? false,
-        slug:            meta.slug,
-        imageUrl:        meta.imageUrl,
+        isFeatured:      info.isFeatured ?? false,
+        slug,
+        imageUrl:        info.imageUrl,
         h1:              `Property in ${cityName}`,
         metaTitle:       `Buy & Rent Property in ${cityName} - Think4BuySale`,
         metaDescription: `Find properties for sale and rent in ${cityName}. Browse all localities.`,
         metaKeywords:    `buy property ${cityName.toLowerCase()}, rent flat ${cityName.toLowerCase()}, ${cityName.toLowerCase()} real estate`,
       }));
       citiesInserted++;
-      console.log(`  ✅ City inserted: ${cityName} (${stateInfo.state})`);
+      console.log(`  ✅ City inserted : ${cityName} (${info.state})`);
     } else {
-      // Update slug/meta if missing
       let dirty = false;
-      if (!cityEntity.slug && meta.slug) { cityEntity.slug = meta.slug; dirty = true; }
-      if (!cityEntity.imageUrl && meta.imageUrl) { cityEntity.imageUrl = meta.imageUrl; dirty = true; }
-      if (!cityEntity.metaTitle) { cityEntity.metaTitle = `Buy & Rent Property in ${cityName} - Think4BuySale`; dirty = true; }
+      if (!cityEntity.slug     && slug)          { cityEntity.slug     = slug;          dirty = true; }
+      if (!cityEntity.imageUrl && info.imageUrl)  { cityEntity.imageUrl = info.imageUrl; dirty = true; }
+      if (!cityEntity.metaTitle)                  { cityEntity.metaTitle = `Buy & Rent Property in ${cityName} - Think4BuySale`; dirty = true; }
       if (dirty) { await cityRepo.save(cityEntity); citiesUpdated++; }
-      console.log(`  ♻️  City exists: ${cityName}${dirty ? ' (updated meta)' : ''}`);
+      console.log(`  ♻️  City exists  : ${cityName}${dirty ? ' (meta updated)' : ''}`);
     }
 
-    // ── Geocode city once as fallback ──────────────────────────────────────
+    // ── Geocode city once as fallback ────────────────────────────────────────
     let cityGeo = { pincode: null as string | null, latitude: null as number | null, longitude: null as number | null };
     if (GEOCODE) {
       process.stdout.write(`  🌍 Geocoding city "${cityName}"... `);
       cityGeo = await geocodeCity(cityName);
-      console.log(cityGeo.pincode ? `pincode=${cityGeo.pincode}` : 'no pincode');
+      console.log(cityGeo.pincode ? `pincode=${cityGeo.pincode}` : 'not found');
     }
 
-    // Pool of resolved localities (used for nearby fallback)
     const resolvedPool: ResolvedPoint[] = [];
 
-    // ── Upsert localities ──────────────────────────────────────────────────
+    // ── Upsert localities ────────────────────────────────────────────────────
     console.log(`  📍 Processing ${localities.length} localities...`);
-    let cityIns = 0; let cityUpd = 0; let cityUnch = 0;
+    let ins = 0, upd = 0, unch = 0;
 
     for (let i = 0; i < localities.length; i++) {
       const locality = localities[i];
       const existing = await locationRepo.findOne({ where: { city: cityName, locality } });
 
       if (!existing) {
-        // ── INSERT ─────────────────────────────────────────────────────────
+        // ── INSERT ──────────────────────────────────────────────────────────
         let geo: GeoResult = { pincode: null, latitude: null, longitude: null, source: 'none' };
         if (GEOCODE) {
-          process.stdout.write(`    [${i + 1}/${localities.length}] INSERT geocoding "${locality}"... `);
+          process.stdout.write(`    [${i + 1}/${localities.length}] INSERT "${locality}"... `);
           geo = await geocodeWithFallback(locality, cityName, cityGeo, resolvedPool);
-          console.log(`${sourceIcon(geo.source)} pincode=${geo.pincode ?? 'null'} (${geo.source})`);
+          console.log(`${srcIcon(geo.source)} pincode=${geo.pincode ?? 'null'} (${geo.source})`);
         }
 
-        const saved = await locationRepo.save(locationRepo.create({
-          city:         cityName,
-          state:        stateInfo.state,
-          locality,
-          pincode:      geo.pincode,
-          latitude:     geo.latitude,
-          longitude:    geo.longitude,
-          isActive:     true,
-          propertyCount: 0,
+        await locationRepo.save(locationRepo.create({
+          city: cityName, state: info.state, locality,
+          pincode: geo.pincode, latitude: geo.latitude, longitude: geo.longitude,
+          isActive: true, propertyCount: 0,
         }));
 
-        if (GEOCODE && geo.pincode && geo.latitude && geo.longitude) {
+        if (geo.pincode && geo.latitude && geo.longitude) {
           resolvedPool.push({ locality, pincode: geo.pincode, latitude: geo.latitude, longitude: geo.longitude });
         }
-        cityIns++;
-        locInserted++;
+        ins++; locInserted++;
 
       } else {
-        // ── UPDATE ─────────────────────────────────────────────────────────
-        // Decide whether we need to (re)geocode this row
+        // ── UPDATE ──────────────────────────────────────────────────────────
         const needsGeo = GEOCODE && (FORCE_GEO || !existing.pincode || !existing.latitude);
 
         if (needsGeo) {
-          process.stdout.write(`    [${i + 1}/${localities.length}] UPDATE geocoding "${locality}"... `);
+          process.stdout.write(`    [${i + 1}/${localities.length}] UPDATE "${locality}"... `);
           const geo = await geocodeWithFallback(locality, cityName, cityGeo, resolvedPool);
-          console.log(`${sourceIcon(geo.source)} pincode=${geo.pincode ?? 'null'} (${geo.source})`);
+          console.log(`${srcIcon(geo.source)} pincode=${geo.pincode ?? 'null'} (${geo.source})`);
 
           existing.pincode   = geo.pincode   ?? existing.pincode;
           existing.latitude  = geo.latitude  ?? existing.latitude;
           existing.longitude = geo.longitude ?? existing.longitude;
-          existing.state     = stateInfo.state; // ensure state is set correctly
+          existing.state     = info.state;
           await locationRepo.save(existing);
 
           if (geo.pincode && geo.latitude && geo.longitude) {
             resolvedPool.push({ locality, pincode: geo.pincode, latitude: geo.latitude, longitude: geo.longitude });
           }
-          cityUpd++;
-          locUpdated++;
+          upd++; locUpdated++;
 
         } else {
-          // Already fully populated — just track in pool for nearby fallback
+          // Feed pool from existing data
           if (existing.pincode && existing.latitude && existing.longitude) {
             resolvedPool.push({
-              locality,
-              pincode:   existing.pincode,
-              latitude:  Number(existing.latitude),
-              longitude: Number(existing.longitude),
+              locality, pincode: existing.pincode,
+              latitude: Number(existing.latitude), longitude: Number(existing.longitude),
             });
           }
-          // Ensure state field is correct even without geocoding
-          if (!existing.state || existing.state !== stateInfo.state) {
-            existing.state = stateInfo.state;
+          // Fix state if wrong
+          if (existing.state !== info.state) {
+            existing.state = info.state;
             await locationRepo.save(existing);
-            cityUpd++;
-            locUpdated++;
+            upd++; locUpdated++;
           } else {
-            cityUnch++;
-            locUnchanged++;
+            unch++; locUnchanged++;
           }
         }
       }
     }
 
-    console.log(`     → Inserted: ${cityIns}, Updated: ${cityUpd}, Unchanged: ${cityUnch}\n`);
+    console.log(`     → inserted: ${ins}, updated: ${upd}, unchanged: ${unch}\n`);
   }
 
   await dataSource.destroy();
 
-  console.log('─────────────────────────────────────────────────');
+  console.log('──────────────────────────────────────────────────────');
   console.log('✅ Seed complete');
-  console.log(`   Cities  → inserted: ${citiesInserted}, updated: ${citiesUpdated}`);
-  console.log(`   Locations:`);
-  console.log(`     inserted  : ${locInserted}`);
-  console.log(`     updated   : ${locUpdated}`);
-  console.log(`     unchanged : ${locUnchanged}`);
+  console.log(`   Cities    → inserted: ${citiesInserted}, updated: ${citiesUpdated}`);
+  console.log(`   Locations → inserted: ${locInserted}, updated: ${locUpdated}, unchanged: ${locUnchanged}`);
   if (!GEOCODE) {
-    console.log(`\n   ℹ️  Pincodes/coordinates not fetched.`);
+    console.log(`\n   ℹ️  Pincode/coordinates not fetched.`);
     console.log(`      Run "npm run seed:locations-xlsx:geocode" to populate them.`);
-    console.log(`      Add FORCE_GEO=true to re-geocode rows that already have a pincode.`);
+    console.log(`      Use FORCE_GEO=true to re-geocode rows that already have a pincode.`);
   }
 }
 
-function sourceIcon(source: GeoResult['source']): string {
-  return { locality: '✅', city: '🏙️', nearby: '📍', none: '❌' }[source];
+function srcIcon(s: GeoResult['source']) {
+  return { locality: '✅', city: '🏙️ ', nearby: '📍', none: '❌' }[s];
 }
 
-main().catch((err) => {
-  console.error('❌ Seed failed:', err);
-  process.exit(1);
-});
+main().catch((err) => { console.error('❌ Seed failed:', err); process.exit(1); });
