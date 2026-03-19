@@ -165,6 +165,7 @@ export class AuthService {
     if (dto.agentLicense?.trim()) update.agentLicense = dto.agentLicense.trim();
     if (dto.agentExperience != null) update.agentExperience = dto.agentExperience;
     if (dto.agencyName?.trim()) update.company = dto.agencyName.trim();
+    if (dto.contactPhone?.trim()) update.phone = dto.contactPhone.trim();
 
     await this.userRepository.update(userId, update);
     const user = await this.userRepository.findOne({ where: { id: userId } });
@@ -209,7 +210,13 @@ export class AuthService {
   }
 
   async updateAvatar(userId: string, avatarUrl: string) {
-    await this.userRepository.update(userId, { avatar: avatarUrl });
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    // Agents: put upload into pending queue — admin must approve before it goes live
+    if (user?.role === UserRole.AGENT) {
+      await this.userRepository.update(userId, { pendingAvatar: avatarUrl });
+    } else {
+      await this.userRepository.update(userId, { avatar: avatarUrl });
+    }
     return this.getProfile(userId);
   }
 

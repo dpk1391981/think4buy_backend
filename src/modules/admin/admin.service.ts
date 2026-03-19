@@ -269,6 +269,38 @@ export class AdminService {
     return this.userRepo.save(user);
   }
 
+  // ── Agent Avatar Approval ────────────────────────────────────────────────────
+
+  async getPendingAvatarAgents(page = 1, limit = 20) {
+    const qb = this.userRepo
+      .createQueryBuilder('user')
+      .where('user.role = :role', { role: UserRole.AGENT })
+      .andWhere('user.pendingAvatar IS NOT NULL')
+      .andWhere("user.pendingAvatar != ''")
+      .orderBy('user.updatedAt', 'DESC');
+
+    const total = await qb.getCount();
+    const items = await qb.skip((page - 1) * limit).take(limit).getMany();
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async approveAgentAvatar(id: string): Promise<{ message: string }> {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
+    if (!user) throw new NotFoundException('Agent not found');
+    if (!user.pendingAvatar) throw new NotFoundException('No pending avatar to approve');
+
+    await this.userRepo.update(id, { avatar: user.pendingAvatar, pendingAvatar: null });
+    return { message: 'Avatar approved and set as profile image' };
+  }
+
+  async rejectAgentAvatar(id: string): Promise<{ message: string }> {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
+    if (!user) throw new NotFoundException('Agent not found');
+
+    await this.userRepo.update(id, { pendingAvatar: null });
+    return { message: 'Pending avatar rejected and removed' };
+  }
+
   // ── Wallet Management ───────────────────────────────────────────────────────
 
   async getAllWallets(page = 1, limit = 20, search?: string) {

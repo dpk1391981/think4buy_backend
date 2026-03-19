@@ -124,6 +124,21 @@ export class AdminController {
     return this.adminService.createAgent(dto);
   }
 
+  // ── Agent Avatar Approval (static routes BEFORE :id to avoid param capture) ──
+
+  @Get('agents/pending-images')
+  @ApiOperation({ summary: 'List agents with pending avatar uploads awaiting approval' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  getPendingAvatarAgents(
+    @Request() req,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+  ) {
+    this.assertAdmin(req);
+    return this.adminService.getPendingAvatarAgents(page, limit);
+  }
+
   @Get('agents/:id')
   @ApiOperation({ summary: 'Get single agent (admin)' })
   getAgent(@Request() req, @Param('id') id: string) {
@@ -154,6 +169,20 @@ export class AdminController {
   toggleStatus(@Request() req, @Param('id') id: string) {
     this.assertAdmin(req);
     return this.adminService.toggleAgentStatus(id);
+  }
+
+  @Patch('agents/:id/approve-avatar')
+  @ApiOperation({ summary: 'Approve an agent\'s pending avatar upload' })
+  approveAgentAvatar(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.approveAgentAvatar(id);
+  }
+
+  @Patch('agents/:id/reject-avatar')
+  @ApiOperation({ summary: 'Reject an agent\'s pending avatar upload' })
+  rejectAgentAvatar(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.rejectAgentAvatar(id);
   }
 
   // ── Wallet Management ───────────────────────────────────────────────────────

@@ -42,6 +42,10 @@ export class User {
   @Column({ nullable: true, length: 500 })
   avatar: string;
 
+  /** Avatar uploaded by agent awaiting admin approval */
+  @Column({ nullable: true, length: 500 })
+  pendingAvatar: string;
+
   @Column({ nullable: true, length: 200 })
   company: string;
 

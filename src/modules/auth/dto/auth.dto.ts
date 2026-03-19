@@ -98,4 +98,16 @@ export class OnboardingDto {
   @IsOptional()
   @IsString()
   agencyName?: string;
+
+  /** Agent business contact phone */
+  @ApiPropertyOptional({ example: '9876543210' })
+  @IsOptional()
+  @IsString()
+  contactPhone?: string;
+
+  /** Agent business address */
+  @ApiPropertyOptional({ example: '12, MG Road, Bangalore' })
+  @IsOptional()
+  @IsString()
+  businessAddress?: string;
 }

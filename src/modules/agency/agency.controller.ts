@@ -396,6 +396,28 @@ export class AgencyController {
     return this.agencyService.getAgentLocations(profile.id);
   }
 
+  @Post('me/locations')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: Add a coverage area to own profile' })
+  async addMyLocation(@Request() req, @Body() dto: AssignAgentLocationDto) {
+    const profile = await this.agencyService.getAgentProfileByUserId(req.user.id);
+    return this.agencyService.addAgentLocation(profile.id, dto);
+  }
+
+  @Delete('me/locations/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: Remove one of own coverage areas' })
+  async removeMyLocation(@Request() req, @Param('id') id: string) {
+    // Verify ownership before removing
+    const profile = await this.agencyService.getAgentProfileByUserId(req.user.id);
+    const locations = await this.agencyService.getAgentLocations(profile.id);
+    const owned = locations.find((l: any) => l.id === id);
+    if (!owned) throw new ForbiddenException('Location not found or not owned by you');
+    return this.agencyService.removeAgentLocation(id);
+  }
+
   // ─── Admin: Premium Slot Management ──────────────────────────────────────────
 
   @Get('admin/premium-slots')
