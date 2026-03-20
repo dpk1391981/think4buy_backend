@@ -84,6 +84,26 @@ export class UsersService {
     qb.skip((page - 1) * limit).take(limit);
 
     const [agents, total] = await qb.getManyAndCount();
+
+    // Attach accurate active listing count via a single batch query
+    if (agents.length > 0) {
+      const agentIds = agents.map(a => a.id);
+      const countRows: { ownerId: string; count: string }[] = await this.userRepo.manager.query(
+        `SELECT p.ownerId, COUNT(p.id) AS \`count\`
+         FROM properties p
+         WHERE p.ownerId IN (?)
+           AND p.status = 'active'
+           AND p.approvalStatus = 'approved'
+           AND p.isDraft = 0
+         GROUP BY p.ownerId`,
+        [agentIds],
+      );
+      const countMap = new Map(countRows.map(r => [r.ownerId, Number(r.count)]));
+      for (const agent of agents) {
+        (agent as any).activeListingsCount = countMap.get(agent.id) ?? 0;
+      }
+    }
+
     return { agents, total };
   }
 }
