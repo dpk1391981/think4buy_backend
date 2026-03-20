@@ -4,12 +4,13 @@ import {
 import { PropType } from './prop-type.entity';
 
 export enum FieldType {
-  TEXT     = 'text',
-  NUMBER   = 'number',
-  DROPDOWN = 'dropdown',
-  CHECKBOX = 'checkbox',
-  RADIO    = 'radio',
-  TEXTAREA = 'textarea',
+  TEXT      = 'text',
+  NUMBER    = 'number',
+  DROPDOWN  = 'dropdown',
+  CHECKBOX  = 'checkbox',
+  RADIO     = 'radio',
+  TEXTAREA  = 'textarea',
+  DEPENDENT = 'dependent',  // repeatable [select + number] rows
 }
 
 @Entity('prop_type_fields')
