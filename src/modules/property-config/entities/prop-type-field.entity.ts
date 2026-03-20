@@ -37,7 +37,7 @@ export class PropTypeField {
   @Column({ type: 'json', nullable: true })
   optionsJson: string[] | null; // for dropdown / radio / checkbox
 
-  @Column({ length: 50, nullable: true })
+  @Column({ length: 500, nullable: true })
   placeholder: string;
 
   @Column({ default: false })
