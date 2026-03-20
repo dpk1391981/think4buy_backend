@@ -3,3 +3,4 @@
 
 ALTER TABLE `users`
   ADD COLUMN IF NOT EXISTS `pendingAvatar` varchar(500) NULL DEFAULT NULL AFTER `avatar`;
+  

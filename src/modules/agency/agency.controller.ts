@@ -238,6 +238,19 @@ export class AgencyController {
     return this.agencyService.getAgentProfileById(id);
   }
 
+  @Get('admin/agent-profile-by-user/:userId')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get agent profile by user ID (admin)' })
+  async getAgentProfileByUser(@Request() req, @Param('userId') userId: string) {
+    this.assertAdmin(req);
+    try {
+      return await this.agencyService.getAgentProfileByUserId(userId);
+    } catch {
+      return null;
+    }
+  }
+
   // ─── Admin: Property Assignment ───────────────────────────────────────────────
 
   @Post('admin/property-assignments')
