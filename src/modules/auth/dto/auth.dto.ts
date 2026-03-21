@@ -86,6 +86,11 @@ export class OnboardingDto {
   @IsString()
   agentLicense?: string;
 
+  @ApiPropertyOptional({ example: '27AAPFU0939F1ZV' })
+  @IsOptional()
+  @IsString()
+  agentGstNumber?: string;
+
   @ApiPropertyOptional({ example: 5 })
   @IsOptional()
   @IsNumber()

@@ -147,9 +147,10 @@ export class AuthService {
     return this.userRepository.findOne({
       where: { id: userId },
       select: [
-        'id', 'name', 'email', 'phone', 'role', 'avatar',
+        'id', 'name', 'email', 'phone', 'role', 'avatar', 'pendingAvatar',
         'city', 'company', 'isVerified', 'createdAt', 'lastLoginAt',
-        'needsOnboarding', 'agentTick',
+        'needsOnboarding', 'agentTick', 'agentLicense', 'agentGstNumber', 'agentBio',
+        'agentExperience', 'agentProfileStatus', 'isActive',
       ],
     });
   }
@@ -163,6 +164,7 @@ export class AuthService {
     };
     if (dto.name?.trim()) update.name = dto.name.trim();
     if (dto.agentLicense?.trim()) update.agentLicense = dto.agentLicense.trim();
+    if ((dto as any).agentGstNumber?.trim()) (update as any).agentGstNumber = (dto as any).agentGstNumber.trim();
     if (dto.agentExperience != null) update.agentExperience = dto.agentExperience;
     if (dto.agencyName?.trim()) update.company = dto.agencyName.trim();
     if (dto.contactPhone?.trim()) update.phone = dto.contactPhone.trim();
@@ -187,8 +189,20 @@ export class AuthService {
     return this.buildAuthResponse(user);
   }
 
-  async updateProfile(userId: string, dto: { name?: string; email?: string; city?: string; company?: string }) {
-    await this.userRepository.update(userId, dto);
+  async updateProfile(userId: string, dto: {
+    name?: string; email?: string; city?: string; company?: string;
+    phone?: string; agentLicense?: string; agentGstNumber?: string; agentBio?: string; agentExperience?: number;
+  }) {
+    const isProfessionalUpdate = dto.agentLicense !== undefined || dto.agentBio !== undefined || dto.agentExperience !== undefined || dto.agentGstNumber !== undefined;
+    const update: any = { ...dto };
+    if (isProfessionalUpdate) {
+      // Only set pending if not already approved
+      const current = await this.userRepository.findOne({ where: { id: userId }, select: ['agentProfileStatus', 'role'] });
+      if (current?.role === UserRole.AGENT && current?.agentProfileStatus !== 'inactive') {
+        update.agentProfileStatus = 'pending';
+      }
+    }
+    await this.userRepository.update(userId, update);
     return this.getProfile(userId);
   }
 

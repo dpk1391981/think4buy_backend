@@ -129,6 +129,40 @@ export class AdminController {
 
   // ── Agent Avatar Approval (static routes BEFORE :id to avoid param capture) ──
 
+  @Get('agents/pending-professional')
+  @ApiOperation({ summary: 'List agents with pending professional details awaiting admin approval' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  getPendingProfessionalAgents(
+    @Request() req,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+  ) {
+    this.assertAdmin(req);
+    return this.adminService.getPendingProfessionalAgents(page, limit);
+  }
+
+  @Patch('agents/:id/approve-professional')
+  @ApiOperation({ summary: 'Approve professional details of an agent' })
+  approveProfessionalDetails(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.approveProfessionalDetails(id);
+  }
+
+  @Patch('agents/:id/reject-professional')
+  @ApiOperation({ summary: 'Reject professional details of an agent' })
+  rejectProfessionalDetails(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.rejectProfessionalDetails(id);
+  }
+
+  @Patch('agents/:id/set-profile-inactive')
+  @ApiOperation({ summary: 'Set agent professional profile as inactive' })
+  setAgentProfileInactive(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.setAgentProfileInactive(id);
+  }
+
   @Get('agents/pending-images')
   @ApiOperation({ summary: 'List agents with pending avatar uploads awaiting approval' })
   @ApiQuery({ name: 'page', required: false })

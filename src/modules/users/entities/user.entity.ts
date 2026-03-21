@@ -76,6 +76,9 @@ export class User {
   @Column({ nullable: true, length: 100 })
   agentLicense: string;
 
+  @Column({ nullable: true, length: 20 })
+  agentGstNumber: string;
+
   @Column({ nullable: true, type: 'text' })
   agentBio: string;
 
@@ -98,6 +101,10 @@ export class User {
   // Agent Tick/Badge System
   @Column({ type: 'enum', enum: ['none', 'verified', 'bronze', 'silver', 'gold'], default: 'none' })
   agentTick: 'none' | 'verified' | 'bronze' | 'silver' | 'gold';
+
+  /** Professional profile status — set to pending when agent submits details, admin approves */
+  @Column({ type: 'enum', enum: ['none', 'pending', 'approved', 'inactive'], default: 'none' })
+  agentProfileStatus: 'none' | 'pending' | 'approved' | 'inactive';
 
   // Daily Credit System for Agents
   @Column({ type: 'int', default: 0 })

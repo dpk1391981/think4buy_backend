@@ -282,7 +282,9 @@ export class AdminService {
       .orderBy('user.updatedAt', 'DESC');
 
     const total = await qb.getCount();
-    const items = await qb.skip((page - 1) * limit).take(limit).getMany();
+    const items = await qb.skip((page - 1) * limit).take(limit)
+      .select(['user.id', 'user.name', 'user.email', 'user.phone', 'user.city', 'user.avatar', 'user.pendingAvatar', 'user.agentLicense', 'user.agentBio', 'user.agentExperience', 'user.agentProfileStatus', 'user.updatedAt'])
+      .getMany();
     return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
@@ -301,6 +303,41 @@ export class AdminService {
 
     await this.userRepo.update(id, { pendingAvatar: null });
     return { message: 'Pending avatar rejected and removed' };
+  }
+
+  async getPendingProfessionalAgents(page = 1, limit = 20) {
+    const qb = this.userRepo
+      .createQueryBuilder('user')
+      .where('user.role = :role', { role: UserRole.AGENT })
+      .andWhere('user.agentProfileStatus = :status', { status: 'pending' })
+      .orderBy('user.updatedAt', 'DESC');
+
+    const total = await qb.getCount();
+    const items = await qb.skip((page - 1) * limit).take(limit)
+      .select(['user.id', 'user.name', 'user.email', 'user.phone', 'user.city', 'user.avatar', 'user.agentLicense', 'user.agentBio', 'user.agentExperience', 'user.agentProfileStatus', 'user.updatedAt'])
+      .getMany();
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async approveProfessionalDetails(id: string): Promise<{ message: string }> {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
+    if (!user) throw new NotFoundException('Agent not found');
+    await this.userRepo.update(id, { agentProfileStatus: 'approved' } as any);
+    return { message: 'Professional details approved' };
+  }
+
+  async rejectProfessionalDetails(id: string): Promise<{ message: string }> {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
+    if (!user) throw new NotFoundException('Agent not found');
+    await this.userRepo.update(id, { agentProfileStatus: 'none' } as any);
+    return { message: 'Professional details rejected' };
+  }
+
+  async setAgentProfileInactive(id: string): Promise<{ message: string }> {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
+    if (!user) throw new NotFoundException('Agent not found');
+    await this.userRepo.update(id, { agentProfileStatus: 'inactive' } as any);
+    return { message: 'Agent professional profile set to inactive' };
   }
 
   // ── Wallet Management ───────────────────────────────────────────────────────

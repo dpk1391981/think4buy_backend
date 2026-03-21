@@ -268,6 +268,9 @@ export class WalletService {
         'user.email',
         'user.role',
         'user.phone',
+        'user.avatar',
+        'user.city',
+        'user.agentTick',
       ]);
 
     if (search) {
