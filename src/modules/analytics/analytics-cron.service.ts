@@ -45,13 +45,18 @@ export class AnalyticsCronService {
     }
   }
 
-  // ── Properties cache: every 30 minutes ───────────────────────────────────────
+  // ── Properties cache + hot scores: every 30 minutes ─────────────────────────
   @Cron('*/30 * * * *')
   async refreshProperties() {
     try {
       await this.analyticsService.aggregateProperties();
     } catch (err) {
       this.logger.error('Properties aggregation failed', this.errMsg(err));
+    }
+    try {
+      await this.analyticsService.refreshPropertyHotScores();
+    } catch (err) {
+      this.logger.error('Hot score refresh failed', this.errMsg(err));
     }
   }
 
@@ -92,6 +97,10 @@ export class AnalyticsCronService {
         this.analyticsService.aggregateAgents(),
         this.analyticsService.aggregateProjects(),
       ]);
+      // Hot scores run after properties are aggregated
+      await this.analyticsService.refreshPropertyHotScores();
+      // Market snapshots run after properties are seeded
+      await this.analyticsService.refreshAllMarketSnapshots();
     } catch (err) {
       this.logger.error('Initial seed failed', this.errMsg(err));
     } finally {
@@ -99,6 +108,16 @@ export class AnalyticsCronService {
     }
   }
   private _seeded = false;
+
+  // ── Market snapshots: every 4 hours ──────────────────────────────────────────
+  @Cron('0 */4 * * *')
+  async refreshMarketSnapshots() {
+    try {
+      await this.analyticsService.refreshAllMarketSnapshots();
+    } catch (err) {
+      this.logger.error('Market snapshot refresh failed', this.errMsg(err));
+    }
+  }
 
   // ── Purge raw events older than 90 days (daily at 3 AM) ──────────────────────
   @Cron('0 3 * * *')

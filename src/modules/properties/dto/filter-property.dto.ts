@@ -1,4 +1,4 @@
-import { IsOptional, IsEnum, IsNumber, IsString } from 'class-validator';
+import { IsOptional, IsEnum, IsNumber, IsString, IsBoolean } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
@@ -177,7 +177,7 @@ export class FilterPropertyDto {
 
   @ApiPropertyOptional({
     default: 'createdAt',
-    enum: ['createdAt', 'price', 'area', 'viewCount', 'relevance'],
+    enum: ['createdAt', 'price', 'area', 'viewCount', 'trending', 'relevance'],
   })
   @IsOptional()
   @IsString()
@@ -187,4 +187,16 @@ export class FilterPropertyDto {
   @IsOptional()
   @IsString()
   sortOrder?: 'ASC' | 'DESC' = 'DESC';
+
+  @ApiPropertyOptional({ description: 'Filter trending properties (isTrending = true)' })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === true)
+  isTrending?: boolean;
+
+  @ApiPropertyOptional({ description: 'Filter properties by top agents (gold/silver/bronze/verified tick)' })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === true)
+  topAgent?: boolean;
 }

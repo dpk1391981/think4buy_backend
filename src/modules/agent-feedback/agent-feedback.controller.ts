@@ -4,11 +4,19 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { IsInt, IsString, IsOptional, Min, Max, MaxLength } from 'class-validator';
 import { OptionalAuthGuard } from '../../common/guards/optional-auth.guard';
 import { AgentFeedbackService } from './agent-feedback.service';
 
 class SubmitFeedbackDto {
+  @IsInt()
+  @Min(1)
+  @Max(5)
   rating: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
   comment?: string;
 }
 

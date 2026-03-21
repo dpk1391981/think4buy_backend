@@ -452,15 +452,15 @@ export class PropertiesService {
 
     // Sorting
     const allowedSort = ['createdAt', 'price', 'area', 'viewCount'];
-    if (sortBy === 'relevance') {
-      // Weighted relevance score:
-      //   isFeatured         → +100
-      //   listingPlan        → FEATURED=80, PREMIUM=60, BASIC=40, FREE=0
-      //   agentTick          → gold=50, silver=35, bronze=20, verified=10  (via owner join)
-      //   agentSubscription  → +30 if owner has an active premium/featured sub
-      //   isVerified         → +20
-      //   viewCount          → up to +15 (capped at 500 views → 15 pts)
-      //   recency            → up to +10 (within last 30 days)
+    if (sortBy === 'trending') {
+      // Sort by 7-day engagement velocity: weighted sum of recent views + inquiries
+      qb.orderBy('property.viewsLast7d', 'DESC')
+        .addOrderBy('property.inquiriesLast7d', 'DESC')
+        .addOrderBy('property.isTrending', 'DESC')
+        .addOrderBy('property.updatedAt', 'DESC');
+    } else if (sortBy === 'relevance') {
+      // Use pre-computed listingScore (refreshed every 30 min by cron).
+      // Fall back to inline formula when listingScore = 0 (new listings not yet scored).
       qb
         .leftJoin(
           'agent_subscriptions',
@@ -476,24 +476,24 @@ export class PropertiesService {
         )
         .addSelect(
         `(
-          (CASE WHEN property.isFeatured = 1 THEN 100 ELSE 0 END) +
-          (CASE property.listingPlan
-            WHEN 'featured' THEN 80
-            WHEN 'premium'  THEN 60
-            WHEN 'basic'    THEN 40
-            ELSE 0
-          END) +
-          (CASE owner.agentTick
-            WHEN 'gold'     THEN 50
-            WHEN 'silver'   THEN 35
-            WHEN 'bronze'   THEN 20
-            WHEN 'verified' THEN 10
-            ELSE 0
-          END) +
-          (CASE WHEN agentSub.id IS NOT NULL AND subPlan.type IN ('featured','premium') THEN 30 ELSE 0 END) +
-          (CASE WHEN property.isVerified = 1 THEN 20 ELSE 0 END) +
-          LEAST(CAST(property.viewCount AS UNSIGNED) / 500.0 * 15, 15) +
-          GREATEST(10 - DATEDIFF(NOW(), property.updatedAt), 0)
+          CASE WHEN CAST(property.listingScore AS DECIMAL(12,4)) > 0
+            THEN CAST(property.listingScore AS DECIMAL(12,4))
+            ELSE (
+              (CASE WHEN property.isFeatured = 1 THEN 100 ELSE 0 END) +
+              (CASE property.listingPlan
+                WHEN 'featured' THEN 80 WHEN 'premium' THEN 60 WHEN 'basic' THEN 40
+                ELSE 0 END) +
+              (CASE owner.agentTick
+                WHEN 'gold' THEN 50 WHEN 'silver' THEN 35
+                WHEN 'bronze' THEN 20 WHEN 'verified' THEN 10
+                ELSE 0 END) +
+              (CASE WHEN agentSub.id IS NOT NULL
+                AND subPlan.type IN ('featured','premium') THEN 30 ELSE 0 END) +
+              (CASE WHEN property.isVerified = 1 THEN 20 ELSE 0 END) +
+              LEAST(CAST(property.viewCount AS UNSIGNED) / 500.0 * 15, 15) +
+              GREATEST(10 - DATEDIFF(NOW(), property.updatedAt), 0)
+            )
+          END
         )`,
         'relevanceScore',
       ).orderBy('relevanceScore', 'DESC')
@@ -508,10 +508,29 @@ export class PropertiesService {
     }
 
     const total = await qb.getCount();
-    const raw = await qb
+    const rawItems = await qb
       .skip((page - 1) * limit)
       .take(limit)
       .getMany();
+
+    // ── Agent diversity: max 2 listings per agent in the returned page ───────────
+    // This prevents any single agent from dominating the feed.
+    const agentCount = new Map<string, number>();
+    const diverse: typeof rawItems = [];
+    const overflow: typeof rawItems = [];
+    for (const p of rawItems) {
+      const aid = p.ownerId || p.agentId || '';
+      const cnt = agentCount.get(aid) || 0;
+      if (!aid || cnt < 2) {
+        diverse.push(p);
+        agentCount.set(aid, cnt + 1);
+      } else {
+        overflow.push(p);
+      }
+    }
+    // Append overflow at the end so total count stays correct for this page
+    const raw = [...diverse, ...overflow];
+
     const now = new Date();
     const items = raw.map((p) => ({
       ...p,
@@ -1033,6 +1052,16 @@ export class PropertiesService {
         '(property.title LIKE :search OR property.locality LIKE :search OR property.society LIKE :search OR property.city LIKE :search OR property.builderName LIKE :search)',
         { search: `%${filters.search}%` },
       );
+    }
+
+    // Trending filter
+    if (filters.isTrending) {
+      qb.andWhere('property.isTrending = :isTrending', { isTrending: true });
+    }
+
+    // Top agent filter — properties listed by agents with a badge (gold/silver/bronze/verified)
+    if (filters.topAgent) {
+      qb.andWhere("owner.agentTick != 'none'");
     }
 
     // Owner / agent filter

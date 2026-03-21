@@ -8,6 +8,79 @@ import { PropType } from './entities/prop-type.entity';
 import { PropTypeAmenity } from './entities/prop-type-amenity.entity';
 import { PropTypeField } from './entities/prop-type-field.entity';
 import { Amenity } from '../properties/entities/amenity.entity';
+import { ListingFilterConfig, FilterWidgetType } from './entities/listing-filter-config.entity';
+
+const DEFAULT_FILTERS = [
+  {
+    filterKey: 'budget', label: 'Budget', icon: '₹',
+    widgetType: FilterWidgetType.PRICE_RANGE,
+    optionsJson: null, categories: [], defaultOpen: true, showOnMobile: true, sortOrder: 1,
+  },
+  {
+    filterKey: 'bedrooms', label: 'BHK / Bedrooms', icon: '🛏️',
+    widgetType: FilterWidgetType.BEDROOM_SELECT,
+    optionsJson: null, categories: ['buy', 'rent', 'pg'], defaultOpen: true, showOnMobile: true, sortOrder: 2,
+  },
+  {
+    filterKey: 'type', label: 'Property Type', icon: '🏠',
+    widgetType: FilterWidgetType.PROPERTY_TYPE,
+    optionsJson: null, categories: [], defaultOpen: true, showOnMobile: true, sortOrder: 3,
+  },
+  {
+    filterKey: 'area', label: 'Area (sqft)', icon: '📐',
+    widgetType: FilterWidgetType.AREA_RANGE,
+    optionsJson: null, categories: [], defaultOpen: false, showOnMobile: true, sortOrder: 4,
+  },
+  {
+    filterKey: 'furnishingStatus', label: 'Furnishing', icon: '🛋️',
+    widgetType: FilterWidgetType.OPTION_SELECT,
+    optionsJson: [
+      { value: 'furnished',      label: 'Furnished' },
+      { value: 'semi_furnished', label: 'Semi-Furnished' },
+      { value: 'unfurnished',    label: 'Unfurnished' },
+    ],
+    categories: ['buy', 'rent', 'pg'], defaultOpen: false, showOnMobile: true, sortOrder: 5,
+  },
+  {
+    filterKey: 'possessionStatus', label: 'Possession', icon: '🔑',
+    widgetType: FilterWidgetType.OPTION_SELECT,
+    optionsJson: [
+      { value: 'ready_to_move',      label: 'Ready to Move' },
+      { value: 'under_construction', label: 'Under Construction' },
+    ],
+    categories: ['buy', 'builder_project', 'investment'], defaultOpen: false, showOnMobile: true, sortOrder: 6,
+  },
+  {
+    filterKey: 'listedBy', label: 'Posted By', icon: '👤',
+    widgetType: FilterWidgetType.OPTION_SELECT,
+    optionsJson: [
+      { value: 'owner',   label: 'Owner' },
+      { value: 'agent',   label: 'Agent' },
+      { value: 'builder', label: 'Builder' },
+    ],
+    categories: [], defaultOpen: false, showOnMobile: true, sortOrder: 7,
+  },
+  {
+    filterKey: 'amenityIds', label: 'Amenities', icon: '✨',
+    widgetType: FilterWidgetType.AMENITY_PICKER,
+    optionsJson: null, categories: [], defaultOpen: false, showOnMobile: true, sortOrder: 8,
+  },
+  {
+    filterKey: 'builderName', label: 'Builder / Developer', icon: '🏗️',
+    widgetType: FilterWidgetType.TEXT_INPUT,
+    optionsJson: null, categories: ['buy', 'builder_project', 'investment'], defaultOpen: false, showOnMobile: false, sortOrder: 9,
+  },
+  {
+    filterKey: 'isVerified', label: 'Verified Only', icon: '✅',
+    widgetType: FilterWidgetType.TOGGLE_BOOLEAN,
+    optionsJson: null, categories: [], defaultOpen: false, showOnMobile: true, sortOrder: 10,
+  },
+  {
+    filterKey: 'isNewProject', label: 'New Projects', icon: '⭐',
+    widgetType: FilterWidgetType.TOGGLE_BOOLEAN,
+    optionsJson: null, categories: ['buy', 'builder_project', 'investment'], defaultOpen: false, showOnMobile: true, sortOrder: 11,
+  },
+];
 
 @Injectable()
 export class PropertyConfigService {
@@ -17,6 +90,7 @@ export class PropertyConfigService {
     @InjectRepository(PropTypeAmenity) private ptaRepo: Repository<PropTypeAmenity>,
     @InjectRepository(PropTypeField) private fieldRepo: Repository<PropTypeField>,
     @InjectRepository(Amenity)       private amenityRepo: Repository<Amenity>,
+    @InjectRepository(ListingFilterConfig) private lfcRepo: Repository<ListingFilterConfig>,
   ) {}
 
   // ─── Public read endpoints ──────────────────────────────────────────────────
@@ -222,5 +296,49 @@ export class PropertyConfigService {
     );
     await Promise.all(updates);
     return this.getAdminFields(propTypeId);
+  }
+
+  // ─── Listing Filter Configs ──────────────────────────────────────────────────
+
+  /** Returns active filters for the given category (or all if category is absent). Seeds defaults on first use. */
+  async getListingFilters(category?: string): Promise<ListingFilterConfig[]> {
+    const count = await this.lfcRepo.count();
+    if (count === 0) {
+      const rows = DEFAULT_FILTERS.map(f => this.lfcRepo.create({ ...f, isActive: true }));
+      await this.lfcRepo.save(rows);
+    }
+    const all = await this.lfcRepo.find({
+      where: { isActive: true },
+      order: { sortOrder: 'ASC' },
+    });
+    if (!category) return all;
+    return all.filter(f => !f.categories?.length || f.categories.includes(category));
+  }
+
+  getAdminListingFilters(): Promise<ListingFilterConfig[]> {
+    return this.lfcRepo.find({ order: { sortOrder: 'ASC' } });
+  }
+
+  async createListingFilter(dto: Partial<ListingFilterConfig>): Promise<ListingFilterConfig> {
+    const row = this.lfcRepo.create({ ...dto, isActive: dto.isActive ?? true });
+    return this.lfcRepo.save(row);
+  }
+
+  async updateListingFilter(id: string, dto: Partial<ListingFilterConfig>): Promise<ListingFilterConfig> {
+    const row = await this.lfcRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Filter config not found');
+    Object.assign(row, dto);
+    return this.lfcRepo.save(row);
+  }
+
+  async deleteListingFilter(id: string): Promise<{ success: boolean }> {
+    const row = await this.lfcRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Filter config not found');
+    await this.lfcRepo.remove(row);
+    return { success: true };
+  }
+
+  async reorderListingFilters(orderedIds: string[]): Promise<void> {
+    await Promise.all(orderedIds.map((id, idx) => this.lfcRepo.update(id, { sortOrder: idx })));
   }
 }

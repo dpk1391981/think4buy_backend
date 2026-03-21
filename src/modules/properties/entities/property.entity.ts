@@ -208,6 +208,62 @@ export class Property {
   @Column({ type: 'int', default: 0 })
   viewCount: number;
 
+  // ── Engagement counters (refreshed by cron every 30 min) ──────────────────
+
+  /** Views tracked in the last 24 hours (rolling). */
+  @Column({ type: 'int', default: 0 })
+  viewsLast24h: number;
+
+  /** Views tracked in the last 7 days (rolling). */
+  @Column({ type: 'int', default: 0 })
+  viewsLast7d: number;
+
+  /** Inquiries in the last 24 hours (rolling). */
+  @Column({ type: 'int', default: 0 })
+  inquiriesLast24h: number;
+
+  /** Inquiries in the last 7 days (rolling). */
+  @Column({ type: 'int', default: 0 })
+  inquiriesLast7d: number;
+
+  /** Saves/favourites in the last 7 days (rolling). */
+  @Column({ type: 'int', default: 0 })
+  savesLast7d: number;
+
+  // ── Pre-computed ranking scores (refreshed every 30 min) ─────────────────
+
+  /** Composite listing score (0–1000). Used for relevance sort in feed. */
+  @Column({ type: 'decimal', precision: 12, scale: 4, default: 0 })
+  listingScore: number;
+
+  /** Featured selection score (0–100). Used to rank within featured tab. */
+  @Column({ type: 'decimal', precision: 8, scale: 4, default: 0 })
+  featuredScore: number;
+
+  /**
+   * Price-competitiveness score vs similar listings in same city+type (0–100).
+   * Higher = more competitively priced (better deal for buyer).
+   */
+  @Column({ type: 'decimal', precision: 8, scale: 4, default: 0 })
+  dealScore: number;
+
+  // ── Hot Deal / Trending tags (refreshed every 30 min) ─────────────────────
+
+  /** True if this property qualifies as a hot deal based on recent activity. */
+  @Column({ default: false })
+  isHotDeal: boolean;
+
+  /** True if trending (velocity-based: activity this week >> last week). */
+  @Column({ default: false })
+  isTrending: boolean;
+
+  /**
+   * When the hot/trending tag should automatically expire.
+   * NULL = not hot/trending. Cron removes tags once expired.
+   */
+  @Column({ type: 'datetime', nullable: true })
+  hotTagExpiresAt: Date | null;
+
   // Admin approval
   @Column({ type: 'enum', enum: ApprovalStatus, default: ApprovalStatus.PENDING })
   @Index()

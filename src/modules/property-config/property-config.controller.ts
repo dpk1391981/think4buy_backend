@@ -215,4 +215,54 @@ export class PropertyConfigController {
     this.assertAdmin(req);
     return this.svc.reorderFields(typeId, body.orderedIds);
   }
+
+  // ── Public: Listing Filter Configs ──────────────────────────────────────────
+
+  @Get('listing-filters')
+  @ApiOperation({ summary: 'Get active listing sidebar filters (public)' })
+  getListingFilters(@Query('category') category?: string) {
+    return this.svc.getListingFilters(category);
+  }
+
+  // ── Admin: Listing Filter Configs ────────────────────────────────────────────
+
+  @Get('admin/listing-filters')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  adminGetListingFilters(@Request() req) {
+    this.assertAdmin(req);
+    return this.svc.getAdminListingFilters();
+  }
+
+  @Post('admin/listing-filters')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  adminCreateListingFilter(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.svc.createListingFilter(body);
+  }
+
+  @Patch('admin/listing-filters/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  adminUpdateListingFilter(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.svc.updateListingFilter(id, body);
+  }
+
+  @Delete('admin/listing-filters/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  adminDeleteListingFilter(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.svc.deleteListingFilter(id);
+  }
+
+  @Post('admin/listing-filters/reorder')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  adminReorderListingFilters(@Request() req, @Body() body: { orderedIds: string[] }) {
+    this.assertAdmin(req);
+    return this.svc.reorderListingFilters(body.orderedIds);
+  }
 }

@@ -7,6 +7,7 @@ import { PropType } from './entities/prop-type.entity';
 import { PropTypeAmenity } from './entities/prop-type-amenity.entity';
 import { PropTypeField } from './entities/prop-type-field.entity';
 import { Amenity } from '../properties/entities/amenity.entity';
+import { ListingFilterConfig } from './entities/listing-filter-config.entity';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { Amenity } from '../properties/entities/amenity.entity';
       PropTypeAmenity,
       PropTypeField,
       Amenity,
+      ListingFilterConfig,
     ]),
   ],
   controllers: [PropertyConfigController],

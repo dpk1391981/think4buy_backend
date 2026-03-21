@@ -1,10 +1,28 @@
 import {
-  Controller, Get, Post, Body, Query,
-  HttpCode, HttpStatus, Ip, Headers,
+  Controller, Get, Post, Patch, Delete, Body, Query, Param,
+  HttpCode, HttpStatus, Headers, UseGuards, Request, ForbiddenException,
 } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { IsString, IsOptional, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsObject, IsBoolean, IsNumber } from 'class-validator';
 import { AnalyticsService } from './analytics.service';
+
+// ─── Admin DTOs ───────────────────────────────────────────────────────────────
+class UpdateSnapshotDto {
+  @IsOptional() @IsBoolean()
+  isFeatured?: boolean;
+
+  @IsOptional() @IsNumber()
+  sortOrder?: number;
+}
+
+class SetScoringConfigDto {
+  @IsNumber()
+  value: number;
+
+  @IsOptional() @IsString()
+  description?: string;
+}
 
 // ─── Track Event DTO ─────────────────────────────────────────────────────────
 class TrackEventDto {
@@ -169,6 +187,150 @@ export class AnalyticsController {
       country, state, city, limit: limit ? parseInt(limit) : 8,
     });
     return { success: true, data };
+  }
+
+  // ─── GET /api/home/trending ───────────────────────────────────────────────────
+  @Get('home/trending')
+  @ApiOperation({ summary: 'Trending properties scored by views + 7d inquiries + recency' })
+  @ApiQuery({ name: 'city',     required: false })
+  @ApiQuery({ name: 'state',    required: false })
+  @ApiQuery({ name: 'category', required: false, description: 'buy|rent|pg|commercial|all' })
+  @ApiQuery({ name: 'limit',    required: false })
+  async getTrending(
+    @Query('city')     city?:     string,
+    @Query('state')    state?:    string,
+    @Query('category') category?: string,
+    @Query('limit')    limit?:    string,
+  ) {
+    const data = await this.analyticsService.getTrendingProperties({
+      city, state, category,
+      limit: limit ? parseInt(limit) : 8,
+    });
+    return { success: true, data };
+  }
+
+  // ─── GET /api/home/compare ────────────────────────────────────────────────────
+  @Get('home/compare')
+  @ApiOperation({ summary: 'Fetch full comparison data for up to 3 property IDs' })
+  @ApiQuery({ name: 'ids', required: true, description: 'Comma-separated property UUIDs (max 3)' })
+  async compareProperties(@Query('ids') ids: string) {
+    const idList = (ids || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
+    const data = await this.analyticsService.getCompareProperties(idList);
+    return { success: true, data };
+  }
+
+  // ─── GET /api/home/price-snapshot ─────────────────────────────────────────────
+  @Get('home/price-snapshot')
+  @ApiOperation({ summary: 'Real price-per-sqft stats, locality breakdown, and buy-vs-rent from DB' })
+  @ApiQuery({ name: 'city',  required: false })
+  @ApiQuery({ name: 'state', required: false })
+  async getPriceSnapshot(
+    @Query('city')  city?:  string,
+    @Query('state') state?: string,
+  ) {
+    const data = await this.analyticsService.getPriceSnapshot(city, state);
+    return { success: true, data };
+  }
+
+  // ─── GET /api/home/insights ───────────────────────────────────────────────────
+  @Get('home/insights')
+  @ApiOperation({ summary: 'Dynamic market insights derived from real property & inquiry data' })
+  @ApiQuery({ name: 'city',  required: false })
+  @ApiQuery({ name: 'state', required: false })
+  async getMarketInsights(
+    @Query('city')  city?:  string,
+    @Query('state') state?: string,
+  ) {
+    const data = await this.analyticsService.getMarketInsights(city, state);
+    return { success: true, data };
+  }
+
+  // ─── GET /api/home/market-cities ─────────────────────────────────────────────
+  @Get('home/market-cities')
+  @ApiOperation({ summary: 'Ordered list of cities for Market Intelligence tabs' })
+  @ApiQuery({ name: 'limit', required: false })
+  async getMarketCities(@Query('limit') limit?: string) {
+    const data = await this.analyticsService.getMarketCities(limit ? parseInt(limit) : 12);
+    return { success: true, data };
+  }
+
+  // ─── POST /api/home/market-snapshot/refresh ───────────────────────────────────
+  @Post('home/market-snapshot/refresh')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: force-refresh market snapshot for a city' })
+  async refreshSnapshot(
+    @Body() body: { city?: string; state?: string; all?: boolean },
+    @Request() req: any,
+  ) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    if (body.all) {
+      const result = await this.analyticsService.refreshAllMarketSnapshots();
+      return { success: true, ...result };
+    }
+    const data = await this.analyticsService.refreshMarketSnapshot(body.city, body.state);
+    return { success: true, data };
+  }
+
+  // ─── GET /api/admin/market-snapshots ──────────────────────────────────────────
+  @Get('admin/market-snapshots')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: list all market snapshots' })
+  async listSnapshots(@Request() req: any) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    const data = await this.analyticsService.listMarketSnapshots();
+    return { success: true, data };
+  }
+
+  // ─── PATCH /api/admin/market-snapshots/:id ────────────────────────────────────
+  @Patch('admin/market-snapshots/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: update isFeatured / sortOrder for a snapshot' })
+  async updateSnapshot(
+    @Param('id') id: string,
+    @Body() dto: UpdateSnapshotDto,
+    @Request() req: any,
+  ) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    const data = await this.analyticsService.updateSnapshotMeta(id, dto);
+    return { success: true, data };
+  }
+
+  // ─── GET /api/admin/scoring-config ────────────────────────────────────────────
+  @Get('admin/scoring-config')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: list all scoring weight configs' })
+  async getScoringConfig(@Request() req: any) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    const data = await this.analyticsService.getScoringConfig();
+    return { success: true, data };
+  }
+
+  // ─── PATCH /api/admin/scoring-config/:key ─────────────────────────────────────
+  @Patch('admin/scoring-config/:key')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: update a scoring weight by key' })
+  async setScoringConfig(
+    @Param('key') key: string,
+    @Body() dto: SetScoringConfigDto,
+    @Request() req: any,
+  ) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    const data = await this.analyticsService.setScoringConfig(key, dto.value, dto.description);
+    return { success: true, data };
+  }
+
+  // ─── DELETE /api/admin/scoring-config/:key ────────────────────────────────────
+  @Delete('admin/scoring-config/:key')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: reset a scoring weight to its default value' })
+  async resetScoringConfig(
+    @Param('key') key: string,
+    @Request() req: any,
+  ) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    await this.analyticsService.resetScoringConfig(key);
+    return { success: true, message: `${key} reset to default` };
   }
 
   // ─── GET /api/analytics/admin/summary ────────────────────────────────────────

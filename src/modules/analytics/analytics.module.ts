@@ -7,6 +7,8 @@ import { TopAgentsCache } from './entities/top-agents-cache.entity';
 import { TopProjectsCache } from './entities/top-projects-cache.entity';
 import { TopLocationsCache } from './entities/top-locations-cache.entity';
 import { CategoryAnalytics } from './entities/category-analytics.entity';
+import { MarketSnapshot } from './entities/market-snapshot.entity';
+import { ScoringConfig } from './entities/scoring-config.entity';
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsCronService } from './analytics-cron.service';
 import { AnalyticsController } from './analytics.controller';
@@ -21,6 +23,8 @@ import { AnalyticsController } from './analytics.controller';
       TopProjectsCache,
       TopLocationsCache,
       CategoryAnalytics,
+      MarketSnapshot,
+      ScoringConfig,
     ]),
   ],
   providers: [AnalyticsService, AnalyticsCronService],

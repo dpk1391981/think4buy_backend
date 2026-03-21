@@ -24,6 +24,7 @@ import { PropCategory } from './modules/property-config/entities/prop-category.e
 import { PropType } from './modules/property-config/entities/prop-type.entity';
 import { PropTypeAmenity } from './modules/property-config/entities/prop-type-amenity.entity';
 import { PropTypeField } from './modules/property-config/entities/prop-type-field.entity';
+import { ListingFilterConfig } from './modules/property-config/entities/listing-filter-config.entity';
 import { User } from './modules/users/entities/user.entity';
 import { OtpVerification } from './modules/auth/entities/otp-verification.entity';
 import { Property } from './modules/properties/entities/property.entity';
@@ -50,6 +51,8 @@ import { TopAgentsCache } from './modules/analytics/entities/top-agents-cache.en
 import { TopProjectsCache } from './modules/analytics/entities/top-projects-cache.entity';
 import { TopLocationsCache } from './modules/analytics/entities/top-locations-cache.entity';
 import { CategoryAnalytics } from './modules/analytics/entities/category-analytics.entity';
+import { MarketSnapshot } from './modules/analytics/entities/market-snapshot.entity';
+import { ScoringConfig } from './modules/analytics/entities/scoring-config.entity';
 import { SeoModule } from './modules/seo/seo.module';
 import { CityPage } from './modules/seo/entities/city-page.entity';
 import { SeoConfig } from './modules/seo/entities/seo-config.entity';
@@ -141,12 +144,15 @@ import { MessageLog } from './modules/messaging/entities/message-log.entity';
           PropType,
           PropTypeAmenity,
           PropTypeField,
+          ListingFilterConfig,
           AnalyticsEvent,
           TopPropertiesCache,
           TopAgentsCache,
           TopProjectsCache,
           TopLocationsCache,
           CategoryAnalytics,
+          MarketSnapshot,
+          ScoringConfig,
           CityPage,
           SeoConfig,
           FooterSeoLink,

@@ -17,6 +17,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "seed": "node -r dotenv/config -r ts-node/register src/database/seeds/seed.ts",
+    "seed:market-snapshots": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-market-snapshots.ts",
     "seed:agency": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-agency.ts",
     "seed:leads": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-leads.ts",
     "seed:articles": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-articles.ts",
