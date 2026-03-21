@@ -2225,7 +2225,13 @@ export class AnalyticsService {
       const trending   = !!p.isTrending;
       const trendingScore = Math.min(100, (trending ? 60 : 0) + (hotDeal ? 40 : 0) + Math.min(inq7d / 5, 1) * 30);
 
-      const premiumScore = ({ featured: 100, premium: 70, basic: 40, free: 0 } as Record<string, number>)[p.listingPlan as string] ?? 0;
+      // premiumScore: take the best of listingPlan tier OR admin-set flags
+      const planTierScore = ({ featured: 100, premium: 70, basic: 40, free: 0 } as Record<string, number>)[p.listingPlan as string] ?? 0;
+      const premiumScore  = Math.max(
+        planTierScore,
+        p.isFeatured ? 100 : 0,   // admin-boosted → full featured score
+        p.isPremium  ?  70 : 0,   // admin-marked premium → premium tier score
+      );
 
       const engagementScore = Math.min(100, (inq7d * 8 + saves7d * 3) / 1.1);
 
@@ -2237,7 +2243,7 @@ export class AnalyticsService {
         premiumScore    * 0.15 +
         engagementScore * 0.10;
 
-      const isMonetized = p.listingPlan !== 'free' || !!p.isFeatured;
+      const isMonetized = p.listingPlan !== 'free' || !!p.isFeatured || !!p.isPremium;
 
       // Tab buckets
       const tabs: string[] = [];

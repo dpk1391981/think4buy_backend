@@ -411,6 +411,13 @@ export class AdminController {
     return this.adminService.togglePropertyFeatured(id);
   }
 
+  @Patch('properties/:id/toggle-premium')
+  @ApiOperation({ summary: 'Mark / Unmark property as Premium' })
+  togglePropertyPremium(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.togglePropertyPremium(id);
+  }
+
   // ── States ──────────────────────────────────────────────────────────────────
   @Get('states')
   @ApiOperation({ summary: 'List all states (admin)' })

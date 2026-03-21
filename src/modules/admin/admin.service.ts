@@ -520,6 +520,13 @@ export class AdminService {
     return this.propertyRepo.save(property);
   }
 
+  async togglePropertyPremium(id: string): Promise<Property> {
+    const property = await this.propertyRepo.findOne({ where: { id } });
+    if (!property) throw new NotFoundException('Property not found');
+    property.isPremium = !property.isPremium;
+    return this.propertyRepo.save(property);
+  }
+
   async updatePropertySeo(id: string, data: { slug?: string; metaTitle?: string; metaDescription?: string }): Promise<Property> {
     const property = await this.propertyRepo.findOne({ where: { id } });
     if (!property) throw new NotFoundException('Property not found');

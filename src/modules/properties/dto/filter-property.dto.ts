@@ -90,8 +90,13 @@ export class FilterPropertyDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Transform(({ value }) => value === 'true')
+  @Transform(({ value }) => value === 'true' || value === true)
   isFeatured?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  isPremium?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()

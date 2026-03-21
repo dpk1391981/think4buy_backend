@@ -1113,6 +1113,9 @@ export class PropertiesService {
         });
       }
     }
+    if (filters.isPremium !== undefined) {
+      qb.andWhere('property.isPremium = :isPremium', { isPremium: filters.isPremium });
+    }
     if (filters.isVerified !== undefined) {
       qb.andWhere('property.isVerified = :isVerified', { isVerified: filters.isVerified });
     }
