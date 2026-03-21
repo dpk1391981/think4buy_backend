@@ -70,18 +70,18 @@ export class AdminService {
 
   async getProperties(filters: {
     approvalStatus?: ApprovalStatus;
+    isDraft?: boolean;
     page?: number;
     limit?: number;
     search?: string;
   }) {
-    const { approvalStatus, page = 1, limit = 20, search } = filters;
+    const { approvalStatus, isDraft, page = 1, limit = 20, search } = filters;
 
     const qb = this.propertyRepo
       .createQueryBuilder('property')
       .leftJoinAndSelect('property.owner', 'owner')
       .leftJoinAndSelect('property.images', 'images')
-      // Drafts are private to owners — never surface in admin panel
-      .where('property.isDraft = :isDraft', { isDraft: false })
+      .where('property.isDraft = :isDraft', { isDraft: isDraft === true })
       .orderBy('property.createdAt', 'DESC');
 
     if (approvalStatus) {

@@ -67,12 +67,14 @@ export class AdminController {
   @Get('properties')
   @ApiOperation({ summary: 'List all properties (admin)' })
   @ApiQuery({ name: 'approvalStatus', enum: ApprovalStatus, required: false })
+  @ApiQuery({ name: 'isDraft', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'search', required: false })
   getProperties(
     @Request() req,
     @Query('approvalStatus') approvalStatus?: ApprovalStatus,
+    @Query('isDraft') isDraft?: string,
     @Query('page') page = 1,
     @Query('limit') limit = 20,
     @Query('search') search?: string,
@@ -80,6 +82,7 @@ export class AdminController {
     this.assertAdmin(req);
     return this.adminService.getProperties({
       approvalStatus,
+      isDraft: isDraft === 'true',
       page: +page,
       limit: +limit,
       search,
