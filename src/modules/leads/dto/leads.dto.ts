@@ -119,6 +119,13 @@ export class CreateLeadDto {
   deviceType?: string;
 }
 
+/** Strips auto-generated placeholder emails (e.g. phone@t4bs.local) before validation */
+function stripFakeEmail({ value }: { value: any }): string | undefined {
+  if (!value || typeof value !== 'string') return undefined;
+  if (value.endsWith('@t4bs.local')) return undefined;
+  return value;
+}
+
 /** Stripped-down DTO for public (unauthenticated) lead capture forms */
 export class PublicLeadDto {
   @IsEnum(LeadSource)
@@ -137,6 +144,7 @@ export class PublicLeadDto {
   @Matches(/^[6-9]\d{9}$/, { message: 'Enter a valid 10-digit Indian mobile number' })
   contactPhone: string;
 
+  @Transform(stripFakeEmail)
   @IsEmail()
   @IsOptional()
   contactEmail?: string;

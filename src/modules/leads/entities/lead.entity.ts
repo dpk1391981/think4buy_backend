@@ -11,6 +11,7 @@ export enum LeadSource {
   PROPERTY_ALERT = 'property_alert',
   SEARCH = 'search',
   CONTACT_FORM = 'contact_form',
+  ENQUIRY = 'enquiry',
   CALL = 'call',
   WHATSAPP = 'whatsapp',
   CAMPAIGN = 'campaign',
