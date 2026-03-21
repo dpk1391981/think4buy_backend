@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsBoolean,
   IsArray,
+  IsObject,
   Min,
   IsDateString,
 } from 'class-validator';
@@ -196,4 +197,14 @@ export class CreatePropertyDto {
   @IsOptional()
   @IsBoolean()
   isDraft?: boolean;
+
+  @ApiPropertyOptional({ description: 'Dynamic/extra property details (carpet area, land area, industrial specs, etc.)' })
+  @IsOptional()
+  @IsObject()
+  extraDetails?: Record<string, any>;
+
+  @ApiPropertyOptional({ description: 'Listing purpose within a category (buy or rent) — used for commercial/mixed categories' })
+  @IsOptional()
+  @IsString()
+  listingType?: string;
 }

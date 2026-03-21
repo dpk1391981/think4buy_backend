@@ -267,6 +267,10 @@ export class Property {
   @Column({ type: 'json', nullable: true })
   extraDetails: Record<string, any>; // { height, powerLoad, hasDock, hasRamp, parkingSpots }
 
+  // Listing purpose within a category (buy or rent) — for commercial/mixed categories
+  @Column({ nullable: true, length: 20 })
+  listingType: string;
+
   // State field for location
   @Column({ nullable: true, length: 100 })
   state: string;

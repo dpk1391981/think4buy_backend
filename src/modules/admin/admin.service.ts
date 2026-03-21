@@ -80,6 +80,8 @@ export class AdminService {
       .createQueryBuilder('property')
       .leftJoinAndSelect('property.owner', 'owner')
       .leftJoinAndSelect('property.images', 'images')
+      // Drafts are private to owners — never surface in admin panel
+      .where('property.isDraft = :isDraft', { isDraft: false })
       .orderBy('property.createdAt', 'DESC');
 
     if (approvalStatus) {
