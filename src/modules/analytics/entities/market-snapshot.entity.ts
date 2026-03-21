@@ -2,31 +2,27 @@ import {
   Entity, PrimaryGeneratedColumn, Column, Index, UpdateDateColumn, CreateDateColumn,
 } from 'typeorm';
 
-/**
- * Pre-calculated market price snapshot per city (refreshed by cron every 4 hours).
- * Powers the homepage "City Price Snapshot" section.
- *
- * All PSF values are normalized to ₹ per Sq.Ft.
- */
 @Entity('market_snapshots')
 @Index(['city'], { unique: false })
 export class MarketSnapshot {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  /** City name (e.g. "Mumbai"). NULL = state-level. */
   @Column({ length: 100, nullable: true })
   city: string | null;
 
-  /** State name (e.g. "Maharashtra"). */
   @Column({ length: 100, nullable: true })
   state: string | null;
 
-  // ── Market Stats ──────────────────────────────────────────────────────────
+  // ── Sale Metrics ────────────────────────────────────────────────────────────
 
-  /** Average price per Sq.Ft (buy listings, normalized from all area units). */
+  /** Freshness-weighted median PSF (outlier-filtered, sale listings only). */
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   avgPsf: number;
+
+  /** True statistical median PSF (P50). */
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0, nullable: true })
+  medianPsf: number | null;
 
   /** Avg PSF from previous 90-day window (for trend). */
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
@@ -40,62 +36,90 @@ export class MarketSnapshot {
   @Column({ type: 'decimal', precision: 6, scale: 2, default: 0 })
   trendPct: number;
 
-  /** Average total buy price. */
+  /** Freshness-weighted median sale price. */
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   avgPrice: number;
 
-  /** Minimum active buy price. */
+  /** True statistical median sale price (P50). */
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, nullable: true })
+  medianPrice: number | null;
+
+  /** P10 sale price (outlier-safe lower bound). */
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   minPrice: number;
 
-  /** Maximum active buy price. */
+  /** P90 sale price (outlier-safe upper bound). */
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   maxPrice: number;
 
-  /** Number of active approved buy listings used for calculation. */
+  /** Number of sale listings with valid PSF used in calculation. */
   @Column({ default: 0 })
   listingCount: number;
 
-  /** Total active listings (buy + rent + all). */
+  /** Total active listings (all categories). */
   @Column({ default: 0 })
   totalListingCount: number;
 
-  /** Average monthly rent (rent listings). */
+  // ── Rent Metrics ────────────────────────────────────────────────────────────
+
+  /** Freshness-weighted median monthly rent. */
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   avgMonthlyRent: number;
 
-  /** Gross rental yield % (annualised rent / avg buy price). */
+  /** True statistical median monthly rent (P50). */
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0, nullable: true })
+  medianRent: number | null;
+
+  /** Gross rental yield % (annualised rent / median buy price). */
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
   rentYield: number;
 
-  /** Buy vs rent 10-year savings % estimate. */
+  /** Buy vs rent 10-year savings % (city-specific model). */
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
   buySavingsPct: number;
 
-  /** Top localities by PSF (JSON array). */
+  // ── Data Quality ─────────────────────────────────────────────────────────────
+
+  /** 0–100 confidence score based on count, variance, recency. */
+  @Column({ default: 0, nullable: true })
+  confidenceScore: number | null;
+
+  /** 'low' | 'medium' | 'high' — human-readable data quality label. */
+  @Column({ length: 10, default: 'low', nullable: true })
+  dataQuality: string | null;
+
+  /** Indicates prices are indicative, not transacted. */
+  @Column({ length: 60, default: 'Indicative Listing Price', nullable: true })
+  priceType: string | null;
+
+  // ── Breakdowns ───────────────────────────────────────────────────────────────
+
+  /** Top localities with smart ranking (JSON). */
   @Column({ type: 'json', nullable: true })
   topLocalities: {
     name: string;
-    avgPsf: number;
+    medianPsf: number;
     avgBuyPrice: number;
     avgRent: number;
     listingCount: number;
     trend: 'up' | 'down' | 'stable';
+    rentYield: number;
+    rankScore: number;
   }[] | null;
+
+  /** Per property-type breakdown (JSON). */
+  @Column({ type: 'json', nullable: true })
+  byType: Record<string, {
+    medianPsf: number;
+    medianPrice: number;
+    count: number;
+  }> | null;
 
   // ── Admin Control ─────────────────────────────────────────────────────────
 
-  /**
-   * Whether this city is pinned in the homepage Market Intelligence section.
-   * Admin-controlled. Pinned cities always appear; unpinned fill remaining slots.
-   */
   @Column({ default: false })
   isFeatured: boolean;
 
-  /**
-   * Display order within the homepage city tabs (lower = shown first).
-   * Admin-controlled.
-   */
   @Column({ default: 100 })
   sortOrder: number;
 

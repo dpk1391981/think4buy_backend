@@ -54,6 +54,12 @@ export class PropertiesController {
     return this.propertiesService.getSearchSuggestions(q);
   }
 
+  @Get('search/popular-keywords')
+  @ApiOperation({ summary: 'Get popular search keywords derived from active listings' })
+  getPopularKeywords(@Query('limit') limit?: number) {
+    return this.propertiesService.getPopularKeywords(limit ? Number(limit) : 8);
+  }
+
   @Get('map')
   @ApiOperation({ summary: 'Get properties with lat/lng for map view' })
   getForMap(@Query() filters: FilterPropertyDto) {

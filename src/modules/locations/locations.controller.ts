@@ -24,13 +24,16 @@ export class LocationsController {
   }
 
   @Get('localities')
-  @ApiOperation({ summary: 'Get localities by city — optional ?search= for typeahead' })
+  @ApiOperation({ summary: 'Get localities by city — optional ?search= for typeahead; ?onlyWithActiveProps=true for TopCities locality mode' })
   getLocalities(
     @Query('city') city: string,
     @Query('state') state?: string,
     @Query('search') search?: string,
+    @Query('onlyWithActiveProps') onlyWithActiveProps?: string,
   ) {
-    return this.locationsService.getLocalitiesByCityName(city, state, search);
+    return this.locationsService.getLocalitiesByCityName(
+      city, state, search, onlyWithActiveProps === 'true',
+    );
   }
 
   @Get('states')

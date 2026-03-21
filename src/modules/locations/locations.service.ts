@@ -16,25 +16,43 @@ export class LocationsService {
     private cityRepository: Repository<City>,
   ) {}
 
-  async search(query: string): Promise<Location[]> {
-    return this.locationRepo.find({
-      where: [
-        { city: Like(`%${query}%`), isActive: true },
-        { locality: Like(`%${query}%`), isActive: true },
-        { pincode: Like(`%${query}%`), isActive: true },
-      ],
-      take: 10,
-      order: { propertyCount: 'DESC' },
-    });
+  async search(query: string): Promise<(Location & { liveCount: number })[]> {
+    // Return locations (cities and localities) that have live active+approved properties.
+    // For locality records: match both city AND locality in properties.
+    // For city-only records: match just city.
+    const rows: any[] = await this.locationRepo.manager.query(`
+      SELECT
+        l.*,
+        CAST(COALESCE(SUM(CASE
+          WHEN LOWER(p.city) = LOWER(l.city)
+            AND (l.locality IS NULL OR l.locality = '' OR LOWER(p.locality) = LOWER(l.locality))
+            AND p.status = 'active'
+            AND p.approvalStatus = 'approved'
+            AND p.isDraft = 0
+          THEN 1 ELSE 0
+        END), 0) AS UNSIGNED) AS liveCount
+      FROM locations l
+      LEFT JOIN properties p ON LOWER(p.city) = LOWER(l.city)
+      WHERE l.isActive = 1
+        AND (l.city LIKE ? OR l.locality LIKE ? OR l.pincode LIKE ?)
+      GROUP BY l.id
+      HAVING liveCount > 0
+      ORDER BY liveCount DESC
+      LIMIT 10
+    `, [`%${query}%`, `%${query}%`, `%${query}%`]);
+
+    return rows;
   }
 
   async getCities(search?: string, limit = 50): Promise<{ id: string; name: string; stateName?: string; stateId?: string }[]> {
+    // Returns all active cities from the cities table — used by navbar and post-property form.
+    // No property-existence filter: cities are valid destinations regardless of current listings.
     const qb = this.cityRepository
       .createQueryBuilder('c')
       .leftJoinAndSelect('c.state', 'state')
       .where('c.isActive = true');
     if (search?.trim()) qb.andWhere('c.name LIKE :search', { search: `%${search.trim()}%` });
-    qb.orderBy('c.propertyCount', 'DESC').addOrderBy('c.name', 'ASC').take(limit);
+    qb.orderBy('c.name', 'ASC').take(limit);
     const cities = await qb.getMany();
     return cities.map(c => ({
       id: c.id,
@@ -78,7 +96,22 @@ export class LocationsService {
   async getCitiesByState(stateId: string, onlyActive = true) {
     const where: any = { stateId };
     if (onlyActive) where.isActive = true;
-    return this.cityRepository.find({ where, order: { propertyCount: 'DESC', name: 'ASC' } });
+    // Only return cities that have at least one active+approved non-draft property
+    return this.cityRepository
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.state', 'state')
+      .where('c.stateId = :stateId', { stateId })
+      .andWhere(onlyActive ? 'c.isActive = true' : '1=1')
+      .andWhere(`EXISTS (
+        SELECT 1 FROM properties p
+        WHERE LOWER(p.city) = LOWER(c.name)
+          AND p.status = 'active'
+          AND p.approvalStatus = 'approved'
+          AND p.isDraft = 0
+      )`)
+      .orderBy('c.propertyCount', 'DESC')
+      .addOrderBy('c.name', 'ASC')
+      .getMany();
   }
 
   async getStateBySlug(slug: string) {
@@ -102,13 +135,56 @@ export class LocationsService {
     return { ...state, cities };
   }
 
-  async getLocalitiesByCityName(city: string, state?: string, search?: string): Promise<Location[]> {
+  async getLocalitiesByCityName(
+    city: string,
+    state?: string,
+    search?: string,
+    onlyWithActiveProps = false,
+  ): Promise<any[]> {
+    const params: any[] = [`%${city}%`, city];
+    let stateClause = '';
+    if (state) { stateClause = 'AND LOWER(l.state) = LOWER(?)'; params.push(state); }
+    let searchClause = '';
+    if (search?.trim()) { searchClause = 'AND l.locality LIKE ?'; params.push(`%${search.trim()}%`); }
+
+    if (onlyWithActiveProps) {
+      // Used by TopCitiesSection locality mode: only localities with active+approved properties,
+      // with a live count from the properties table.
+      const rows: any[] = await this.locationRepo.manager.query(`
+        SELECT
+          l.id, l.city, l.state, l.locality, l.pincode,
+          l.latitude, l.longitude, l.isActive,
+          CAST(COALESCE(SUM(CASE
+            WHEN LOWER(p.city) = LOWER(l.city)
+              AND LOWER(p.locality) = LOWER(l.locality)
+              AND p.status = 'active'
+              AND p.approvalStatus = 'approved'
+              AND p.isDraft = 0
+            THEN 1 ELSE 0
+          END), 0) AS UNSIGNED) AS propertyCount
+        FROM locations l
+        LEFT JOIN properties p ON LOWER(p.city) = LOWER(l.city)
+        WHERE l.isActive = 1
+          AND l.locality IS NOT NULL AND l.locality != ''
+          AND (l.city LIKE ? OR LOWER(l.city) = LOWER(?))
+          ${stateClause}
+          ${searchClause}
+        GROUP BY l.id
+        HAVING propertyCount > 0
+        ORDER BY propertyCount DESC, l.locality ASC
+        LIMIT 200
+      `, params);
+      return rows;
+    }
+
+    // Default: return all localities from the table (for post-property form and similar)
     const qb = this.locationRepo
       .createQueryBuilder('l')
-      .where('l.city = :city', { city })
+      .where('(l.city LIKE :cityLike OR LOWER(l.city) = LOWER(:city))', { cityLike: `%${city}%`, city })
       .andWhere('l.isActive = true')
-      .andWhere('l.locality IS NOT NULL');
-    if (state) qb.andWhere('l.state = :state', { state });
+      .andWhere('l.locality IS NOT NULL')
+      .andWhere("l.locality != ''");
+    if (state) qb.andWhere('LOWER(l.state) = LOWER(:state)', { state });
     if (search?.trim()) qb.andWhere('l.locality LIKE :search', { search: `%${search.trim()}%` });
     qb.orderBy('l.propertyCount', 'DESC').addOrderBy('l.locality', 'ASC').take(200);
     return qb.getMany();
@@ -247,8 +323,11 @@ export class LocationsService {
        INNER JOIN properties p
          ON LOWER(p.city) = LOWER(c.name)
         AND p.status = 'active'
+        AND p.approvalStatus = 'approved'
+        AND p.isDraft = 0
        WHERE c.isActive = 1
        GROUP BY c.id, c.name, c.slug, c.imageUrl
+       HAVING total > 0
        ORDER BY total DESC
        LIMIT ?`,
       [limit],

@@ -132,16 +132,26 @@ export class PropertiesService {
       text = text.replace(budgetRangeMatch[0], '').trim();
     }
 
-    // Extract property type
+    // Extract property type — order matters: longer/more-specific keys first
     const typeMap: Record<string, string> = {
-      apartment: 'apartment', flat: 'apartment', 'builder floor': 'builder_floor',
-      villa: 'villa', bungalow: 'villa', house: 'house', independent: 'house',
-      plot: 'plot', land: 'land', penthouse: 'penthouse', studio: 'studio',
-      'office space': 'commercial_office', office: 'commercial_office',
-      shop: 'commercial_shop', showroom: 'showroom', warehouse: 'commercial_warehouse',
-      'farm house': 'farm_house', farmhouse: 'farm_house',
-      pg: 'pg', 'paying guest': 'pg', hostel: 'pg',
+      // compound slugs (match raw slug strings too)
+      commercial_warehouse: 'commercial_warehouse', commercial_office: 'commercial_office',
+      commercial_shop: 'commercial_shop', commercial_showroom: 'showroom',
+      industrial_land: 'land', residential_plot: 'plot', agricultural_land: 'land',
+      // human phrases
+      'builder floor': 'builder_floor', 'office space': 'commercial_office',
+      'farm house': 'farm_house', 'paying guest': 'pg',
       'co-living': 'co_living', coliving: 'co_living',
+      // single keywords
+      apartment: 'apartment', flat: 'apartment',
+      villa: 'villa', bungalow: 'villa',
+      house: 'house', independent: 'house',
+      plot: 'plot', penthouse: 'penthouse', studio: 'studio',
+      office: 'commercial_office', shop: 'commercial_shop',
+      showroom: 'showroom', warehouse: 'commercial_warehouse',
+      farmhouse: 'farm_house', land: 'land',
+      factory: 'factory', industrial: 'factory',
+      pg: 'pg', hostel: 'pg',
     };
     for (const [key, val] of Object.entries(typeMap)) {
       if (text.includes(key)) {
@@ -158,7 +168,7 @@ export class PropertiesService {
     else if (text.includes(' commercial')) result.category = 'commercial';
 
     // Extract location after "in", "at", "near"
-    const locationMatch = text.match(/\b(?:in|at|near)\s+([a-z\s\-]+?)(?:\s+(?:under|below|upto|for|with|$))/i);
+    const locationMatch = text.match(/\b(?:in|at|near)\s+([a-z0-9\s\-]+?)(?:\s+(?:under|below|upto|for|with)|$)/i);
     if (locationMatch) {
       const loc = locationMatch[1].trim();
       // Heuristic: if it looks like a locality/sector, set as locality; otherwise city
@@ -214,6 +224,7 @@ export class PropertiesService {
       .addSelect('COUNT(*)', 'count')
       .where('p.status = :status', { status: PropertyStatus.ACTIVE })
       .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+      .andWhere('p.isDraft = :isDraft', { isDraft: false })
       .andWhere('p.city LIKE :term', { term })
       .groupBy('p.city')
       .addGroupBy('p.state')
@@ -239,6 +250,7 @@ export class PropertiesService {
       .addSelect('COUNT(*)', 'count')
       .where('p.status = :status', { status: PropertyStatus.ACTIVE })
       .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+      .andWhere('p.isDraft = :isDraft', { isDraft: false })
       .andWhere('p.locality LIKE :term', { term })
       .andWhere('p.locality IS NOT NULL')
       .andWhere("p.locality != ''")
@@ -265,6 +277,7 @@ export class PropertiesService {
       .addSelect('COUNT(*)', 'count')
       .where('p.status = :status', { status: PropertyStatus.ACTIVE })
       .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+      .andWhere('p.isDraft = :isDraft', { isDraft: false })
       .andWhere('p.builderName LIKE :term', { term })
       .andWhere('p.builderName IS NOT NULL')
       .andWhere("p.builderName != ''")
@@ -292,6 +305,7 @@ export class PropertiesService {
       .addSelect('COUNT(*)', 'count')
       .where('p.status = :status', { status: PropertyStatus.ACTIVE })
       .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+      .andWhere('p.isDraft = :isDraft', { isDraft: false })
       .andWhere('p.society LIKE :term', { term })
       .andWhere('p.society IS NOT NULL')
       .andWhere("p.society != ''")
@@ -313,6 +327,66 @@ export class PropertiesService {
     }
 
     return results.slice(0, 10);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Popular Keywords (for search bar "Popular Searches" section)
+  // ─────────────────────────────────────────────────────────────────────────────
+  async getPopularKeywords(limit = 8): Promise<{ label: string; count: number }[]> {
+    // Build popular searches from most common city+type+bedrooms combos in active listings
+    const rows: any[] = await this.propertyRepo.manager.query(`
+      SELECT
+        p.city,
+        p.type,
+        p.bedrooms,
+        p.category,
+        COUNT(*) AS cnt
+      FROM properties p
+      WHERE p.status = 'active'
+        AND p.approvalStatus = 'approved'
+        AND p.isDraft = 0
+        AND p.city IS NOT NULL AND p.city != ''
+      GROUP BY p.city, p.type, p.bedrooms, p.category
+      ORDER BY cnt DESC
+      LIMIT 40
+    `);
+
+    const TYPE_LABEL: Record<string, string> = {
+      apartment: 'Flat', villa: 'Villa', plot: 'Plot', house: 'House',
+      studio: 'Studio', penthouse: 'Penthouse', builder_floor: 'Builder Floor',
+      co_living: 'Co-living', shop: 'Shop', office: 'Office',
+      warehouse: 'Warehouse', showroom: 'Showroom', land: 'Land',
+      farm_house: 'Farmhouse', co_working: 'Co-working', industrial: 'Industrial',
+      // compound slugs
+      commercial_warehouse: 'Warehouse', commercial_office: 'Office',
+      commercial_shop: 'Shop', commercial_showroom: 'Showroom',
+      factory: 'Factory / Industrial', industrial_land: 'Industrial Land',
+      residential_plot: 'Residential Plot', agricultural_land: 'Agricultural Land',
+    };
+
+    const seen = new Set<string>();
+    const results: { label: string; count: number }[] = [];
+
+    for (const r of rows) {
+      if (results.length >= limit) break;
+      const typeLabel = TYPE_LABEL[r.type] || r.type;
+      const bedrooms  = Number(r.bedrooms);
+      const city      = r.city;
+
+      let label: string;
+      if (bedrooms > 0 && ['apartment','house','villa','penthouse','builder_floor','studio'].includes(r.type)) {
+        label = `${bedrooms} BHK ${typeLabel} in ${city}`;
+      } else {
+        label = `${typeLabel} in ${city}`;
+      }
+
+      if (!seen.has(label)) {
+        seen.add(label);
+        results.push({ label, count: Number(r.cnt) });
+      }
+    }
+
+    return results;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -774,6 +848,10 @@ export class PropertiesService {
       .select('property.city', 'city')
       .addSelect('COUNT(*)', 'count')
       .where('property.status = :status', { status: PropertyStatus.ACTIVE })
+      .andWhere('property.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+      .andWhere('property.isDraft = :isDraft', { isDraft: false })
+      .andWhere('property.city IS NOT NULL')
+      .andWhere("property.city != ''")
       .groupBy('property.city')
       .orderBy('count', 'DESC')
       .limit(20)
@@ -910,6 +988,14 @@ export class PropertiesService {
   // ─────────────────────────────────────────────────────────────────────────────
   private applyFilters(qb: SelectQueryBuilder<Property>, filters: FilterPropertyDto) {
     // ── Smart keyword (NLP) ────────────────────────────────────────────────────
+    // If city param looks like a keyword (contains spaces or type slugs), treat it as keyword
+    // Match only clear keyword signals: underscore slugs OR known property type words
+    const KEYWORD_PATTERNS = /\b(bhk|flat|apartment|villa|plot|house|office|shop|warehouse|factory|studio|penthouse|pg|commercial|industrial|farmhouse|showroom)\b|_/i;
+    if (filters.city && !filters.cityId && KEYWORD_PATTERNS.test(filters.city)) {
+      if (!filters.keyword) filters.keyword = filters.city;
+      delete filters.city;
+    }
+
     if (filters.keyword) {
       const parsed = this.parseKeyword(filters.keyword);
 

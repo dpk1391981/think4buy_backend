@@ -260,13 +260,18 @@ async function seedMarketSnapshots() {
     // Build localities with trend
     const localities = c.localities.map(loc => {
       const { trend: lt } = calcTrend(loc.avgPsf, loc.prevPsf);
+      const locRentYield = loc.avgRent > 0 && loc.avgBuyPrice > 0
+        ? Math.round((loc.avgRent * 12 / loc.avgBuyPrice) * 1000) / 10
+        : 0;
       return {
         name:         loc.name,
-        avgPsf:       loc.avgPsf,
+        medianPsf:    loc.avgPsf,
         avgBuyPrice:  loc.avgBuyPrice,
         avgRent:      loc.avgRent,
         listingCount: loc.listingCount,
         trend:        lt,
+        rentYield:    locRentYield,
+        rankScore:    0,
       };
     });
 
