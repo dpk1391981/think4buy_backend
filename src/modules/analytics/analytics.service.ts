@@ -10,22 +10,51 @@ import { CategoryAnalytics } from './entities/category-analytics.entity';
 import { MarketSnapshot } from './entities/market-snapshot.entity';
 import { ScoringConfig } from './entities/scoring-config.entity';
 
+// ─── Resolve area value from column or extraDetails JSON fallback ─────────────
+// Priority: p.area column → extraDetails.carpet_area[0].value → extraDetails.area[0].value
+// Both carpet_area and area use the DEPENDENT field format: [{label, value, unit}]
+const RESOLVED_AREA_SQL = `
+  COALESCE(
+    NULLIF(p.area, 0),
+    CASE WHEN JSON_TYPE(JSON_EXTRACT(p.extraDetails, '$.carpet_area')) = 'ARRAY'
+         THEN CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.extraDetails, '$.carpet_area[0].value')), '') AS DECIMAL(15,2))
+    END,
+    CASE WHEN JSON_TYPE(JSON_EXTRACT(p.extraDetails, '$.area')) = 'ARRAY'
+         THEN CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.extraDetails, '$.area[0].value')), '') AS DECIMAL(15,2))
+    END
+  )
+`;
+
+// ─── Resolve area unit from column or extraDetails JSON fallback ──────────────
+const RESOLVED_UNIT_SQL = `
+  COALESCE(
+    NULLIF(p.areaUnit, ''),
+    CASE WHEN JSON_TYPE(JSON_EXTRACT(p.extraDetails, '$.carpet_area')) = 'ARRAY'
+         THEN NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.extraDetails, '$.carpet_area[0].unit')), '')
+    END,
+    CASE WHEN JSON_TYPE(JSON_EXTRACT(p.extraDetails, '$.area')) = 'ARRAY'
+         THEN NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.extraDetails, '$.area[0].unit')), '')
+    END,
+    'Sq.ft.'
+  )
+`;
+
 // ─── Unit normalisation (all areas → Sq.Ft.) ─────────────────────────────────
 const AREA_TO_SQFT_SQL = `
   CASE
-    WHEN p.areaUnit IS NULL OR p.areaUnit = ''
-      OR LOWER(p.areaUnit) LIKE '%sq%ft%'
-      OR LOWER(p.areaUnit) LIKE '%sqft%'              THEN p.area
-    WHEN LOWER(p.areaUnit) LIKE '%sq%yd%'
-      OR LOWER(p.areaUnit) LIKE '%sqyd%'              THEN p.area * 9.0
-    WHEN LOWER(p.areaUnit) LIKE '%sq%mt%'
-      OR LOWER(p.areaUnit) LIKE '%sq%m%'
-      OR LOWER(p.areaUnit) LIKE '%sqmt%'              THEN p.area * 10.764
-    WHEN LOWER(p.areaUnit) LIKE '%acre%'              THEN p.area * 43560.0
-    WHEN LOWER(p.areaUnit) LIKE '%bigha%'             THEN p.area * 27000.0
-    WHEN LOWER(p.areaUnit) LIKE '%marla%'             THEN p.area * 272.25
-    WHEN LOWER(p.areaUnit) LIKE '%kanal%'             THEN p.area * 5445.0
-    ELSE p.area
+    WHEN (${RESOLVED_UNIT_SQL}) IS NULL OR (${RESOLVED_UNIT_SQL}) = ''
+      OR LOWER((${RESOLVED_UNIT_SQL})) LIKE '%sq%ft%'
+      OR LOWER((${RESOLVED_UNIT_SQL})) LIKE '%sqft%'   THEN (${RESOLVED_AREA_SQL})
+    WHEN LOWER((${RESOLVED_UNIT_SQL})) LIKE '%sq%yd%'
+      OR LOWER((${RESOLVED_UNIT_SQL})) LIKE '%sqyd%'   THEN (${RESOLVED_AREA_SQL}) * 9.0
+    WHEN LOWER((${RESOLVED_UNIT_SQL})) LIKE '%sq%mt%'
+      OR LOWER((${RESOLVED_UNIT_SQL})) LIKE '%sq%m%'
+      OR LOWER((${RESOLVED_UNIT_SQL})) LIKE '%sqmt%'   THEN (${RESOLVED_AREA_SQL}) * 10.764
+    WHEN LOWER((${RESOLVED_UNIT_SQL})) LIKE '%acre%'   THEN (${RESOLVED_AREA_SQL}) * 43560.0
+    WHEN LOWER((${RESOLVED_UNIT_SQL})) LIKE '%bigha%'  THEN (${RESOLVED_AREA_SQL}) * 27000.0
+    WHEN LOWER((${RESOLVED_UNIT_SQL})) LIKE '%marla%'  THEN (${RESOLVED_AREA_SQL}) * 272.25
+    WHEN LOWER((${RESOLVED_UNIT_SQL})) LIKE '%kanal%'  THEN (${RESOLVED_AREA_SQL}) * 5445.0
+    ELSE (${RESOLVED_AREA_SQL})
   END
 `;
 
@@ -39,7 +68,7 @@ const BUY_PSF_SQL = `
       THEN p.price
     WHEN (p.priceUnit = 'total' OR p.priceUnit IS NULL OR p.priceUnit = '')
       AND p.category IN ('buy', 'builder_project', 'investment')
-      AND p.area > 0 AND p.price > 0
+      AND (${RESOLVED_AREA_SQL}) > 0 AND p.price > 0
       AND (${AREA_TO_SQFT_SQL}) > 0
       THEN p.price / (${AREA_TO_SQFT_SQL})
     ELSE NULL
@@ -795,29 +824,40 @@ export class AnalyticsService {
         try { extraDetails = typeof r.extraDetails === 'string' ? JSON.parse(r.extraDetails) : r.extraDetails; } catch {}
       }
 
-      // Resolve area: prefer area column, fall back to extraDetails.carpet_area
+      // Resolve area: prefer area column, fall back to extraDetails.carpet_area,
+      // then extraDetails.area (new [{unit, label, value}] format)
       let area: number | null = r.area ? parseFloat(r.area) : null;
       let areaUnit: string = r.areaUnit || 'Sq.ft.';
-      if (!area && extraDetails?.carpet_area !== undefined && extraDetails.carpet_area !== null) {
-        const raw = extraDetails.carpet_area;
+
+      function resolveAreaFromRaw(raw: any, currentUnit: string): { area: number | null; areaUnit: string } {
         if (Array.isArray(raw) && raw.length > 0 && raw[0].value) {
-          area     = parseFloat(raw[0].value) || null;
-          areaUnit = raw[0].unit || areaUnit;
-        } else if (typeof raw === 'string') {
+          return { area: parseFloat(raw[0].value) || null, areaUnit: raw[0].unit || currentUnit };
+        }
+        if (typeof raw === 'string') {
           try {
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].value) {
-              area     = parseFloat(parsed[0].value) || null;
-              areaUnit = parsed[0].unit || areaUnit;
-            } else if (typeof parsed === 'number' && parsed > 0) {
-              area = parsed;
+              return { area: parseFloat(parsed[0].value) || null, areaUnit: parsed[0].unit || currentUnit };
             }
-          } catch {
-            const num = parseFloat(raw);
-            if (!isNaN(num) && num > 0) area = num;
-          }
-        } else if (typeof raw === 'number' && raw > 0) {
-          area = raw;
+            if (typeof parsed === 'number' && parsed > 0) return { area: parsed, areaUnit: currentUnit };
+          } catch { /* ignore */ }
+          const num = parseFloat(raw);
+          if (!isNaN(num) && num > 0) return { area: num, areaUnit: currentUnit };
+        }
+        if (typeof raw === 'number' && raw > 0) return { area: raw, areaUnit: currentUnit };
+        return { area: null, areaUnit: currentUnit };
+      }
+
+      if (!area && extraDetails) {
+        // Try carpet_area first (legacy key)
+        if (extraDetails.carpet_area !== undefined && extraDetails.carpet_area !== null) {
+          const resolved = resolveAreaFromRaw(extraDetails.carpet_area, areaUnit);
+          if (resolved.area) { area = resolved.area; areaUnit = resolved.areaUnit; }
+        }
+        // Try area key (new format: [{unit, label, value}])
+        if (!area && extraDetails.area !== undefined && extraDetails.area !== null) {
+          const resolved = resolveAreaFromRaw(extraDetails.area, areaUnit);
+          if (resolved.area) { area = resolved.area; areaUnit = resolved.areaUnit; }
         }
       }
 
