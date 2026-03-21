@@ -595,7 +595,13 @@ export class AnalyticsService {
     if (rows.length > 0) {
       return rows
         .filter(r => r.property)
-        .map(r => ({ ...r.property, _score: Number(r.score), _rank: r.rank }));
+        .map(r => ({
+          ...r.property,
+          _score:       Number(r.score),
+          _rank:        r.rank,
+          _viewsLast7d: r.viewsCount,
+          _inqLast7d:   r.inquiriesCount,
+        }));
     }
 
     // Live fallback
@@ -619,11 +625,12 @@ export class AnalyticsService {
     else if (filters.state) qb.andWhere('p.state = :state', { state: filters.state });
 
     switch (tab) {
-      case 'premium':      qb.andWhere('p.isPremium = 1');                          break;
-      case 'most_viewed':  qb.orderBy('p.viewCount', 'DESC');                       break;
-      case 'just_listed':  qb.orderBy('p.createdAt', 'DESC');                       break;
-      case 'new_projects': qb.andWhere("p.possessionStatus = 'under_construction'").orderBy('p.createdAt', 'DESC'); break;
-      default:             qb.andWhere('p.isFeatured = 1');                         break;
+      case 'premium':        qb.andWhere('p.isPremium = 1').orderBy('p.featuredScore', 'DESC'); break;
+      case 'most_viewed':    qb.orderBy('p.viewCount', 'DESC');                                 break;
+      case 'just_listed':    qb.orderBy('p.createdAt', 'DESC');                                 break;
+      case 'new_projects':   qb.andWhere("p.possessionStatus = 'under_construction'").orderBy('p.createdAt', 'DESC'); break;
+      case 'smart_featured': qb.orderBy('p.listingScore', 'DESC');                              break;
+      default:               qb.andWhere('p.isFeatured = 1').orderBy('p.featuredScore', 'DESC'); break;
     }
 
     if (!['most_viewed', 'just_listed', 'new_projects'].includes(tab)) {
@@ -2126,8 +2133,8 @@ export class AnalyticsService {
     // ── Properties with agent authority info ──────────────────────────────────
     const allProps: any[] = await this.dataSource.query(`
       SELECT
-        p.id, p.city, p.state, p.createdAt, p.viewCount,
-        p.isFeatured, p.isPremium, p.listingPlan,
+        p.id, p.owner_id, p.city, p.state, p.createdAt, p.viewCount,
+        p.isFeatured, p.isPremium, p.isHotDeal, p.isTrending, p.listingPlan,
         p.boostExpiresAt, p.possessionStatus,
         u.agentTick,
         -- Active premium/featured agent subscription?
@@ -2170,8 +2177,8 @@ export class AnalyticsService {
       // Listing plan boost (0–100)
       const planBoost = { featured: 100, premium: 75, basic: 40, free: 0 }[p.listingPlan as string] ?? 0;
 
-      // Active boost window
-      const boostActive = p.boostExpiresAt && new Date(p.boostExpiresAt) > new Date() ? 1 : 0;
+      // Active boost window (used for listing & featured score)
+      const boostIsActive = p.boostExpiresAt && new Date(p.boostExpiresAt) > new Date() ? 1 : 0;
 
       // Normalized views contribution (cap at LISTING_VIEWS_CAP)
       const normViews = (Math.min(views7d + (p.viewCount || 0) * 0.1, w.LISTING_VIEWS_CAP) / w.LISTING_VIEWS_CAP) * 100;
@@ -2188,9 +2195,9 @@ export class AnalyticsService {
       // ── Featured score (0–100) ──────────────────────────────────────────
       const perfNorm    = Math.min(100, (views7d / 50 + inq7d / 5) * 10);
       const featuredScore =
-        planBoost  * w.FEATURED_PLAN         +
-        boostActive * 100 * w.FEATURED_BOOST_ACTIVE +
-        perfNorm   * w.FEATURED_PERFORMANCE;
+        planBoost      * w.FEATURED_PLAN                    +
+        boostIsActive  * 100 * w.FEATURED_BOOST_ACTIVE      +
+        perfNorm       * w.FEATURED_PERFORMANCE;
 
       propertyUpdates.push({
         id: p.id,
@@ -2201,6 +2208,36 @@ export class AnalyticsService {
         featuredScore:   Math.round(featuredScore * 10) / 10,
         dealScore:       0,  // computed separately in refreshPropertyHotScores
       });
+
+      // ── Smart Featured score (6-factor weighted formula) ─────────────────
+      // ViewScore(25%) + BoostScore(20%) + FreshnessScore(15%) +
+      // TrendingScore(15%) + PremiumScore(15%) + EngagementScore(10%)
+      const VIEW_CAP   = Math.max(w.LISTING_VIEWS_CAP, 1);
+      const viewScore  = Math.min(views7d / VIEW_CAP, 1) * 100;
+
+      const boostActive  = p.boostExpiresAt && new Date(p.boostExpiresAt) > new Date() ? 1 : 0;
+      const boostScore   = (boostActive || p.isFeatured) ? 100 : 0;
+
+      // Exponential decay: 100 on day 0 → ~22 at 60 days → ~5 at 90 days
+      const freshnessScore = Math.max(0, Math.exp(-daysOld / 45) * 100);
+
+      const hotDeal    = !!p.isHotDeal;
+      const trending   = !!p.isTrending;
+      const trendingScore = Math.min(100, (trending ? 60 : 0) + (hotDeal ? 40 : 0) + Math.min(inq7d / 5, 1) * 30);
+
+      const premiumScore = ({ featured: 100, premium: 70, basic: 40, free: 0 } as Record<string, number>)[p.listingPlan as string] ?? 0;
+
+      const engagementScore = Math.min(100, (inq7d * 8 + saves7d * 3) / 1.1);
+
+      const smartScore =
+        viewScore       * 0.25 +
+        boostScore      * 0.20 +
+        freshnessScore  * 0.15 +
+        trendingScore   * 0.15 +
+        premiumScore    * 0.15 +
+        engagementScore * 0.10;
+
+      const isMonetized = p.listingPlan !== 'free' || !!p.isFeatured;
 
       // Tab buckets
       const tabs: string[] = [];
@@ -2225,6 +2262,21 @@ export class AnalyticsService {
           city:           p.city  || '',
         });
       }
+
+      // smart_featured: push with smartScore + monetized flag stored in viewsCount field
+      toUpsert.push({
+        propertyId:     p.id,
+        score:          smartScore,
+        rank:           0,
+        viewsCount:     views7d,
+        inquiriesCount: inq7d,
+        savesCount:     isMonetized ? 1 : 0,   // savesCount repurposed as isMonetized flag
+        tab:            'smart_featured',
+        period:         '7d',
+        country:        '',
+        state:          p.state    || '',
+        city:           p.city     || '',
+      });
     }
 
     // ── Write listingScore / featuredScore back to properties ─────────────────
@@ -2251,9 +2303,72 @@ export class AnalyticsService {
     }
 
     const ranked: Partial<TopPropertiesCache>[] = [];
-    for (const [, group] of grouped) {
-      group.sort((a, b) => (b.score as number) - (a.score as number));
-      group.slice(0, 20).forEach((r, i) => { r.rank = i + 1; ranked.push(r); });
+    for (const [key, group] of grouped) {
+      const tab = key.split('|')[0];
+
+      if (tab === 'smart_featured') {
+        // ── Smart Featured: enforce 40/60 organic/monetized mix + diversity ──
+        group.sort((a, b) => (b.score as number) - (a.score as number));
+
+        const MAX_PER_OWNER  = 2;
+        const TARGET_TOTAL   = 20;
+        const MAX_MONETIZED  = Math.ceil(TARGET_TOTAL * 0.60); // 60%
+        const MIN_ORGANIC    = Math.floor(TARGET_TOTAL * 0.40); // 40%
+
+        const ownerCount     = new Map<string, number>();
+        const monetizedPick: Partial<TopPropertiesCache>[] = [];
+        const organicPick:   Partial<TopPropertiesCache>[] = [];
+
+        // We need owner info — embed it as ownerId via propertyId lookup map
+        // (allProps already has id but not ownerId separately; we use propertyId as proxy)
+        // Diversity by propertyId locality hash (approximate)
+        const ownerMap = new Map<string, string>(
+          allProps.map((ap: any) => [ap.id as string, (ap.owner_id || ap.id) as string]),
+        );
+
+        for (const entry of group) {
+          const ownerId   = ownerMap.get(entry.propertyId!) || entry.propertyId!;
+          const ownerCnt  = ownerCount.get(ownerId) || 0;
+          if (ownerCnt >= MAX_PER_OWNER) continue;
+
+          const isMonetized = (entry.savesCount as number) === 1;
+          if (isMonetized && monetizedPick.length < MAX_MONETIZED) {
+            monetizedPick.push(entry);
+            ownerCount.set(ownerId, ownerCnt + 1);
+          } else if (!isMonetized && organicPick.length < MIN_ORGANIC) {
+            organicPick.push(entry);
+            ownerCount.set(ownerId, ownerCnt + 1);
+          }
+          if (monetizedPick.length + organicPick.length >= TARGET_TOTAL) break;
+        }
+
+        // If organic slots not filled, backfill with monetized (and vice versa)
+        if (monetizedPick.length + organicPick.length < TARGET_TOTAL) {
+          for (const entry of group) {
+            if (monetizedPick.includes(entry) || organicPick.includes(entry)) continue;
+            const ownerId  = ownerMap.get(entry.propertyId!) || entry.propertyId!;
+            const ownerCnt = ownerCount.get(ownerId) || 0;
+            if (ownerCnt >= MAX_PER_OWNER) continue;
+            organicPick.push(entry);
+            ownerCount.set(ownerId, ownerCnt + 1);
+            if (monetizedPick.length + organicPick.length >= TARGET_TOTAL) break;
+          }
+        }
+
+        // Merge: monetized first (premium/boosted), then organic — re-sort by score
+        const merged = [...monetizedPick, ...organicPick];
+        merged.sort((a, b) => (b.score as number) - (a.score as number));
+        // Reset savesCount to actual saves (not the flag)
+        merged.forEach((r, i) => {
+          const orig = group.find(g => g.propertyId === r.propertyId);
+          r.savesCount = orig ? (orig.viewsCount ?? 0) : 0;   // not used further
+          r.rank = i + 1;
+          ranked.push(r);
+        });
+      } else {
+        group.sort((a, b) => (b.score as number) - (a.score as number));
+        group.slice(0, 20).forEach((r, i) => { r.rank = i + 1; ranked.push(r); });
+      }
     }
 
     await this.topPropsRepo.query('DELETE FROM top_properties_cache');
