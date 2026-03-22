@@ -1118,18 +1118,11 @@ export class AnalyticsService {
   // ─── Home API: Price Snapshot ─────────────────────────────────────────────────
   // Serves from the market_snapshots cache; falls back to live calculation if not cached.
 
-  async getPriceSnapshot(city?: string, state?: string, propertyType?: string, listingType?: string) {
-    const segPropType   = propertyType && SEGMENT_TYPE_MAP[propertyType] ? propertyType : null;
-    const segListType   = (listingType === 'sale' || listingType === 'rent') ? listingType : null;
-
-    // 1. Try snapshot cache first (match exact segment)
+  async getPriceSnapshot(city?: string, state?: string) {
+    // 1. Try snapshot cache first
     if (city) {
       const cached = await this.snapshotRepo.findOne({
-        where: {
-          city,
-          propertyType: segPropType as any,
-          listingType:  segListType as any,
-        } as any,
+        where: { city, propertyType: null as any, listingType: null as any } as any,
       });
       // Use cache if younger than 6 hours
       if (cached && cached.updatedAt && (Date.now() - cached.updatedAt.getTime()) < 6 * 60 * 60 * 1000) {
@@ -1138,7 +1131,7 @@ export class AnalyticsService {
     }
 
     // 2. Live calculation (also saves to snapshot table)
-    return this.refreshMarketSnapshot(city, state, segPropType ?? undefined, segListType ?? undefined);
+    return this.refreshMarketSnapshot(city, state);
   }
 
   private formatSnapshot(s: MarketSnapshot) {
@@ -1158,9 +1151,6 @@ export class AnalyticsService {
     return {
       city:               s.city,
       state:              s.state,
-      propertyType:       s.propertyType ?? null,
-      listingType:        s.listingType  ?? null,
-      segmentLabel:       s.propertyType ? (SEGMENT_LABELS[s.propertyType] ?? s.propertyType) : 'All Types',
       // Sale metrics
       avgPricePerSqft:    medPsf,
       medianPricePerSqft: medPsf,
@@ -1191,7 +1181,6 @@ export class AnalyticsService {
       // Localities + trend data
       localities:         s.topLocalities || [],
       priceTrend:         s.priceTrend || [],
-      byType:             s.byType || {},
       // Data quality
       confidenceScore:    s.confidenceScore ?? 0,
       dataQuality:        s.dataQuality ?? 'low',
@@ -1211,16 +1200,13 @@ export class AnalyticsService {
   //  2. Outlier filtering — PSF 200–150k, price 1L–50Cr, rent 1k–50L
   //  3. Freshness weighting — weight = 1/(days_old+1)
   //  4. Separate sale & rent pipelines — never mixed
-  //  5. Property-type segmentation — per-type breakdown
-  //  6. Smart locality ranking — PSF growth + rent yield + volume
-  //  7. City-specific economic models — not generic 7%/5%
-  //  8. Confidence scoring — count + variance + recency
-  //  9. P10/P90 price range — outlier-safe min/max
+  //  5. Smart locality ranking — PSF growth + rent yield + volume
+  //  6. City-specific economic models — not generic 7%/5%
+  //  7. Confidence scoring — count + variance + recency
+  //  8. P10/P90 price range — outlier-safe min/max
   async refreshMarketSnapshot(
-    city?:         string,
-    state?:        string,
-    propertyType?: string,   // e.g. 'apartment' | 'villa' | 'commercial' | 'plot'
-    listingType?:  string,   // 'sale' | 'rent'
+    city?:  string,
+    state?: string,
   ) {
     const since90d = new Date(Date.now() -  90 * 24 * 60 * 60 * 1000);
     const prev90d  = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
@@ -1232,22 +1218,6 @@ export class AnalyticsService {
     if (city)       { locParts.push('LOWER(p.city) = LOWER(?)');  locParams.push(city); }
     else if (state) { locParts.push('LOWER(p.state) = LOWER(?)'); locParams.push(state); }
     const locWhere = locParts.length ? locParts.join(' AND ') : '1=1';
-
-    // ── Property type / listing type segmentation filter ─────────────────────
-    // Ensures apartments, villas, and commercial are NEVER mixed in PSF calculations.
-    const typeParts: string[] = [];
-    const typeParams: any[]   = [];
-    if (propertyType && SEGMENT_TYPE_MAP[propertyType]) {
-      const types = SEGMENT_TYPE_MAP[propertyType];
-      typeParts.push(`p.type IN (${types.map(() => '?').join(',')})`);
-      typeParams.push(...types);
-    }
-    if (listingType === 'sale') {
-      typeParts.push(`p.category IN ('buy', 'builder_project', 'investment')`);
-    } else if (listingType === 'rent') {
-      typeParts.push(`p.category IN ('rent', 'pg')`);
-    }
-    const typeWhere = typeParts.length ? typeParts.join(' AND ') : '1=1';
 
     // ── City-specific economic model ─────────────────────────────────────────
     const cityKey = (city || state || '').toLowerCase().trim();
@@ -1303,9 +1273,9 @@ export class AnalyticsService {
           1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)                   AS w,
           CASE WHEN p.createdAt >= ? THEN 1 ELSE 0 END               AS isRecent
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
+        WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
       ) enriched
-    `, [since30d, ...typeParams, ...locParams, since90d]);
+    `, [since30d, ...locParams, since90d]);
 
     // ── 2. Median PSF — P50 via ROW_NUMBER window function (MySQL 8+) ────────
     const [medPsfRow]: any[] = await this.dataSource.query(`
@@ -1318,12 +1288,12 @@ export class AnalyticsService {
         FROM (
           SELECT ${BUY_PSF_SQL} AS psf
           FROM properties p
-          WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
+          WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
         ) raw
         WHERE psf IS NOT NULL AND psf BETWEEN ${PSF_MIN} AND ${PSF_MAX}
       ) windowed
       WHERE rn IN (FLOOR((total + 1.0) / 2), CEIL((total + 1.0) / 2))
-    `, [...typeParams, ...locParams, since90d]);
+    `, [...locParams, since90d]);
 
     // ── 3. Median Sale Price ──────────────────────────────────────────────────
     const [medPriceRow]: any[] = await this.dataSource.query(`
@@ -1336,12 +1306,12 @@ export class AnalyticsService {
         FROM (
           SELECT ${SALE_PRICE_SQL} AS price
           FROM properties p
-          WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
+          WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
         ) raw
         WHERE price IS NOT NULL AND price BETWEEN ${PRICE_MIN} AND ${PRICE_MAX}
       ) windowed
       WHERE rn IN (FLOOR((total + 1.0) / 2), CEIL((total + 1.0) / 2))
-    `, [...typeParams, ...locParams, since90d]);
+    `, [...locParams, since90d]);
 
     // ── 4. Median Monthly Rent ────────────────────────────────────────────────
     const [medRentRow]: any[] = await this.dataSource.query(`
@@ -1354,12 +1324,12 @@ export class AnalyticsService {
         FROM (
           SELECT ${RENT_PRICE_SQL} AS rent
           FROM properties p
-          WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
+          WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
         ) raw
         WHERE rent IS NOT NULL AND rent BETWEEN ${RENT_MIN} AND ${RENT_MAX}
       ) windowed
       WHERE rn IN (FLOOR((total + 1.0) / 2), CEIL((total + 1.0) / 2))
-    `, [...typeParams, ...locParams, since90d]);
+    `, [...locParams, since90d]);
 
     // ── 5. P10/P90 price range (outlier-safe bounds) ──────────────────────────
     const [priceRange]: any[] = await this.dataSource.query(`
@@ -1374,11 +1344,11 @@ export class AnalyticsService {
         FROM (
           SELECT ${SALE_PRICE_SQL} AS price
           FROM properties p
-          WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
+          WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
         ) raw
         WHERE price IS NOT NULL AND price BETWEEN ${PRICE_MIN} AND ${PRICE_MAX}
       ) ranked
-    `, [...typeParams, ...locParams, since90d]);
+    `, [...locParams, since90d]);
 
     // ── 6. Previous-period weighted PSF + count (for trend validation) ──────────
     // prevPsfCount gates trend calculation — need >= 3 in BOTH windows
@@ -1394,36 +1364,12 @@ export class AnalyticsService {
           ${BUY_PSF_SQL}                              AS psf,
           1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)   AS w
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere}
+        WHERE ${BASE_WHERE} AND ${locWhere}
           AND p.createdAt BETWEEN ? AND ?
       ) prev_enriched
-    `, [...typeParams, ...locParams, prev90d, since90d]);
+    `, [...locParams, prev90d, since90d]);
 
-    // ── 7. Property-type breakdown ────────────────────────────────────────────
-    const typeRows: any[] = await this.dataSource.query(`
-      SELECT
-        ptype                                                       AS propType,
-        COUNT(*)                                                    AS cnt,
-        SUM(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN psf * w ELSE 0 END) /
-          NULLIF(SUM(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN w ELSE 0 END), 0)
-                                                                    AS medianPsf,
-        SUM(CASE WHEN price BETWEEN ${PRICE_MIN} AND ${PRICE_MAX} THEN price * w ELSE 0 END) /
-          NULLIF(SUM(CASE WHEN price BETWEEN ${PRICE_MIN} AND ${PRICE_MAX} THEN w ELSE 0 END), 0)
-                                                                    AS medianPrice
-      FROM (
-        SELECT
-          p.type                                                    AS ptype,
-          ${BUY_PSF_SQL}                                            AS psf,
-          ${SALE_PRICE_SQL}                                         AS price,
-          1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)                 AS w
-        FROM properties p
-        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
-      ) t
-      GROUP BY ptype
-      HAVING cnt >= ${MIN_PSF_LISTINGS}
-    `, [...typeParams, ...locParams, since90d]);
-
-    // ── 8. Locality stats — current 90d (now includes rent PSF) ─────────────
+    // ── 7. Locality stats — current 90d (includes rent PSF) ─────────────────
     const localityCurrent: any[] = await this.dataSource.query(`
       SELECT
         locality,
@@ -1451,15 +1397,15 @@ export class AnalyticsService {
           ${RENT_PRICE_SQL}                                                      AS rent,
           1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)                              AS w
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere}
+        WHERE ${BASE_WHERE} AND ${locWhere}
           AND p.locality IS NOT NULL AND p.locality != ''
           AND p.createdAt >= ?
       ) loc_enriched
       GROUP BY locality
       HAVING listingCount >= ${MIN_LOCALITY_LISTINGS}
-    `, [...typeParams, ...locParams, since90d]);
+    `, [...locParams, since90d]);
 
-    // ── 9. Locality stats — previous 90d (sale PSF + rent PSF for trends) ───
+    // ── 8. Locality stats — previous 90d (sale PSF + rent PSF for trends) ───
     // prevPsfCount per locality allows gating: trend only shown if prev >= 3
     const localityPrev: any[] = await this.dataSource.query(`
       SELECT
@@ -1479,14 +1425,14 @@ export class AnalyticsService {
           ${RENT_PSF_SQL}                              AS rent_psf,
           1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)    AS w
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere}
+        WHERE ${BASE_WHERE} AND ${locWhere}
           AND p.locality IS NOT NULL AND p.locality != ''
           AND p.createdAt BETWEEN ? AND ?
       ) prev_loc
       GROUP BY locality
-    `, [...typeParams, ...locParams, prev90d, since90d]);
+    `, [...locParams, prev90d, since90d]);
 
-    // ── 10. 6-month monthly price trend ──────────────────────────────────────
+    // ── 9. 6-month monthly price trend ───────────────────────────────────────
     const monthlyTrend: any[] = await this.dataSource.query(`
       SELECT
         DATE_FORMAT(createdAt, '%b %y')            AS month,
@@ -1502,12 +1448,12 @@ export class AnalyticsService {
           ${BUY_PSF_SQL}   AS psf,
           ${RENT_PSF_SQL}  AS rent_psf
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere}
+        WHERE ${BASE_WHERE} AND ${locWhere}
           AND p.createdAt >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
       ) monthly_enriched
       GROUP BY month, sortKey
       ORDER BY sortKey ASC
-    `, [...typeParams, ...locParams]);
+    `, [...locParams]);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // COMPUTE METRICS
@@ -1628,32 +1574,6 @@ export class AnalyticsService {
     const confidenceScore = Math.round(countScore + varianceScore + recencyScore);
     const dataQuality = confidenceScore >= 70 ? 'high' : confidenceScore >= 40 ? 'medium' : 'low';
     const confidenceLabel = confidenceLabelFromCount(psfCount);
-
-    // ── Property-type breakdown ───────────────────────────────────────────────
-    const byType: Record<string, {
-      medianPsf: number; medianPsfFormatted: string;
-      medianPrice: number; medianPriceFormatted: string;
-      avgRentPsf: number; count: number;
-    }> = {};
-    for (const row of typeRows) {
-      if (row.propType) {
-        const cnt      = parseInt(row.cnt);
-        // Only show PSF when we have enough listings (HAVING already filters cnt>=3)
-        const typePsf  = Math.round(parseFloat(row.medianPsf)   || 0);
-        const typePrice= Math.round(parseFloat(row.medianPrice) || 0);
-        this.logger.debug(
-          `[ByType:${row.propType}] count=${cnt} medianPsf=${typePsf} medianPrice=${typePrice}`,
-        );
-        byType[row.propType] = {
-          medianPsf:            typePsf,
-          medianPsfFormatted:   typePsf   > 0 ? `₹${typePsf.toLocaleString('en-IN')}/sqft` : 'No Data',
-          medianPrice:          typePrice,
-          medianPriceFormatted: typePrice > 0 ? formatINR(typePrice) : 'No Data',
-          avgRentPsf:           0,
-          count:                cnt,
-        };
-      }
-    }
 
     // ── Load circle rates for this city ──────────────────────────────────────
     const circleRateRows = city
@@ -1794,9 +1714,9 @@ export class AnalyticsService {
           ${RENT_PSF_SQL}                             AS rent_psf,
           1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)   AS w
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
+        WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
       ) r
-    `, [...typeParams, ...locParams, since90d]);
+    `, [...locParams, since90d]);
     // Only show city rent PSF when we have enough rent listings
     const rawCityRentPsf = parseFloat(rentPsfRow?.avgRentPsf) || 0;
     const cityAvgRentPsf = rentPsfCount >= MIN_RENT_LISTINGS ? Math.round(rawCityRentPsf) : 0;
@@ -1820,9 +1740,6 @@ export class AnalyticsService {
     const result = {
       city:               city  || null,
       state:              state || null,
-      propertyType:       propertyType ?? null,
-      listingType:        listingType  ?? null,
-      segmentLabel:       propertyType ? (SEGMENT_LABELS[propertyType] ?? propertyType) : 'All Types',
 
       // ── Sale metrics (median P50 · outlier-filtered · >= 5 listings required)
       avgPricePerSqft:    Math.round(medianPsf),
@@ -1861,8 +1778,7 @@ export class AnalyticsService {
       localities,
       priceTrend,
 
-      // ── Type breakdown + data quality
-      byType,
+      // ── Data quality
       confidenceScore,
       dataQuality,
       confidenceLabel,     // 'High' | 'Medium' | 'Low'
@@ -1877,17 +1793,15 @@ export class AnalyticsService {
     // ── Persist to snapshot cache ─────────────────────────────────────────────
     if (city || state) {
       try {
-        const segPropType = propertyType ?? null;
-        const segListType = listingType  ?? null;
         const existing = city
-          ? await this.snapshotRepo.findOne({ where: { city, propertyType: segPropType, listingType: segListType } as any })
-          : await this.snapshotRepo.findOne({ where: { state, city: null as any, propertyType: segPropType, listingType: segListType } as any });
+          ? await this.snapshotRepo.findOne({ where: { city, propertyType: null as any, listingType: null as any } as any })
+          : await this.snapshotRepo.findOne({ where: { state, city: null as any, propertyType: null as any, listingType: null as any } as any });
 
         const entity = existing || this.snapshotRepo.create({ city: city || null, state: state || null });
         entity.avgPsf            = medianPsf;
         entity.medianPsf         = medianPsf;
         entity.prevAvgPsf        = prevPsf;
-        entity.trend             = trend as any;  // includes 'insufficient_data'
+        entity.trend             = trend as any;
         entity.trendPct          = Math.abs(trendPct);
         entity.avgPrice          = medianPrice;
         entity.medianPrice       = medianPrice;
@@ -1898,17 +1812,17 @@ export class AnalyticsService {
         entity.avgMonthlyRent    = medianRent;
         entity.medianRent        = medianRent;
         entity.avgRentPsf        = cityAvgRentPsf;
-        entity.rentYield         = rentYield    ?? 0;  // DB column is numeric, store 0 when null
+        entity.rentYield         = rentYield    ?? 0;
         entity.buySavingsPct     = buySavingsPct ?? 0;
         entity.topLocalities     = localities;
-        entity.byType            = byType;
+        entity.byType            = {};
         entity.priceTrend        = priceTrend;
         entity.smartInsights     = smartInsights;
         entity.confidenceScore   = confidenceScore;
         entity.dataQuality       = dataQuality;
         entity.priceType         = 'Indicative Listing Price';
-        entity.propertyType      = propertyType ?? null;
-        entity.listingType       = listingType  ?? null;
+        entity.propertyType      = null;
+        entity.listingType       = null;
         await this.snapshotRepo.save(entity);
       } catch (e) {
         this.logger.warn('Failed to save market snapshot', e);
@@ -1918,9 +1832,13 @@ export class AnalyticsService {
     return result;
   }
 
-  // ─── Bulk refresh all cities × segments that have listings ───────────────────
+  // ─── Bulk refresh one snapshot per city (all types combined) ────────────────
   async refreshAllMarketSnapshots() {
-    this.logger.log('Refreshing all market snapshots (city + segment)…');
+    this.logger.log('Refreshing market snapshots (one per city)…');
+    // Remove legacy segmented rows (propertyType/listingType no longer used)
+    await this.dataSource.query(
+      `DELETE FROM market_snapshots WHERE propertyType IS NOT NULL OR listingType IS NOT NULL`,
+    );
     const cities: any[] = await this.dataSource.query(`
       SELECT DISTINCT city, state
       FROM properties
@@ -1929,33 +1847,17 @@ export class AnalyticsService {
       ORDER BY city
     `);
 
-    // Segments to compute per city. null = all-types aggregate (existing behaviour).
-    const SEGMENTS: Array<{ propertyType?: string; listingType?: string }> = [
-      { },                                              // all-types aggregate
-      { propertyType: 'apartment', listingType: 'sale'  },
-      { propertyType: 'apartment', listingType: 'rent'  },
-      { propertyType: 'villa',     listingType: 'sale'  },
-      { propertyType: 'commercial',listingType: 'sale'  },
-      { propertyType: 'plot',      listingType: 'sale'  },
-    ];
-
     let refreshed = 0;
-    const total   = cities.length * SEGMENTS.length;
-
     for (const row of cities) {
-      for (const seg of SEGMENTS) {
-        try {
-          await this.refreshMarketSnapshot(row.city, row.state, seg.propertyType, seg.listingType);
-          refreshed++;
-        } catch (e) {
-          this.logger.warn(
-            `Snapshot refresh failed for ${row.city} / ${seg.propertyType ?? 'all'} / ${seg.listingType ?? 'all'}`, e,
-          );
-        }
+      try {
+        await this.refreshMarketSnapshot(row.city, row.state);
+        refreshed++;
+      } catch (e) {
+        this.logger.warn(`Snapshot refresh failed for ${row.city}`, e);
       }
     }
-    this.logger.log(`Market snapshots refreshed: ${refreshed}/${total}`);
-    return { refreshed, total };
+    this.logger.log(`Market snapshots refreshed: ${refreshed}/${cities.length}`);
+    return { refreshed, total: cities.length };
   }
 
   // ─── Admin: update snapshot metadata (isFeatured, sortOrder) ─────────────────

@@ -258,15 +258,11 @@ export class AnalyticsController {
   @ApiOperation({ summary: 'Real price-per-sqft stats, locality breakdown, and buy-vs-rent from DB' })
   @ApiQuery({ name: 'city',         required: false })
   @ApiQuery({ name: 'state',        required: false })
-  @ApiQuery({ name: 'propertyType', required: false, description: 'apartment | villa | commercial | plot (null = all types)' })
-  @ApiQuery({ name: 'listingType',  required: false, description: 'sale | rent (null = both)'})
   async getPriceSnapshot(
-    @Query('city')         city?:         string,
-    @Query('state')        state?:        string,
-    @Query('propertyType') propertyType?: string,
-    @Query('listingType')  listingType?:  string,
+    @Query('city')  city?:  string,
+    @Query('state') state?: string,
   ) {
-    const data = await this.analyticsService.getPriceSnapshot(city, state, propertyType, listingType);
+    const data = await this.analyticsService.getPriceSnapshot(city, state);
     return { success: true, data };
   }
 
