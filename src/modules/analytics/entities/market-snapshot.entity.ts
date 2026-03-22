@@ -43,8 +43,8 @@ export class MarketSnapshot {
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   prevAvgPsf: number;
 
-  /** Trend direction: 'up' | 'down' | 'stable' */
-  @Column({ length: 10, default: 'stable' })
+  /** Trend direction: 'up' | 'down' | 'stable' | 'insufficient_data' */
+  @Column({ length: 20, default: 'stable' })
   trend: string;
 
   /** % change vs prev window (absolute, always positive). */
