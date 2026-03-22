@@ -85,12 +85,27 @@ async function bootstrap() {
   // in app.module.ts so they participate fully in NestJS DI.
 
   // ── CORS ─────────────────────────────────────────────────────────────────
-  const allowedOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:3000').split(',');
+  const allowedOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:3000')
+    .split(',')
+    .map((o) => o.trim());
+
+  // Vercel preview deployments: any subdomain of vercel.app whose hostname
+  // contains the project identifier from VERCEL_PROJECT_ID env var, or all
+  // *.vercel.app origins when ALLOW_VERCEL_PREVIEWS=true.
+  const vercelProjectId = process.env.VERCEL_PROJECT_ID ?? '';
+  const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS === 'true';
+
   app.enableCors({
     origin: (origin, cb) => {
       // Allow requests with no origin (mobile apps, server-to-server)
       if (!origin) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
+      // Exact match against configured origins
+      if (allowedOrigins.some((o) => o === origin)) return cb(null, true);
+      // Vercel preview URLs: *.vercel.app
+      if (origin.endsWith('.vercel.app')) {
+        if (allowVercelPreviews) return cb(null, true);
+        if (vercelProjectId && origin.includes(vercelProjectId)) return cb(null, true);
+      }
       cb(new Error(`CORS: origin ${origin} not allowed`));
     },
     methods:          ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
