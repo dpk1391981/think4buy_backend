@@ -4,6 +4,7 @@ import {
 
 @Entity('market_snapshots')
 @Index(['city'], { unique: false })
+@Index(['city', 'propertyType', 'listingType'], { unique: false })
 export class MarketSnapshot {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -13,6 +14,20 @@ export class MarketSnapshot {
 
   @Column({ length: 100, nullable: true })
   state: string | null;
+
+  /**
+   * Segment key: 'apartment' | 'villa' | 'commercial' | 'plot' | null (= all types aggregate).
+   * When set, this snapshot contains data only for that property sub-type.
+   */
+  @Column({ length: 50, nullable: true, default: null })
+  propertyType: string | null;
+
+  /**
+   * Listing type: 'sale' | 'rent' | null (= combined).
+   * Drives which PSF expression (BUY_PSF vs RENT_PSF) is used as the primary metric.
+   */
+  @Column({ length: 20, nullable: true, default: null })
+  listingType: string | null;
 
   // ── Sale Metrics ────────────────────────────────────────────────────────────
 
@@ -94,26 +109,58 @@ export class MarketSnapshot {
 
   // ── Breakdowns ───────────────────────────────────────────────────────────────
 
+  /** City-level average rent per sqft (for apples-to-apples rent vs sale comparison). */
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, nullable: true })
+  avgRentPsf: number | null;
+
   /** Top localities with smart ranking (JSON). */
   @Column({ type: 'json', nullable: true })
   topLocalities: {
     name: string;
     medianPsf: number;
+    medianPsfFormatted?: string;
+    rentPsf: number;
     avgBuyPrice: number;
+    avgBuyPriceFormatted?: string;
     avgRent: number;
+    avgRentFormatted?: string;
     listingCount: number;
-    trend: 'up' | 'down' | 'stable';
-    rentYield: number;
+    psfCount?: number;
+    rentListingCount: number;
+    trend: 'up' | 'down' | 'stable' | 'insufficient_data';
+    rentTrend: 'up' | 'down' | 'stable' | 'insufficient_data';
+    rentYield: number | null;     // null = no data (not 0%)
+    circleRate: number;
+    pricePremium: number | null;  // null = no circle rate or insufficient data
     rankScore: number;
+    lowConfidence?: boolean;
+    confidenceLabel?: 'High' | 'Medium' | 'Low';
   }[] | null;
 
   /** Per property-type breakdown (JSON). */
   @Column({ type: 'json', nullable: true })
   byType: Record<string, {
     medianPsf: number;
+    medianPsfFormatted?: string;
     medianPrice: number;
+    medianPriceFormatted?: string;
+    avgRentPsf: number;
     count: number;
   }> | null;
+
+  /** 6-month monthly price trend (JSON array). */
+  @Column({ type: 'json', nullable: true })
+  priceTrend: {
+    month: string;          // e.g. "Jan 25"
+    avgSalePsf: number;
+    avgRentPsf: number;
+    listingCount: number;
+    rentCount: number;
+  }[] | null;
+
+  /** AI-style smart insights derived from data (JSON array of strings). */
+  @Column({ type: 'json', nullable: true })
+  smartInsights: string[] | null;
 
   // ── Admin Control ─────────────────────────────────────────────────────────
 

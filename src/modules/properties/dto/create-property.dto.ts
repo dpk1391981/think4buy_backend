@@ -207,4 +207,9 @@ export class CreatePropertyDto {
   @IsOptional()
   @IsString()
   listingType?: string;
+
+  @ApiPropertyOptional({ description: 'Brochure PDF URL — for builder_project category only' })
+  @IsOptional()
+  @IsString()
+  brochureUrl?: string;
 }

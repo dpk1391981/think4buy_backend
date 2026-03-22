@@ -242,6 +242,33 @@ export class PublicLeadDto {
   @IsString()
   @IsOptional()
   contactUserId?: string;
+
+  /** Listing price (used to auto-set budgetMin/budgetMax if not provided) */
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  price?: number;
+
+  /** Listing area in specified areaUnit */
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  area?: number;
+
+  /** Property listing category (buy / rent / pg / commercial etc.) */
+  @IsString()
+  @IsOptional()
+  category?: string;
+
+  /** Free-text message or note from the user */
+  @IsString()
+  @IsOptional()
+  message?: string;
+
+  /** Internal note (e.g. "Intent popup lead — Property Title") */
+  @IsString()
+  @IsOptional()
+  note?: string;
 }
 
 export class UpdateLeadStatusDto {

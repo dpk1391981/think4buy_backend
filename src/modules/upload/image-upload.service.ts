@@ -98,6 +98,32 @@ export class ImageUploadService {
   }
 
   /**
+   * Validate and save a brochure PDF file.
+   * Checks the %PDF magic bytes and writes the file as-is (no conversion).
+   *
+   * @param file       Multer file object (buffer in memory)
+   * @param subFolder  Property UUID used as sub-directory name
+   * @returns          Full public URL to the saved PDF
+   */
+  async savePdf(file: Express.Multer.File, subFolder: string): Promise<string> {
+    // Check PDF magic bytes: %PDF = 0x25 0x50 0x44 0x46
+    const pdfMagic = [0x25, 0x50, 0x44, 0x46];
+    const valid = pdfMagic.every((byte, i) => file.buffer[i] === byte);
+    if (!valid) {
+      throw new BadRequestException('File content does not appear to be a valid PDF.');
+    }
+
+    const dir = this.resolveDir('brochures', subFolder);
+    await fs.mkdir(dir, { recursive: true });
+
+    const filename = `${uuidv4()}.pdf`;
+    const dest = this.safeDest(dir, filename);
+    await fs.writeFile(dest, file.buffer);
+
+    return this.publicUrl('brochures', subFolder, filename);
+  }
+
+  /**
    * Delete an image from disk using its public URL.
    * Silently ignores missing files; logs a warning if the path would escape
    * the uploads root (path-traversal guard).

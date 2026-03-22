@@ -3,7 +3,7 @@ import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer
 import { memoryStorage } from 'multer';
 import * as path from 'path';
 
-/** MIME types that are permitted for upload */
+/** MIME types that are permitted for image upload */
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 /**
@@ -14,6 +14,30 @@ const BLOCKED_EXTENSIONS = new Set([
   '.exe', '.php', '.js', '.ts', '.sh', '.bat',
   '.cmd', '.py', '.rb', '.pl', '.svg', '.html', '.htm', '.xml',
 ]);
+
+/**
+ * Multer configuration for brochure PDF uploads.
+ * Accepts a single PDF, max 10 MB.
+ */
+export function pdfMulterOptions(): MulterOptions {
+  return {
+    storage: memoryStorage(),
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10 MB
+      files: 1,
+    },
+    fileFilter(_req, file, cb) {
+      const ext = path.extname(file.originalname).toLowerCase();
+      if (ext !== '.pdf') {
+        return cb(new BadRequestException('Only PDF files are accepted for brochures'), false);
+      }
+      if (file.mimetype !== 'application/pdf') {
+        return cb(new BadRequestException('MIME type must be application/pdf'), false);
+      }
+      cb(null, true);
+    },
+  };
+}
 
 /**
  * Returns a Multer configuration that:

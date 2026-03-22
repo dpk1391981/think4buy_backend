@@ -13,14 +13,15 @@ import {
   HttpStatus,
   UseInterceptors,
   UploadedFiles,
+  UploadedFile,
   BadRequestException,
   ParseIntPipe,
   DefaultValuePipe,
 } from '@nestjs/common';
 import { OptionalAuthGuard } from '../../common/guards/optional-auth.guard';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
-import { imageMulterOptions } from '../upload/multer.config';
+import { imageMulterOptions, pdfMulterOptions } from '../upload/multer.config';
 import { ImageUploadService } from '../upload/image-upload.service';
 import {
   ApiTags,
@@ -32,7 +33,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { FilterPropertyDto } from './dto/filter-property.dto';
-import { PropertyStatus, ApprovalStatus } from './entities/property.entity';
+import { PropertyStatus, ApprovalStatus, PropertyCategory } from './entities/property.entity';
 
 @ApiTags('properties')
 @Controller('properties')
@@ -70,6 +71,31 @@ export class PropertiesController {
   @ApiOperation({ summary: 'Get featured properties' })
   getFeatured(@Query('limit') limit?: number) {
     return this.propertiesService.findFeatured(limit);
+  }
+
+  @Get('recommendations')
+  @UseGuards(OptionalAuthGuard)
+  @ApiOperation({ summary: 'AI-based property recommendations: similar, trending in area, nearby' })
+  getRecommendations(
+    @Query('propertyId') propertyId?: string,
+    @Query('city') city?: string,
+    @Query('type') type?: string,
+    @Query('category') category?: string,
+    @Query('price') price?: string,
+    @Query('lat') lat?: string,
+    @Query('lng') lng?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.propertiesService.getRecommendations({
+      propertyId,
+      city,
+      type,
+      category,
+      price: price ? Number(price) : undefined,
+      lat: lat ? Number(lat) : undefined,
+      lng: lng ? Number(lng) : undefined,
+      limit: limit ? Math.min(Number(limit), 8) : 4,
+    });
   }
 
   @Get('stats')
@@ -223,6 +249,43 @@ export class PropertiesController {
     @Request() req,
   ) {
     return this.propertiesService.deleteImage(id, imageId, req.user);
+  }
+
+  @Post(':id/brochure')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload brochure PDF for a builder project (max 10 MB)' })
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseInterceptors(FileInterceptor('brochure', pdfMulterOptions()))
+  async uploadBrochure(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req,
+  ) {
+    if (!file) throw new BadRequestException('No brochure file uploaded');
+    const property = await this.propertiesService.findById(id);
+    if (property.category !== PropertyCategory.BUILDER_PROJECT) {
+      throw new BadRequestException('Brochure upload is only allowed for builder projects');
+    }
+    // Delete old brochure file if exists
+    if (property.brochureUrl) {
+      await this.imageUploadService.deleteByUrl(property.brochureUrl);
+    }
+    const url = await this.imageUploadService.savePdf(file, id);
+    return this.propertiesService.uploadBrochure(id, url, req.user);
+  }
+
+  @Delete(':id/brochure')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove brochure from a property' })
+  async deleteBrochure(@Param('id') id: string, @Request() req) {
+    const property = await this.propertiesService.findById(id);
+    if (property.brochureUrl) {
+      await this.imageUploadService.deleteByUrl(property.brochureUrl);
+    }
+    return this.propertiesService.removeBrochure(id, req.user);
   }
 
   @Get(':id/similar')

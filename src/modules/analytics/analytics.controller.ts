@@ -8,6 +8,40 @@ import { IsString, IsOptional, IsObject, IsBoolean, IsNumber } from 'class-valid
 import { AnalyticsService } from './analytics.service';
 
 // ─── Admin DTOs ───────────────────────────────────────────────────────────────
+class UpsertCircleRateDto {
+  @IsString()
+  city: string;
+
+  @IsString()
+  locality: string;
+
+  @IsNumber()
+  circleRate: number;
+
+  @IsOptional() @IsString()
+  effectiveFrom?: string;
+
+  @IsOptional() @IsString()
+  notes?: string;
+
+  @IsOptional() @IsString()
+  source?: string;
+}
+
+class UpdateCircleRateDto {
+  @IsOptional() @IsNumber()
+  circleRate?: number;
+
+  @IsOptional() @IsString()
+  effectiveFrom?: string;
+
+  @IsOptional() @IsString()
+  notes?: string;
+
+  @IsOptional() @IsString()
+  source?: string;
+}
+
 class UpdateSnapshotDto {
   @IsOptional() @IsBoolean()
   isFeatured?: boolean;
@@ -222,13 +256,17 @@ export class AnalyticsController {
   // ─── GET /api/home/price-snapshot ─────────────────────────────────────────────
   @Get('home/price-snapshot')
   @ApiOperation({ summary: 'Real price-per-sqft stats, locality breakdown, and buy-vs-rent from DB' })
-  @ApiQuery({ name: 'city',  required: false })
-  @ApiQuery({ name: 'state', required: false })
+  @ApiQuery({ name: 'city',         required: false })
+  @ApiQuery({ name: 'state',        required: false })
+  @ApiQuery({ name: 'propertyType', required: false, description: 'apartment | villa | commercial | plot (null = all types)' })
+  @ApiQuery({ name: 'listingType',  required: false, description: 'sale | rent (null = both)'})
   async getPriceSnapshot(
-    @Query('city')  city?:  string,
-    @Query('state') state?: string,
+    @Query('city')         city?:         string,
+    @Query('state')        state?:        string,
+    @Query('propertyType') propertyType?: string,
+    @Query('listingType')  listingType?:  string,
   ) {
-    const data = await this.analyticsService.getPriceSnapshot(city, state);
+    const data = await this.analyticsService.getPriceSnapshot(city, state, propertyType, listingType);
     return { success: true, data };
   }
 
@@ -270,6 +308,17 @@ export class AnalyticsController {
     }
     const data = await this.analyticsService.refreshMarketSnapshot(body.city, body.state);
     return { success: true, data };
+  }
+
+  // ─── POST /api/admin/cache/refresh ──────────────────────────────────────────
+  @Post('admin/cache/refresh')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: force-refresh property rankings and hot scores cache' })
+  async refreshPropertyCache(@Request() req: any) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    await this.analyticsService.refreshPropertyHotScores();
+    return { success: true, message: 'Property cache refreshed' };
   }
 
   // ─── GET /api/admin/market-snapshots ──────────────────────────────────────────
@@ -331,6 +380,60 @@ export class AnalyticsController {
     if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
     await this.analyticsService.resetScoringConfig(key);
     return { success: true, message: `${key} reset to default` };
+  }
+
+  // ─── GET /api/admin/circle-rates ──────────────────────────────────────────────
+  @Get('admin/circle-rates')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: list all locality circle rates' })
+  @ApiQuery({ name: 'city', required: false })
+  async listCircleRates(
+    @Query('city') city?: string,
+    @Request() req?: any,
+  ) {
+    if (req?.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    const data = await this.analyticsService.listCircleRates(city);
+    return { success: true, data };
+  }
+
+  // ─── POST /api/admin/circle-rates ─────────────────────────────────────────────
+  @Post('admin/circle-rates')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: upsert a locality circle rate (create or update by city+locality)' })
+  async upsertCircleRate(
+    @Body() dto: UpsertCircleRateDto,
+    @Request() req: any,
+  ) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    const data = await this.analyticsService.upsertCircleRate(dto);
+    return { success: true, data };
+  }
+
+  // ─── PATCH /api/admin/circle-rates/:id ────────────────────────────────────────
+  @Patch('admin/circle-rates/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: update a circle rate by ID' })
+  async updateCircleRate(
+    @Param('id') id: string,
+    @Body() dto: UpdateCircleRateDto,
+    @Request() req: any,
+  ) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    const data = await this.analyticsService.updateCircleRate(id, dto);
+    return { success: true, data };
+  }
+
+  // ─── DELETE /api/admin/circle-rates/:id ───────────────────────────────────────
+  @Delete('admin/circle-rates/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: delete a circle rate by ID' })
+  async deleteCircleRate(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    await this.analyticsService.deleteCircleRate(id);
+    return { success: true, message: 'Deleted' };
   }
 
   // ─── GET /api/analytics/admin/summary ────────────────────────────────────────

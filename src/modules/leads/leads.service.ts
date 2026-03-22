@@ -113,11 +113,34 @@ export class LeadsService {
         city: dto.city,
       }));
 
-    // Strip assignedAgentId so the spread below doesn't double-write it
-    const { assignedAgentId: _unused, contactUserId, ...leadFields } = dto as any;
+    // Strip assignedAgentId + map extra frontend fields before spread
+    const {
+      assignedAgentId: _unused,
+      contactUserId,
+      message,
+      note,
+      price,
+      area,
+      category: _category, // Lead entity has no 'category' column; stored in requirement
+      ...leadFields
+    } = dto as any;
+
+    // Map message → requirement, note → notes, price → budget range, area → areaMin/areaMax
+    const requirement = leadFields.requirement || message || undefined;
+    const notes       = note || undefined;
+    const budgetMin   = leadFields.budgetMin ?? (price ?? undefined);
+    const budgetMax   = leadFields.budgetMax ?? (price ?? undefined);
+    const areaMin     = leadFields.areaMin   ?? (area  ?? undefined);
+    const areaMax     = leadFields.areaMax   ?? (area  ?? undefined);
 
     const lead = this.leadRepo.create({
       ...leadFields,
+      requirement,
+      notes,
+      budgetMin,
+      budgetMax,
+      areaMin,
+      areaMax,
       leadScore: score,
       temperature: this.getTemperature(score),
       status: LeadStatus.NEW,
@@ -281,10 +304,33 @@ export class LeadsService {
     return this.findAll({ ...query, agentId });
   }
 
-  async findOne(id: string): Promise<Lead> {
+  async findOne(id: string): Promise<Lead & { property?: Record<string, any> }> {
     const lead = await this.leadRepo.findOne({ where: { id } });
     if (!lead) throw new NotFoundException('Lead not found');
-    return lead;
+
+    // Enrich with property snapshot if propertyId is set
+    let property: Record<string, any> | undefined;
+    if (lead.propertyId) {
+      try {
+        const rows: any[] = await this.leadRepo.query(`
+          SELECT
+            p.id, p.title, p.slug, p.type, p.category,
+            p.price, p.priceUnit, p.area, p.areaUnit,
+            p.city, p.state, p.locality, p.address,
+            p.bedrooms, p.bathrooms, p.status, p.approvalStatus,
+            p.isVerified, p.isPremium, p.reraNumber,
+            (SELECT i.url FROM property_images i WHERE i.propertyId = p.id AND i.isPrimary = 1 LIMIT 1) AS primaryImage
+          FROM properties p
+          WHERE p.id = ?
+          LIMIT 1
+        `, [lead.propertyId]);
+        if (rows.length) property = rows[0];
+      } catch {
+        // Non-critical — ignore if property table structure differs
+      }
+    }
+
+    return { ...lead, property } as any;
   }
 
   // ── Mutations ──────────────────────────────────────────────────────────────

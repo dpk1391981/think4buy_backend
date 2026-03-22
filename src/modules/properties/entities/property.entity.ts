@@ -319,6 +319,10 @@ export class Property {
   @Column({ nullable: true, length: 100 })
   brokerage: string; // e.g., "1 Month", "2%", "Negotiable"
 
+  // Brochure PDF URL — only applicable for builder_project category
+  @Column({ nullable: true, length: 500 })
+  brochureUrl: string;
+
   // Industrial-specific extra details stored as JSON
   @Column({ type: 'json', nullable: true })
   extraDetails: Record<string, any>; // { height, powerLoad, hasDock, hasRamp, parkingSpots }

@@ -8,6 +8,7 @@ import { TopProjectsCache } from './entities/top-projects-cache.entity';
 import { TopLocationsCache } from './entities/top-locations-cache.entity';
 import { CategoryAnalytics } from './entities/category-analytics.entity';
 import { MarketSnapshot } from './entities/market-snapshot.entity';
+import { LocalityCircleRate } from './entities/locality-circle-rate.entity';
 import { ScoringConfig } from './entities/scoring-config.entity';
 
 // ─── Resolve area value from column or extraDetails JSON fallback ─────────────
@@ -58,18 +59,22 @@ const AREA_TO_SQFT_SQL = `
   END
 `;
 
+// ─── Minimum area threshold (sqft) — filters out garages, balconies, invalid rows
+const MIN_AREA_SQFT = 50;
+
 // ─── Sale PSF expression ──────────────────────────────────────────────────────
 // priceUnit='per sqft' → direct PSF (any category).
 // priceUnit='total' → only confirmed sale categories (buy, builder_project,
 // investment). Commercial/industrial 'total' is ambiguous (often monthly rent).
+// Area must be >= 50 sqft to prevent micro-area distortions (garages, balconies).
 const BUY_PSF_SQL = `
   CASE
     WHEN p.priceUnit = 'per sqft' AND p.price > 0
       THEN p.price
     WHEN (p.priceUnit = 'total' OR p.priceUnit IS NULL OR p.priceUnit = '')
       AND p.category IN ('buy', 'builder_project', 'investment')
-      AND (${RESOLVED_AREA_SQL}) > 0 AND p.price > 0
-      AND (${AREA_TO_SQFT_SQL}) > 0
+      AND (${RESOLVED_AREA_SQL}) >= ${MIN_AREA_SQFT} AND p.price > 0
+      AND (${AREA_TO_SQFT_SQL}) >= ${MIN_AREA_SQFT}
       THEN p.price / (${AREA_TO_SQFT_SQL})
     ELSE NULL
   END
@@ -99,13 +104,57 @@ const RENT_PRICE_SQL = `
   END
 `;
 
+// ─── Rent PSF (rent per sq.ft) — for apples-to-apples comparison with sale PSF ─
+// Uses same area resolution as BUY_PSF_SQL but divides monthly rent by area.
+// Area must be >= 50 sqft to prevent tiny-unit distortions.
+const RENT_PSF_SQL = `
+  CASE
+    WHEN p.category IN ('rent', 'pg')
+      AND (p.priceUnit = 'total' OR p.priceUnit IS NULL OR p.priceUnit = '' OR p.priceUnit = 'per month')
+      AND p.price > 0
+      AND (${RESOLVED_AREA_SQL}) >= ${MIN_AREA_SQFT}
+      AND (${AREA_TO_SQFT_SQL}) >= ${MIN_AREA_SQFT}
+      THEN p.price / (${AREA_TO_SQFT_SQL})
+    ELSE NULL
+  END
+`;
+
 // ─── Outlier bounds (Indian real estate context) ──────────────────────────────
-const PSF_MIN   = 200;           // ₹200/sqft  — affordable rural/tier-3 plots
-const PSF_MAX   = 150_000;       // ₹1.5L/sqft — ultra-luxury (South Mumbai)
-const PRICE_MIN = 1_00_000;      // ₹1 lakh
-const PRICE_MAX = 50_00_00_000;  // ₹50 crore
-const RENT_MIN  = 1_000;         // ₹1k/month
-const RENT_MAX  = 50_00_000;     // ₹50 lakh/month
+const PSF_MIN      = 500;           // ₹500/sqft  — minimum credible PSF (per requirements)
+const PSF_MAX      = 1_00_000;      // ₹1L/sqft   — ultra-luxury cap (per requirements)
+const PRICE_MIN    = 1_00_000;      // ₹1 lakh
+const PRICE_MAX    = 50_00_00_000;  // ₹50 crore
+const RENT_MIN     = 1_000;         // ₹1k/month
+const RENT_MAX     = 5_00_000;      // ₹5 lakh/month (per requirements)
+const RENT_PSF_MIN = 2;             // ₹2/sqft/month  — very affordable rentals
+const RENT_PSF_MAX = 1_000;         // ₹1000/sqft/month — ultra-luxury rentals
+
+// ─── Minimum listing count for credible market signal ────────────────────────
+// Raised to 5 per production requirements — eliminates single-listing noise
+const MIN_PSF_LISTINGS      = 5;  // Need >= 5 sale listings to show PSF
+const MIN_RENT_LISTINGS     = 5;  // Need >= 5 rent listings to show rent PSF
+const MIN_TREND_LISTINGS    = 5;  // Need >= 5 in both periods for trend
+const MIN_LOCALITY_LISTINGS = 5;  // Localities with < 5 listings are low-confidence
+
+// ─── Property type segmentation maps ─────────────────────────────────────────
+// Maps segment key → array of p.type values to include in SQL IN clause.
+// This is the primary mechanism for separating apartments from villas/commercial.
+const SEGMENT_TYPE_MAP: Record<string, string[]> = {
+  apartment:   ['apartment', 'penthouse', 'studio'],
+  villa:       ['villa', 'house', 'builder_floor', 'farm_house'],
+  commercial:  ['commercial_office', 'commercial_shop', 'commercial_warehouse', 'showroom', 'industrial_shed', 'factory'],
+  plot:        ['plot', 'land'],
+  residential: ['apartment', 'villa', 'house', 'penthouse', 'studio', 'builder_floor', 'farm_house'],
+};
+
+// Segment keys with human-readable labels for UI
+export const SEGMENT_LABELS: Record<string, string> = {
+  apartment:   'Apartments',
+  villa:       'Villas & Houses',
+  commercial:  'Commercial',
+  plot:        'Plots & Land',
+  residential: 'Residential',
+};
 
 // ─── City-specific appreciation & rent growth models ─────────────────────────
 // Based on 10-year historical CAGR data from NHB / PropEquity reports.
@@ -211,6 +260,22 @@ const W = {
 
 const TRENDING_THRESHOLD = 0.20; // 20% growth triggers trending badge
 
+// ─── Indian rupee formatter (backend — for API response display strings) ──────
+function formatINR(value: number | null | undefined): string {
+  if (!value || value <= 0) return '₹0';
+  if (value >= 1_00_00_000) return `₹${(value / 1_00_00_000).toFixed(1).replace(/\.0$/, '')} Cr`;
+  if (value >= 1_00_000)    return `₹${(value / 1_00_000).toFixed(1).replace(/\.0$/, '')} L`;
+  if (value >= 1_000)       return `₹${Math.round(value / 1_000)}K`;
+  return `₹${value.toLocaleString('en-IN')}`;
+}
+
+// ─── Confidence label from listing count ─────────────────────────────────────
+function confidenceLabelFromCount(count: number): 'High' | 'Medium' | 'Low' {
+  if (count >= 20) return 'High';
+  if (count >= 5)  return 'Medium';
+  return 'Low';
+}
+
 // Property type metadata for category cards
 export const PROPERTY_TYPE_META: Record<string, { label: string; icon: string }> = {
   apartment:             { label: 'Apartments',       icon: '🏢' },
@@ -257,6 +322,9 @@ export class AnalyticsService {
 
     @InjectRepository(MarketSnapshot)
     private readonly snapshotRepo: Repository<MarketSnapshot>,
+
+    @InjectRepository(LocalityCircleRate)
+    private readonly circleRateRepo: Repository<LocalityCircleRate>,
 
     @InjectRepository(ScoringConfig)
     private readonly scoringConfigRepo: Repository<ScoringConfig>,
@@ -985,9 +1053,9 @@ export class AnalyticsService {
     city: string; state: string | null; listingCount: number;
     isFeatured: boolean; sortOrder: number; hasData: boolean; updatedAt: string | null;
   }[]> {
-    // 1. Get all snapshots (pre-calculated cities)
+    // 1. Get all-types aggregate snapshots (propertyType IS NULL) — one row per city
     const snapshots = await this.snapshotRepo.find({
-      where: { city: undefined }, // all
+      where: { propertyType: null as any },
       order: { isFeatured: 'DESC', sortOrder: 'ASC', totalListingCount: 'DESC' },
     });
 
@@ -1050,11 +1118,18 @@ export class AnalyticsService {
   // ─── Home API: Price Snapshot ─────────────────────────────────────────────────
   // Serves from the market_snapshots cache; falls back to live calculation if not cached.
 
-  async getPriceSnapshot(city?: string, state?: string) {
-    // 1. Try snapshot cache first
+  async getPriceSnapshot(city?: string, state?: string, propertyType?: string, listingType?: string) {
+    const segPropType   = propertyType && SEGMENT_TYPE_MAP[propertyType] ? propertyType : null;
+    const segListType   = (listingType === 'sale' || listingType === 'rent') ? listingType : null;
+
+    // 1. Try snapshot cache first (match exact segment)
     if (city) {
       const cached = await this.snapshotRepo.findOne({
-        where: { city } as any,
+        where: {
+          city,
+          propertyType: segPropType as any,
+          listingType:  segListType as any,
+        } as any,
       });
       // Use cache if younger than 6 hours
       if (cached && cached.updatedAt && (Date.now() - cached.updatedAt.getTime()) < 6 * 60 * 60 * 1000) {
@@ -1063,37 +1138,68 @@ export class AnalyticsService {
     }
 
     // 2. Live calculation (also saves to snapshot table)
-    return this.refreshMarketSnapshot(city, state);
+    return this.refreshMarketSnapshot(city, state, segPropType ?? undefined, segListType ?? undefined);
   }
 
   private formatSnapshot(s: MarketSnapshot) {
     const medPsf   = Math.round(Number(s.medianPsf  ?? s.avgPsf));
     const medPrice = Math.round(Number(s.medianPrice ?? s.avgPrice));
     const medRent  = Math.round(Number(s.medianRent  ?? s.avgMonthlyRent));
+
+    // rentYield/buySavingsPct stored as 0 in DB when null — restore null for UI
+    const rawRentYield    = Number(s.rentYield);
+    const rawBuySavings   = Number(s.buySavingsPct);
+    const rentYield       = rawRentYield    > 0 ? Math.round(rawRentYield    * 10) / 10 : null;
+    const buySavingsPct   = rawBuySavings   > 0 ? Math.round(rawBuySavings   * 10) / 10 : null;
+
+    const psfCount        = s.listingCount ?? 0;
+    const confidenceLabel = confidenceLabelFromCount(psfCount);
+
     return {
       city:               s.city,
       state:              s.state,
-      // Primary metrics — now median-based
+      propertyType:       s.propertyType ?? null,
+      listingType:        s.listingType  ?? null,
+      segmentLabel:       s.propertyType ? (SEGMENT_LABELS[s.propertyType] ?? s.propertyType) : 'All Types',
+      // Sale metrics
       avgPricePerSqft:    medPsf,
       medianPricePerSqft: medPsf,
       avgPrice:           medPrice,
       medianPrice:        medPrice,
       minPrice:           Math.round(Number(s.minPrice)),
       maxPrice:           Math.round(Number(s.maxPrice)),
-      listingCount:       s.listingCount,
+      // Indian rupee formatted
+      avgPricePerSqftFormatted: medPsf   > 0 ? `₹${medPsf.toLocaleString('en-IN')}/sqft` : 'No Data',
+      avgPriceFormatted:        medPrice > 0 ? formatINR(medPrice) : 'No Data',
+      minPriceFormatted:        Number(s.minPrice) > 0 ? formatINR(Number(s.minPrice)) : 'No Data',
+      maxPriceFormatted:        Number(s.maxPrice) > 0 ? formatINR(Number(s.maxPrice)) : 'No Data',
+      // Data validity
+      insufficientData:   psfCount < MIN_PSF_LISTINGS,
+      lowConfidence:      psfCount < MIN_PSF_LISTINGS,
+      psfListingCount:    psfCount,
+      listingCount:       psfCount,
       totalListingCount:  s.totalListingCount,
-      trend:              s.trend as 'up' | 'down' | 'stable',
+      trend:              s.trend,
       trendPct:           Math.round(Number(s.trendPct) * 10) / 10,
+      // Rent metrics (null = no real data)
       avgMonthlyRent:     medRent,
       medianRent:         medRent,
-      rentYield:          Math.round(Number(s.rentYield) * 10) / 10,
-      buySavingsPct:      Math.round(Number(s.buySavingsPct) * 10) / 10,
+      avgMonthlyRentFormatted: medRent > 0 ? formatINR(medRent) : 'No Data',
+      avgRentPsf:         Math.round(Number(s.avgRentPsf ?? 0)),
+      rentYield,          // null when stored value is 0 (= no data)
+      buySavingsPct,      // null when stored value is 0 (= no data)
+      // Localities + trend data
       localities:         s.topLocalities || [],
+      priceTrend:         s.priceTrend || [],
       byType:             s.byType || {},
+      // Data quality
       confidenceScore:    s.confidenceScore ?? 0,
       dataQuality:        s.dataQuality ?? 'low',
+      confidenceLabel,
       priceType:          s.priceType ?? 'Indicative Listing Price',
       dataWindow:         '90d',
+      // Smart insights
+      smartInsights:      s.smartInsights || [],
       lastUpdated:        s.updatedAt?.toISOString() || new Date().toISOString(),
     };
   }
@@ -1110,7 +1216,12 @@ export class AnalyticsService {
   //  7. City-specific economic models — not generic 7%/5%
   //  8. Confidence scoring — count + variance + recency
   //  9. P10/P90 price range — outlier-safe min/max
-  async refreshMarketSnapshot(city?: string, state?: string) {
+  async refreshMarketSnapshot(
+    city?:         string,
+    state?:        string,
+    propertyType?: string,   // e.g. 'apartment' | 'villa' | 'commercial' | 'plot'
+    listingType?:  string,   // 'sale' | 'rent'
+  ) {
     const since90d = new Date(Date.now() -  90 * 24 * 60 * 60 * 1000);
     const prev90d  = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
     const since30d = new Date(Date.now() -  30 * 24 * 60 * 60 * 1000);
@@ -1122,6 +1233,22 @@ export class AnalyticsService {
     else if (state) { locParts.push('LOWER(p.state) = LOWER(?)'); locParams.push(state); }
     const locWhere = locParts.length ? locParts.join(' AND ') : '1=1';
 
+    // ── Property type / listing type segmentation filter ─────────────────────
+    // Ensures apartments, villas, and commercial are NEVER mixed in PSF calculations.
+    const typeParts: string[] = [];
+    const typeParams: any[]   = [];
+    if (propertyType && SEGMENT_TYPE_MAP[propertyType]) {
+      const types = SEGMENT_TYPE_MAP[propertyType];
+      typeParts.push(`p.type IN (${types.map(() => '?').join(',')})`);
+      typeParams.push(...types);
+    }
+    if (listingType === 'sale') {
+      typeParts.push(`p.category IN ('buy', 'builder_project', 'investment')`);
+    } else if (listingType === 'rent') {
+      typeParts.push(`p.category IN ('rent', 'pg')`);
+    }
+    const typeWhere = typeParts.length ? typeParts.join(' AND ') : '1=1';
+
     // ── City-specific economic model ─────────────────────────────────────────
     const cityKey = (city || state || '').toLowerCase().trim();
     const { appreciation, rentGrowth } = CITY_MODELS[cityKey] || DEFAULT_CITY_MODEL;
@@ -1132,6 +1259,7 @@ export class AnalyticsService {
     // ── 1. Weighted sale + rent stats (outlier-filtered, freshness-weighted) ─
     // Inner subquery: compute psf, price, rent, freshness weight per row.
     // Outer query: aggregate with outlier bounds using CASE guards.
+    // rent_psf is included here so rentPsfCount drives rent yield gating.
     const [saleStats]: any[] = await this.dataSource.query(`
       SELECT
         /* ── Sale PSF (outlier-filtered, freshness-weighted) ── */
@@ -1157,20 +1285,27 @@ export class AnalyticsService {
         COUNT(CASE WHEN rent BETWEEN ${RENT_MIN} AND ${RENT_MAX} THEN 1 END)
                                                        AS rentCount,
 
+        /* ── Rent PSF count (gating rent metrics) ── */
+        COUNT(CASE WHEN rent_psf BETWEEN ${RENT_PSF_MIN} AND ${RENT_PSF_MAX} THEN 1 END)
+                                                       AS rentPsfCount,
+
         /* ── Totals ── */
         COUNT(*)                                       AS totalCount,
-        SUM(isRecent)                                  AS recentCount
+        SUM(isRecent)                                  AS recentCount,
+        /* ── Skipped (NULL psf) count for debug logging ── */
+        COUNT(CASE WHEN psf IS NULL THEN 1 END)        AS skippedCount
       FROM (
         SELECT
           ${BUY_PSF_SQL}                                              AS psf,
+          ${RENT_PSF_SQL}                                             AS rent_psf,
           ${SALE_PRICE_SQL}                                           AS price,
           ${RENT_PRICE_SQL}                                           AS rent,
           1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)                   AS w,
           CASE WHEN p.createdAt >= ? THEN 1 ELSE 0 END               AS isRecent
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
+        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
       ) enriched
-    `, [since30d, ...locParams, since90d]);
+    `, [since30d, ...typeParams, ...locParams, since90d]);
 
     // ── 2. Median PSF — P50 via ROW_NUMBER window function (MySQL 8+) ────────
     const [medPsfRow]: any[] = await this.dataSource.query(`
@@ -1183,12 +1318,12 @@ export class AnalyticsService {
         FROM (
           SELECT ${BUY_PSF_SQL} AS psf
           FROM properties p
-          WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
+          WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
         ) raw
         WHERE psf IS NOT NULL AND psf BETWEEN ${PSF_MIN} AND ${PSF_MAX}
       ) windowed
       WHERE rn IN (FLOOR((total + 1.0) / 2), CEIL((total + 1.0) / 2))
-    `, [...locParams, since90d]);
+    `, [...typeParams, ...locParams, since90d]);
 
     // ── 3. Median Sale Price ──────────────────────────────────────────────────
     const [medPriceRow]: any[] = await this.dataSource.query(`
@@ -1201,12 +1336,12 @@ export class AnalyticsService {
         FROM (
           SELECT ${SALE_PRICE_SQL} AS price
           FROM properties p
-          WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
+          WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
         ) raw
         WHERE price IS NOT NULL AND price BETWEEN ${PRICE_MIN} AND ${PRICE_MAX}
       ) windowed
       WHERE rn IN (FLOOR((total + 1.0) / 2), CEIL((total + 1.0) / 2))
-    `, [...locParams, since90d]);
+    `, [...typeParams, ...locParams, since90d]);
 
     // ── 4. Median Monthly Rent ────────────────────────────────────────────────
     const [medRentRow]: any[] = await this.dataSource.query(`
@@ -1219,12 +1354,12 @@ export class AnalyticsService {
         FROM (
           SELECT ${RENT_PRICE_SQL} AS rent
           FROM properties p
-          WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
+          WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
         ) raw
         WHERE rent IS NOT NULL AND rent BETWEEN ${RENT_MIN} AND ${RENT_MAX}
       ) windowed
       WHERE rn IN (FLOOR((total + 1.0) / 2), CEIL((total + 1.0) / 2))
-    `, [...locParams, since90d]);
+    `, [...typeParams, ...locParams, since90d]);
 
     // ── 5. P10/P90 price range (outlier-safe bounds) ──────────────────────────
     const [priceRange]: any[] = await this.dataSource.query(`
@@ -1239,27 +1374,30 @@ export class AnalyticsService {
         FROM (
           SELECT ${SALE_PRICE_SQL} AS price
           FROM properties p
-          WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
+          WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
         ) raw
         WHERE price IS NOT NULL AND price BETWEEN ${PRICE_MIN} AND ${PRICE_MAX}
       ) ranked
-    `, [...locParams, since90d]);
+    `, [...typeParams, ...locParams, since90d]);
 
-    // ── 6. Previous-period weighted PSF (for trend) ───────────────────────────
+    // ── 6. Previous-period weighted PSF + count (for trend validation) ──────────
+    // prevPsfCount gates trend calculation — need >= 3 in BOTH windows
     const [prevStats]: any[] = await this.dataSource.query(`
       SELECT
         SUM(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN psf * w ELSE 0 END) /
           NULLIF(SUM(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN w ELSE 0 END), 0)
-                                                       AS weightedPsf
+                                                       AS weightedPsf,
+        COUNT(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN 1 END)
+                                                       AS prevPsfCount
       FROM (
         SELECT
           ${BUY_PSF_SQL}                              AS psf,
           1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)   AS w
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${locWhere}
+        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere}
           AND p.createdAt BETWEEN ? AND ?
       ) prev_enriched
-    `, [...locParams, prev90d, since90d]);
+    `, [...typeParams, ...locParams, prev90d, since90d]);
 
     // ── 7. Property-type breakdown ────────────────────────────────────────────
     const typeRows: any[] = await this.dataSource.query(`
@@ -1279,21 +1417,25 @@ export class AnalyticsService {
           ${SALE_PRICE_SQL}                                         AS price,
           1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)                 AS w
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${locWhere} AND p.createdAt >= ?
+        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
       ) t
       GROUP BY ptype
-      HAVING cnt >= 1
-    `, [...locParams, since90d]);
+      HAVING cnt >= ${MIN_PSF_LISTINGS}
+    `, [...typeParams, ...locParams, since90d]);
 
-    // ── 8. Locality stats — current 90d ──────────────────────────────────────
+    // ── 8. Locality stats — current 90d (now includes rent PSF) ─────────────
     const localityCurrent: any[] = await this.dataSource.query(`
       SELECT
         locality,
         COUNT(*)                                                                AS listingCount,
         COUNT(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN 1 END)      AS psfCount,
+        COUNT(CASE WHEN rent_psf BETWEEN ${RENT_PSF_MIN} AND ${RENT_PSF_MAX} THEN 1 END) AS rentPsfCount,
         SUM(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN psf * w ELSE 0 END) /
           NULLIF(SUM(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN w ELSE 0 END), 0)
                                                                                 AS medianPsf,
+        SUM(CASE WHEN rent_psf BETWEEN ${RENT_PSF_MIN} AND ${RENT_PSF_MAX} THEN rent_psf * w ELSE 0 END) /
+          NULLIF(SUM(CASE WHEN rent_psf BETWEEN ${RENT_PSF_MIN} AND ${RENT_PSF_MAX} THEN w ELSE 0 END), 0)
+                                                                                AS avgRentPsf,
         SUM(CASE WHEN price BETWEEN ${PRICE_MIN} AND ${PRICE_MAX} THEN price * w ELSE 0 END) /
           NULLIF(SUM(CASE WHEN price BETWEEN ${PRICE_MIN} AND ${PRICE_MAX} THEN w ELSE 0 END), 0)
                                                                                 AS avgBuyPrice,
@@ -1304,69 +1446,163 @@ export class AnalyticsService {
         SELECT
           p.locality,
           ${BUY_PSF_SQL}                                                        AS psf,
+          ${RENT_PSF_SQL}                                                        AS rent_psf,
           ${SALE_PRICE_SQL}                                                      AS price,
           ${RENT_PRICE_SQL}                                                      AS rent,
           1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)                              AS w
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${locWhere}
+        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere}
           AND p.locality IS NOT NULL AND p.locality != ''
           AND p.createdAt >= ?
       ) loc_enriched
       GROUP BY locality
-      HAVING listingCount >= 1
-    `, [...locParams, since90d]);
+      HAVING listingCount >= ${MIN_LOCALITY_LISTINGS}
+    `, [...typeParams, ...locParams, since90d]);
 
-    // ── 9. Locality stats — previous 90d (for PSF trend) ─────────────────────
+    // ── 9. Locality stats — previous 90d (sale PSF + rent PSF for trends) ───
+    // prevPsfCount per locality allows gating: trend only shown if prev >= 3
     const localityPrev: any[] = await this.dataSource.query(`
       SELECT
         locality,
+        COUNT(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN 1 END)
+                                                        AS prevPsfCount,
         SUM(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN psf * w ELSE 0 END) /
           NULLIF(SUM(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN w ELSE 0 END), 0)
-                                                        AS medianPsf
+                                                        AS medianPsf,
+        SUM(CASE WHEN rent_psf BETWEEN ${RENT_PSF_MIN} AND ${RENT_PSF_MAX} THEN rent_psf * w ELSE 0 END) /
+          NULLIF(SUM(CASE WHEN rent_psf BETWEEN ${RENT_PSF_MIN} AND ${RENT_PSF_MAX} THEN w ELSE 0 END), 0)
+                                                        AS prevRentPsf
       FROM (
         SELECT
           p.locality,
           ${BUY_PSF_SQL}                               AS psf,
+          ${RENT_PSF_SQL}                              AS rent_psf,
           1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)    AS w
         FROM properties p
-        WHERE ${BASE_WHERE} AND ${locWhere}
+        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere}
           AND p.locality IS NOT NULL AND p.locality != ''
           AND p.createdAt BETWEEN ? AND ?
       ) prev_loc
       GROUP BY locality
-    `, [...locParams, prev90d, since90d]);
+    `, [...typeParams, ...locParams, prev90d, since90d]);
+
+    // ── 10. 6-month monthly price trend ──────────────────────────────────────
+    const monthlyTrend: any[] = await this.dataSource.query(`
+      SELECT
+        DATE_FORMAT(createdAt, '%b %y')            AS month,
+        YEAR(createdAt) * 100 + MONTH(createdAt) AS sortKey,
+        COUNT(*)                                      AS totalCount,
+        COUNT(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN 1 END)          AS saleCount,
+        AVG(CASE WHEN psf BETWEEN ${PSF_MIN} AND ${PSF_MAX} THEN psf END)           AS avgSalePsf,
+        COUNT(CASE WHEN rent_psf BETWEEN ${RENT_PSF_MIN} AND ${RENT_PSF_MAX} THEN 1 END) AS rentCount,
+        AVG(CASE WHEN rent_psf BETWEEN ${RENT_PSF_MIN} AND ${RENT_PSF_MAX} THEN rent_psf END) AS avgRentPsf
+      FROM (
+        SELECT
+          p.createdAt,
+          ${BUY_PSF_SQL}   AS psf,
+          ${RENT_PSF_SQL}  AS rent_psf
+        FROM properties p
+        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere}
+          AND p.createdAt >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+      ) monthly_enriched
+      GROUP BY month, sortKey
+      ORDER BY sortKey ASC
+    `, [...typeParams, ...locParams]);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // COMPUTE METRICS
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // ── Median PSF (use weighted avg as fallback if insufficient data) ────────
-    const medianPsf   = parseFloat(medPsfRow?.medianPsf)   || parseFloat(saleStats?.weightedPsf) || 0;
-    const medianPrice = parseFloat(medPriceRow?.medianPrice) || parseFloat(saleStats?.weightedPrice) || 0;
-    const medianRent  = parseFloat(medRentRow?.medianRent)  || parseFloat(saleStats?.weightedRent) || 0;
+    // ═══════════════════════════════════════════════════════════════════════════
+    // EXTRACT RAW COUNTS — gates all downstream calculations
+    // ═══════════════════════════════════════════════════════════════════════════
+    const psfCount      = parseInt(saleStats?.psfCount)     || 0;
+    const rentPsfCount  = parseInt(saleStats?.rentPsfCount) || 0;
+    const priceCount    = parseInt(saleStats?.priceCount)   || 0;
+    const totalCount    = parseInt(saleStats?.totalCount)   || 0;
+    const recentCount   = parseInt(saleStats?.recentCount)  || 0;
+    const skippedCount  = parseInt(saleStats?.skippedCount) || 0;
+    const prevPsfCount  = parseInt(prevStats?.prevPsfCount) || 0;
+    const psfStddev     = parseFloat(saleStats?.psfStddev)  || 0;
 
-    // ── P10/P90 price range ───────────────────────────────────────────────────
-    const p10Price = parseFloat(priceRange?.p10) || parseFloat(saleStats?.weightedPrice) * 0.7 || 0;
-    const p90Price = parseFloat(priceRange?.p90) || parseFloat(saleStats?.weightedPrice) * 1.5 || 0;
+    // ── Debug log: data quality inputs ───────────────────────────────────────
+    this.logger.log(
+      `[MarketSnapshot:${city || state || 'ALL'}] ` +
+      `psfCount=${psfCount} rentPsfCount=${rentPsfCount} prevPsfCount=${prevPsfCount} ` +
+      `totalCount=${totalCount} recentCount=${recentCount} skippedCount=${skippedCount}`,
+    );
 
-    // ── Trend (current vs previous period weighted PSF) ───────────────────────
-    const currentPsf = medianPsf;
-    const prevPsf    = parseFloat(prevStats?.weightedPsf) || 0;
-    let trendPct = 0;
-    let trend: 'up' | 'down' | 'stable' = 'stable';
-    if (prevPsf > 0 && currentPsf > 0) {
-      trendPct = Math.round(((currentPsf - prevPsf) / prevPsf) * 1000) / 10;
-      if (trendPct >  1.5) trend = 'up';
-      if (trendPct < -1.5) trend = 'down';
+    // ── Median PSF — ONLY if >= MIN_PSF_LISTINGS valid listings ──────────────
+    // Fallback chain: Median P50 → weighted avg → 0 (no fake data)
+    const rawMedianPsf    = parseFloat(medPsfRow?.medianPsf)      || 0;
+    const rawWeightedPsf  = parseFloat(saleStats?.weightedPsf)    || 0;
+    const medianPsf = psfCount >= MIN_PSF_LISTINGS
+      ? (rawMedianPsf || rawWeightedPsf)
+      : 0;  // ← insufficient data: do NOT show PSF
+
+    if (psfCount < MIN_PSF_LISTINGS) {
+      this.logger.warn(
+        `[MarketSnapshot:${city || state || 'ALL'}] ` +
+        `Insufficient PSF data (${psfCount}/${MIN_PSF_LISTINGS} required) — PSF suppressed`,
+      );
     }
 
-    // ── Rent yield (gross, annualised) using median values ────────────────────
-    const rentYield = medianRent > 0 && medianPrice > 0
+    // ── Median price ─────────────────────────────────────────────────────────
+    const rawMedianPrice   = parseFloat(medPriceRow?.medianPrice)   || 0;
+    const rawWeightedPrice = parseFloat(saleStats?.weightedPrice)   || 0;
+    const medianPrice = priceCount >= MIN_PSF_LISTINGS
+      ? (rawMedianPrice || rawWeightedPrice)
+      : 0;
+
+    // ── Median rent — ONLY if >= MIN_RENT_LISTINGS valid rent listings ────────
+    const rawMedianRent   = parseFloat(medRentRow?.medianRent)   || 0;
+    const rawWeightedRent = parseFloat(saleStats?.weightedRent)  || 0;
+    const medianRent = rentPsfCount >= MIN_RENT_LISTINGS
+      ? (rawMedianRent || rawWeightedRent)
+      : 0;  // ← insufficient data: do NOT show rent
+
+    if (rentPsfCount < MIN_RENT_LISTINGS) {
+      this.logger.warn(
+        `[MarketSnapshot:${city || state || 'ALL'}] ` +
+        `Insufficient rent data (${rentPsfCount}/${MIN_RENT_LISTINGS} required) — rent metrics suppressed`,
+      );
+    }
+
+    this.logger.log(
+      `[MarketSnapshot:${city || state || 'ALL'}] ` +
+      `medianPsf=${medianPsf} medianPrice=${medianPrice} medianRent=${medianRent}`,
+    );
+
+    // ── P10/P90 price range ───────────────────────────────────────────────────
+    const p10Price = parseFloat(priceRange?.p10) || (medianPrice > 0 ? medianPrice * 0.7 : 0);
+    const p90Price = parseFloat(priceRange?.p90) || (medianPrice > 0 ? medianPrice * 1.5 : 0);
+
+    // ── Trend — ONLY if BOTH periods have >= MIN_TREND_LISTINGS ──────────────
+    // 'insufficient_data' replaces fake 'stable' when data is too thin
+    const prevPsf = parseFloat(prevStats?.weightedPsf) || 0;
+    let trendPct = 0;
+    let trend: 'up' | 'down' | 'stable' | 'insufficient_data' = 'insufficient_data';
+
+    if (psfCount >= MIN_TREND_LISTINGS && prevPsfCount >= MIN_TREND_LISTINGS
+        && prevPsf > 0 && medianPsf > 0) {
+      trendPct = Math.round(((medianPsf - prevPsf) / prevPsf) * 1000) / 10;
+      trend = trendPct > 1.5 ? 'up' : trendPct < -1.5 ? 'down' : 'stable';
+    } else {
+      this.logger.warn(
+        `[MarketSnapshot:${city || state || 'ALL'}] ` +
+        `Insufficient trend data (cur=${psfCount}, prev=${prevPsfCount}) — trend='insufficient_data'`,
+      );
+    }
+
+    // ── Rent yield — ONLY when BOTH real medianRent AND medianPrice exist ─────
+    // Removed: default 3.2 fallback — that was misleading fake data
+    const rentYield: number | null = medianRent > 0 && medianPrice > 0
       ? Math.min(15, Math.max(1, Math.round((medianRent * 12 / medianPrice) * 1000) / 10))
-      : 3.2;
+      : null;
 
     // ── Buy-vs-rent 10-year estimate with city-specific model ─────────────────
-    let buySavingsPct = 20;
+    // null when insufficient data (not a fake 20% default)
+    let buySavingsPct: number | null = null;
     if (medianRent > 0 && medianPrice > 0) {
       const totalRent10yr   = medianRent * 12 * ((Math.pow(1 + rentGrowth, 10) - 1) / rentGrowth);
       const propertyVal10yr = medianPrice * Math.pow(1 + appreciation, 10);
@@ -1376,122 +1612,282 @@ export class AnalyticsService {
       buySavingsPct         = Math.max(5, Math.min(45, Math.round(savings * 10) / 10));
     }
 
-    // ── Confidence score ──────────────────────────────────────────────────────
-    const psfCount    = parseInt(saleStats?.psfCount)   || 0;
-    const totalCount  = parseInt(saleStats?.totalCount) || 0;
-    const recentCount = parseInt(saleStats?.recentCount) || 0;
-    const psfStddev   = parseFloat(saleStats?.psfStddev) || 0;
+    this.logger.log(
+      `[MarketSnapshot:${city || state || 'ALL'}] ` +
+      `trend=${trend} trendPct=${trendPct} rentYield=${rentYield} buySavingsPct=${buySavingsPct}`,
+    );
+
+    // ── Confidence score (enhanced: count + variance + recency) ──────────────
     // Count score: 0–40 pts (max at 50 listings)
     const countScore    = Math.min(40, (psfCount / 50) * 40);
-    // Variance score: 0–40 pts (CV < 0.3 = max; CV > 1.5 = 0)
+    // Variance score: 0–40 pts (CV = stddev/mean; CV < 0.3 = max; CV > 1.5 = 0)
     const cv            = medianPsf > 0 ? psfStddev / medianPsf : 1.5;
     const varianceScore = Math.max(0, Math.min(40, ((1.5 - cv) / 1.5) * 40));
-    // Recency score: 0–20 pts (all recent = max)
+    // Recency score: 0–20 pts (proportion of listings in last 30d)
     const recencyScore  = totalCount > 0 ? Math.min(20, (recentCount / totalCount) * 20) : 0;
     const confidenceScore = Math.round(countScore + varianceScore + recencyScore);
     const dataQuality = confidenceScore >= 70 ? 'high' : confidenceScore >= 40 ? 'medium' : 'low';
+    const confidenceLabel = confidenceLabelFromCount(psfCount);
 
     // ── Property-type breakdown ───────────────────────────────────────────────
-    const byType: Record<string, { medianPsf: number; medianPrice: number; count: number }> = {};
+    const byType: Record<string, {
+      medianPsf: number; medianPsfFormatted: string;
+      medianPrice: number; medianPriceFormatted: string;
+      avgRentPsf: number; count: number;
+    }> = {};
     for (const row of typeRows) {
       if (row.propType) {
+        const cnt      = parseInt(row.cnt);
+        // Only show PSF when we have enough listings (HAVING already filters cnt>=3)
+        const typePsf  = Math.round(parseFloat(row.medianPsf)   || 0);
+        const typePrice= Math.round(parseFloat(row.medianPrice) || 0);
+        this.logger.debug(
+          `[ByType:${row.propType}] count=${cnt} medianPsf=${typePsf} medianPrice=${typePrice}`,
+        );
         byType[row.propType] = {
-          medianPsf:   Math.round(parseFloat(row.medianPsf)   || 0),
-          medianPrice: Math.round(parseFloat(row.medianPrice) || 0),
-          count:       parseInt(row.cnt),
+          medianPsf:            typePsf,
+          medianPsfFormatted:   typePsf   > 0 ? `₹${typePsf.toLocaleString('en-IN')}/sqft` : 'No Data',
+          medianPrice:          typePrice,
+          medianPriceFormatted: typePrice > 0 ? formatINR(typePrice) : 'No Data',
+          avgRentPsf:           0,
+          count:                cnt,
         };
       }
     }
 
-    // ── Locality smart ranking ────────────────────────────────────────────────
-    const prevLocMap = new Map<string, number>(
-      localityPrev.map((r: any) => [r.locality as string, parseFloat(r.medianPsf) || 0]),
+    // ── Load circle rates for this city ──────────────────────────────────────
+    const circleRateRows = city
+      ? await this.circleRateRepo.find({ where: { city } as any })
+      : [];
+    const circleRateMap = new Map<string, number>(
+      circleRateRows.map((r) => [r.locality.toLowerCase(), parseFloat(r.circleRate as any) || 0]),
+    );
+
+    // ── Locality smart ranking (now includes rent PSF + circle rate) ──────────
+    const prevLocMap = new Map<string, { psf: number; rentPsf: number; psfCount: number }>(
+      localityPrev.map((r: any) => [
+        r.locality as string,
+        {
+          psf:      parseFloat(r.medianPsf)    || 0,
+          rentPsf:  parseFloat(r.prevRentPsf)  || 0,
+          psfCount: parseInt(r.prevPsfCount)   || 0,
+        },
+      ]),
     );
 
     const localities = localityCurrent
       .map((r: any) => {
-        const currPsf   = parseFloat(r.medianPsf)  || 0;
-        const prevP     = prevLocMap.get(r.locality as string) || 0;
-        const locRent   = parseFloat(r.avgRent)     || 0;
-        const locPrice  = parseFloat(r.avgBuyPrice) || 0;
-        const count     = parseInt(r.listingCount);
+        const count      = parseInt(r.listingCount)   || 0;
+        const psfCnt     = parseInt(r.psfCount)       || 0;
+        const rentCnt    = parseInt(r.rentPsfCount)   || 0;
+        const locRent    = parseFloat(r.avgRent)      || 0;
+        const locPrice   = parseFloat(r.avgBuyPrice)  || 0;
 
-        // Trend
-        let localTrend: 'up' | 'down' | 'stable' = 'stable';
+        // ── Low-confidence flag: < MIN_LOCALITY_LISTINGS total OR < 3 valid PSF
+        const lowConfidence = count < MIN_LOCALITY_LISTINGS || psfCnt < MIN_PSF_LISTINGS;
+
+        // ── PSF only when sufficient listings — else 0 (not shown in UI)
+        const currPsf     = psfCnt  >= MIN_PSF_LISTINGS  ? (parseFloat(r.medianPsf)  || 0) : 0;
+        const currRentPsf = rentCnt >= MIN_RENT_LISTINGS ? (parseFloat(r.avgRentPsf) || 0) : 0;
+
+        const prevData = prevLocMap.get(r.locality as string)
+          || { psf: 0, rentPsf: 0, psfCount: 0 };
+
+        // ── Sale PSF trend — only when BOTH periods have enough data
+        let localTrend: 'up' | 'down' | 'stable' | 'insufficient_data' = 'insufficient_data';
         let psfGrowthPct = 0;
-        if (prevP > 0 && currPsf > 0) {
-          psfGrowthPct = ((currPsf - prevP) / prevP) * 100;
-          if (psfGrowthPct >  1.5) localTrend = 'up';
-          if (psfGrowthPct < -1.5) localTrend = 'down';
+        if (!lowConfidence && prevData.psfCount >= MIN_TREND_LISTINGS
+            && prevData.psf > 0 && currPsf > 0) {
+          psfGrowthPct = ((currPsf - prevData.psf) / prevData.psf) * 100;
+          localTrend = psfGrowthPct > 1.5 ? 'up' : psfGrowthPct < -1.5 ? 'down' : 'stable';
         }
 
-        // Local rent yield
-        const localRentYield = locRent > 0 && locPrice > 0
-          ? Math.min(20, (locRent * 12 / locPrice) * 100)
-          : 0;
+        // ── Rent PSF trend
+        let rentTrend: 'up' | 'down' | 'stable' | 'insufficient_data' = 'insufficient_data';
+        if (prevData.rentPsf > 0 && currRentPsf > 0) {
+          const rentGrowthPct = ((currRentPsf - prevData.rentPsf) / prevData.rentPsf) * 100;
+          rentTrend = rentGrowthPct > 1.5 ? 'up' : rentGrowthPct < -1.5 ? 'down' : 'stable';
+        }
 
-        // Smart rank score = PSF growth (40%) + rent yield (30%) + volume (30%)
-        const psfGrowthNorm  = Math.max(0, Math.min(1, psfGrowthPct / 20));
-        const rentYieldNorm  = Math.max(0, Math.min(1, localRentYield / 15));
-        const volumeNorm     = Math.min(1, Math.log(count + 1) / Math.log(20));
-        const rankScore      = psfGrowthNorm * 0.4 + rentYieldNorm * 0.3 + volumeNorm * 0.3;
+        // ── Circle rate + premium — null when circleRate = 0 OR insufficient PSF data
+        const circleRate   = circleRateMap.get((r.locality as string).toLowerCase()) || 0;
+        const pricePremium = circleRate > 0 && psfCnt >= MIN_PSF_LISTINGS && currPsf > 0
+          ? Math.round(((currPsf - circleRate) / circleRate) * 100 * 10) / 10
+          : null;  // ← was 0 — null means "no data" not "0% premium"
+
+        // ── Rent yield — null when real data not available
+        const localRentYield: number | null = locRent > 0 && locPrice > 0
+          ? Math.min(20, (locRent * 12 / locPrice) * 100)
+          : currRentPsf > 0 && currPsf > 0
+            ? Math.min(20, (currRentPsf * 12 / currPsf) * 100)
+            : null;  // ← was 0 — null means "no data"
+
+        // ── Smart rank score: PSF growth 40% + rent yield 30% + volume 30%
+        // Low-confidence localities get zero rank score (excluded from top 10)
+        const psfGrowthNorm = Math.max(0, Math.min(1, psfGrowthPct / 20));
+        const rentYieldNorm = Math.max(0, Math.min(1, (localRentYield ?? 0) / 15));
+        const volumeNorm    = Math.min(1, Math.log(count + 1) / Math.log(20));
+        const rankScore     = lowConfidence ? 0
+          : psfGrowthNorm * 0.4 + rentYieldNorm * 0.3 + volumeNorm * 0.3;
+
+        // ── Confidence label for UI
+        const locConfidenceLabel = confidenceLabelFromCount(count);
+
+        // ── Formatted values for direct UI display
+        const medianPsfFormatted  = currPsf > 0
+          ? `₹${Math.round(currPsf).toLocaleString('en-IN')}/sqft` : 'No Data';
+        const avgBuyPriceFormatted = locPrice > 0 ? formatINR(locPrice) : 'No Data';
+        const avgRentFormatted     = locRent  > 0 ? formatINR(locRent)  : 'No Data';
+
+        this.logger.debug(
+          `[Locality:${r.locality}] count=${count} psfCount=${psfCnt} rentCount=${rentCnt} ` +
+          `medianPsf=${currPsf} rentPsf=${currRentPsf} trend=${localTrend} ` +
+          `lowConfidence=${lowConfidence} rankScore=${rankScore.toFixed(3)}`,
+        );
 
         return {
-          name:         r.locality as string,
-          medianPsf:    Math.round(currPsf),
-          avgBuyPrice:  Math.round(locPrice),
-          avgRent:      Math.round(locRent),
-          listingCount: count,
-          trend:        localTrend,
-          rentYield:    Math.round(localRentYield * 10) / 10,
-          rankScore:    Math.round(rankScore * 1000) / 1000,
+          name:                  r.locality as string,
+          medianPsf:             Math.round(currPsf),
+          medianPsfFormatted,
+          rentPsf:               Math.round(currRentPsf),
+          avgBuyPrice:           Math.round(locPrice),
+          avgBuyPriceFormatted,
+          avgRent:               Math.round(locRent),
+          avgRentFormatted,
+          listingCount:          count,
+          psfCount:              psfCnt,
+          rentListingCount:      rentCnt,
+          trend:                 localTrend,
+          rentTrend,
+          rentYield:             localRentYield !== null ? Math.round(localRentYield * 10) / 10 : null,
+          circleRate:            Math.round(circleRate),
+          pricePremium,                  // null = no circle rate or insufficient data
+          rankScore:             Math.round(rankScore * 1000) / 1000,
+          lowConfidence,                 // true = < 3 listings, don't show in rankings
+          confidenceLabel:       locConfidenceLabel,
         };
       })
-      .filter((r: any) => r.medianPsf > 0 || r.avgRent > 0)
+      // ── Filter for top rankings: exclude low-confidence localities
+      // (they appear in the raw list but are sorted to the bottom)
+      .filter((r: any) => !r.lowConfidence && (r.medianPsf > 0 || r.avgRent > 0 || r.rentPsf > 0))
       // Sort by smart rank score (descending)
       .sort((a, b) => b.rankScore - a.rankScore)
       .slice(0, 10);
+
+    // ── 6-month price trend ───────────────────────────────────────────────────
+    const priceTrend = monthlyTrend.map((r: any) => ({
+      month:        r.month as string,
+      avgSalePsf:   Math.round(parseFloat(r.avgSalePsf) || 0),
+      avgRentPsf:   Math.round(parseFloat(r.avgRentPsf) || 0),
+      listingCount: parseInt(r.saleCount) || 0,
+      rentCount:    parseInt(r.rentCount) || 0,
+    }));
+
+    // ── City-level rent PSF (weighted avg across all localities) ─────────────
+    const [rentPsfRow]: any[] = await this.dataSource.query(`
+      SELECT
+        SUM(CASE WHEN rent_psf BETWEEN ${RENT_PSF_MIN} AND ${RENT_PSF_MAX} THEN rent_psf * w ELSE 0 END) /
+          NULLIF(SUM(CASE WHEN rent_psf BETWEEN ${RENT_PSF_MIN} AND ${RENT_PSF_MAX} THEN w ELSE 0 END), 0)
+          AS avgRentPsf
+      FROM (
+        SELECT
+          ${RENT_PSF_SQL}                             AS rent_psf,
+          1.0 / (DATEDIFF(NOW(), p.createdAt) + 1)   AS w
+        FROM properties p
+        WHERE ${BASE_WHERE} AND ${typeWhere} AND ${locWhere} AND p.createdAt >= ?
+      ) r
+    `, [...typeParams, ...locParams, since90d]);
+    // Only show city rent PSF when we have enough rent listings
+    const rawCityRentPsf = parseFloat(rentPsfRow?.avgRentPsf) || 0;
+    const cityAvgRentPsf = rentPsfCount >= MIN_RENT_LISTINGS ? Math.round(rawCityRentPsf) : 0;
+
+    // ── Smart AI Insights ─────────────────────────────────────────────────────
+    const smartInsights = this.generateSmartInsights({
+      city: city || state || 'this city',
+      medianPsf,
+      medianRent,
+      cityAvgRentPsf,
+      trend,
+      trendPct,
+      rentYield,
+      buySavingsPct,
+      localities,
+      confidenceScore,
+      dataQuality,
+    });
 
     // ── Build result ──────────────────────────────────────────────────────────
     const result = {
       city:               city  || null,
       state:              state || null,
-      // Backward-compat fields (now median-based)
+      propertyType:       propertyType ?? null,
+      listingType:        listingType  ?? null,
+      segmentLabel:       propertyType ? (SEGMENT_LABELS[propertyType] ?? propertyType) : 'All Types',
+
+      // ── Sale metrics (median P50 · outlier-filtered · >= 5 listings required)
       avgPricePerSqft:    Math.round(medianPsf),
+      medianPricePerSqft: Math.round(medianPsf),
       avgPrice:           Math.round(medianPrice),
+      medianPrice:        Math.round(medianPrice),
       minPrice:           Math.round(p10Price),
       maxPrice:           Math.round(p90Price),
+
+      // ── Indian rupee formatted display strings
+      avgPricePerSqftFormatted: medianPsf   > 0 ? `₹${Math.round(medianPsf).toLocaleString('en-IN')}/sqft` : 'No Data',
+      avgPriceFormatted:        medianPrice > 0 ? formatINR(medianPrice) : 'No Data',
+      minPriceFormatted:        p10Price    > 0 ? formatINR(p10Price)    : 'No Data',
+      maxPriceFormatted:        p90Price    > 0 ? formatINR(p90Price)    : 'No Data',
+
+      // ── Data validity flags
+      insufficientData:   psfCount < MIN_PSF_LISTINGS,
+      lowConfidence:      psfCount < MIN_PSF_LISTINGS,
+      psfListingCount:    psfCount,
+      rentListingCount:   rentPsfCount,
+
       listingCount:       psfCount,
+      totalListingCount:  totalCount,
       trend,
       trendPct:           Math.abs(trendPct),
+
+      // ── Rent metrics (null = no data — not fake defaults)
       avgMonthlyRent:     Math.round(medianRent),
-      rentYield,
-      buySavingsPct,
-      localities,
-      // New enriched fields
-      medianPricePerSqft: Math.round(medianPsf),
-      medianPrice:        Math.round(medianPrice),
       medianRent:         Math.round(medianRent),
+      avgMonthlyRentFormatted: medianRent > 0 ? formatINR(medianRent) : 'No Data',
+      avgRentPsf:         cityAvgRentPsf,
+      rentYield,           // null when insufficient data (was: 3.2 default)
+      buySavingsPct,       // null when insufficient data (was: 20 default)
+
+      // ── Locality + trend data
+      localities,
+      priceTrend,
+
+      // ── Type breakdown + data quality
       byType,
       confidenceScore,
       dataQuality,
-      priceType:          'Indicative Listing Price',
-      dataWindow:         '90d',
-      lastUpdated:        new Date().toISOString(),
+      confidenceLabel,     // 'High' | 'Medium' | 'Low'
+      priceType:           'Indicative Listing Price',
+      dataWindow:          '90d',
+
+      // ── Smart insights
+      smartInsights,
+      lastUpdated:         new Date().toISOString(),
     };
 
     // ── Persist to snapshot cache ─────────────────────────────────────────────
     if (city || state) {
       try {
+        const segPropType = propertyType ?? null;
+        const segListType = listingType  ?? null;
         const existing = city
-          ? await this.snapshotRepo.findOne({ where: { city } as any })
-          : await this.snapshotRepo.findOne({ where: { state, city: null as any } as any });
+          ? await this.snapshotRepo.findOne({ where: { city, propertyType: segPropType, listingType: segListType } as any })
+          : await this.snapshotRepo.findOne({ where: { state, city: null as any, propertyType: segPropType, listingType: segListType } as any });
 
         const entity = existing || this.snapshotRepo.create({ city: city || null, state: state || null });
         entity.avgPsf            = medianPsf;
         entity.medianPsf         = medianPsf;
         entity.prevAvgPsf        = prevPsf;
-        entity.trend             = trend;
+        entity.trend             = trend as any;  // includes 'insufficient_data'
         entity.trendPct          = Math.abs(trendPct);
         entity.avgPrice          = medianPrice;
         entity.medianPrice       = medianPrice;
@@ -1501,13 +1897,18 @@ export class AnalyticsService {
         entity.totalListingCount = totalCount;
         entity.avgMonthlyRent    = medianRent;
         entity.medianRent        = medianRent;
-        entity.rentYield         = rentYield;
-        entity.buySavingsPct     = buySavingsPct;
+        entity.avgRentPsf        = cityAvgRentPsf;
+        entity.rentYield         = rentYield    ?? 0;  // DB column is numeric, store 0 when null
+        entity.buySavingsPct     = buySavingsPct ?? 0;
         entity.topLocalities     = localities;
         entity.byType            = byType;
+        entity.priceTrend        = priceTrend;
+        entity.smartInsights     = smartInsights;
         entity.confidenceScore   = confidenceScore;
         entity.dataQuality       = dataQuality;
         entity.priceType         = 'Indicative Listing Price';
+        entity.propertyType      = propertyType ?? null;
+        entity.listingType       = listingType  ?? null;
         await this.snapshotRepo.save(entity);
       } catch (e) {
         this.logger.warn('Failed to save market snapshot', e);
@@ -1517,9 +1918,9 @@ export class AnalyticsService {
     return result;
   }
 
-  // ─── Bulk refresh all cities that have listings ───────────────────────────────
+  // ─── Bulk refresh all cities × segments that have listings ───────────────────
   async refreshAllMarketSnapshots() {
-    this.logger.log('Refreshing all market snapshots…');
+    this.logger.log('Refreshing all market snapshots (city + segment)…');
     const cities: any[] = await this.dataSource.query(`
       SELECT DISTINCT city, state
       FROM properties
@@ -1527,17 +1928,34 @@ export class AnalyticsService {
         AND city IS NOT NULL AND city != ''
       ORDER BY city
     `);
+
+    // Segments to compute per city. null = all-types aggregate (existing behaviour).
+    const SEGMENTS: Array<{ propertyType?: string; listingType?: string }> = [
+      { },                                              // all-types aggregate
+      { propertyType: 'apartment', listingType: 'sale'  },
+      { propertyType: 'apartment', listingType: 'rent'  },
+      { propertyType: 'villa',     listingType: 'sale'  },
+      { propertyType: 'commercial',listingType: 'sale'  },
+      { propertyType: 'plot',      listingType: 'sale'  },
+    ];
+
     let refreshed = 0;
+    const total   = cities.length * SEGMENTS.length;
+
     for (const row of cities) {
-      try {
-        await this.refreshMarketSnapshot(row.city, row.state);
-        refreshed++;
-      } catch (e) {
-        this.logger.warn(`Snapshot refresh failed for ${row.city}`, e);
+      for (const seg of SEGMENTS) {
+        try {
+          await this.refreshMarketSnapshot(row.city, row.state, seg.propertyType, seg.listingType);
+          refreshed++;
+        } catch (e) {
+          this.logger.warn(
+            `Snapshot refresh failed for ${row.city} / ${seg.propertyType ?? 'all'} / ${seg.listingType ?? 'all'}`, e,
+          );
+        }
       }
     }
-    this.logger.log(`Market snapshots refreshed: ${refreshed}/${cities.length}`);
-    return { refreshed, total: cities.length };
+    this.logger.log(`Market snapshots refreshed: ${refreshed}/${total}`);
+    return { refreshed, total };
   }
 
   // ─── Admin: update snapshot metadata (isFeatured, sortOrder) ─────────────────
@@ -2405,15 +2823,21 @@ export class AnalyticsService {
     const since7d  = new Date(Date.now() -  7 * 24 * 60 * 60 * 1000);
     const prev7d   = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
-    // 24h engagement
-    const [views24h, inq24h, saves24h] = await Promise.all([
+    // 24h engagement — use property_views (authoritative dedup source) for views
+    const [views24h, views7d, inq24h, saves24h] = await Promise.all([
       this.dataSource.query<{ entityId: string; cnt: string }[]>(`
-        SELECT ae.entityId, COUNT(*) AS cnt
-        FROM analytics_events ae
-        WHERE ae.eventType = 'property_view' AND ae.entityType = 'property'
-          AND ae.createdAt >= ?
-        GROUP BY ae.entityId
+        SELECT pv.property_id AS entityId, COUNT(*) AS cnt
+        FROM property_views pv
+        WHERE pv.viewed_at >= ?
+        GROUP BY pv.property_id
       `, [since24h]),
+
+      this.dataSource.query<{ entityId: string; cnt: string }[]>(`
+        SELECT pv.property_id AS entityId, COUNT(*) AS cnt
+        FROM property_views pv
+        WHERE pv.viewed_at >= ?
+        GROUP BY pv.property_id
+      `, [since7d]),
 
       this.dataSource.query<{ propertyId: string; cnt: string }[]>(`
         SELECT propertyId, COUNT(*) AS cnt
@@ -2443,6 +2867,7 @@ export class AnalyticsService {
     ]);
 
     const v24Map    = new Map(views24h.map(r  => [r.entityId,   parseInt(r.cnt)]));
+    const v7Map     = new Map(views7d.map(r   => [r.entityId,   parseInt(r.cnt)]));
     const i24Map    = new Map(inq24h.map(r    => [r.propertyId, parseInt(r.cnt)]));
     const s24Map    = new Map(saves24h.map(r  => [r.entityId,   parseInt(r.cnt)]));
     const i7CurrMap = new Map(inq7dCurr.map(r => [r.propertyId, parseInt(r.cnt)]));
@@ -2481,6 +2906,7 @@ export class AnalyticsService {
 
     for (const p of props) {
       const v24    = v24Map.get(p.id)    || 0;
+      const v7     = v7Map.get(p.id)     || 0;
       const i24    = i24Map.get(p.id)    || 0;
       const s24    = s24Map.get(p.id)    || 0;
       const i7curr = i7CurrMap.get(p.id) || 0;
@@ -2513,6 +2939,7 @@ export class AnalyticsService {
       updates.push({
         id: p.id,
         viewsLast24h:     v24,
+        viewsLast7d:      v7,
         inquiriesLast24h: i24,
         savesLast7d:      s24Map.get(p.id) || 0,
         dealScore,
@@ -2529,6 +2956,7 @@ export class AnalyticsService {
         this.dataSource.query(
           `UPDATE properties SET
              viewsLast24h = ?,
+             viewsLast7d = ?,
              inquiriesLast24h = ?,
              savesLast7d = ?,
              dealScore = ?,
@@ -2536,7 +2964,7 @@ export class AnalyticsService {
              isTrending = ?,
              hotTagExpiresAt = ?
            WHERE id = ?`,
-          [u.viewsLast24h, u.inquiriesLast24h, u.savesLast7d,
+          [u.viewsLast24h, u.viewsLast7d, u.inquiriesLast24h, u.savesLast7d,
            u.dealScore, u.isHotDeal, u.isTrending, u.hotTagExpiresAt, u.id],
         ),
       ));
@@ -2709,6 +3137,149 @@ export class AnalyticsService {
     }
 
     this.logger.log(`Agents cache refreshed: ${ranked.length} records`);
+  }
+
+  // ─── Smart AI Insights Generator ─────────────────────────────────────────────
+  // Rule-based NLP-style insights derived from computed market metrics.
+  // Returns 3–5 human-readable insight strings for the city/market.
+  private generateSmartInsights(params: {
+    city: string;
+    medianPsf: number;
+    medianRent: number;
+    cityAvgRentPsf: number;
+    trend: string;
+    trendPct: number;
+    rentYield: number | null;
+    buySavingsPct: number | null;
+    localities: any[];
+    confidenceScore: number;
+    dataQuality: string;
+  }): string[] {
+    const {
+      city, medianPsf, medianRent, cityAvgRentPsf,
+      trend, trendPct, rentYield, buySavingsPct,
+      localities, confidenceScore, dataQuality,
+    } = params;
+
+    const insights: string[] = [];
+    const cityName = city.replace(/\b\w/g, c => c.toUpperCase());
+
+    // ── Insight 1: Price trend ─────────────────────────────────────────────────
+    if (medianPsf > 0) {
+      if (trend === 'up' && trendPct >= 5) {
+        insights.push(`📈 ${cityName} property prices have risen ${trendPct.toFixed(1)}% over the last 90 days — a strong bullish signal for investors.`);
+      } else if (trend === 'up' && trendPct > 0) {
+        insights.push(`📈 Prices in ${cityName} are trending upward by ${trendPct.toFixed(1)}%, indicating healthy demand and steady appreciation.`);
+      } else if (trend === 'down' && trendPct >= 3) {
+        insights.push(`📉 ${cityName} has seen a ${trendPct.toFixed(1)}% price correction — a potential entry opportunity for budget-conscious buyers.`);
+      } else {
+        insights.push(`📊 ${cityName} property prices are stable at ₹${medianPsf.toLocaleString('en-IN')}/sqft, reflecting a balanced demand-supply market.`);
+      }
+    }
+
+    // ── Insight 2: Rental yield ────────────────────────────────────────────────
+    if (rentYield > 0) {
+      if (rentYield >= 4) {
+        insights.push(`🏠 Rental yield in ${cityName} is ${rentYield.toFixed(1)}% — above the national average of 2–3%, making it an attractive rental market for investors.`);
+      } else if (rentYield >= 2.5) {
+        insights.push(`🏠 ${cityName} offers a rental yield of ${rentYield.toFixed(1)}%, in line with market norms. Good for long-term wealth building through buy-to-let.`);
+      } else if (rentYield > 0) {
+        insights.push(`🏠 Rental yields in ${cityName} stand at ${rentYield.toFixed(1)}% — relatively low, suggesting the market is more suitable for capital appreciation than rental income.`);
+      }
+    }
+
+    // ── Insight 3: Rent PSF vs Sale PSF ratio ─────────────────────────────────
+    if (cityAvgRentPsf > 0 && medianPsf > 0) {
+      const ratio = cityAvgRentPsf / medianPsf;
+      if (ratio >= 0.008) {
+        insights.push(`💡 At ₹${cityAvgRentPsf}/sqft/month rent vs ₹${medianPsf.toLocaleString('en-IN')}/sqft buy price, ${cityName} shows strong rental demand relative to ownership costs.`);
+      } else {
+        insights.push(`💡 In ${cityName}, renting at ₹${cityAvgRentPsf}/sqft/month is significantly cheaper than buying at ₹${medianPsf.toLocaleString('en-IN')}/sqft — ideal for those prioritising flexibility.`);
+      }
+    }
+
+    // ── Insight 4: Best locality highlight ────────────────────────────────────
+    if (localities && localities.length > 0) {
+      const best = localities[0];
+      if (best?.name && best?.medianPsf > 0) {
+        if (best.circleRate > 0 && best.pricePremium !== undefined) {
+          const premiumSign = best.pricePremium >= 0 ? '+' : '';
+          insights.push(`🏆 ${best.name} is the top-ranked locality in ${cityName} at ₹${best.medianPsf.toLocaleString('en-IN')}/sqft — ${premiumSign}${best.pricePremium.toFixed(0)}% vs government circle rate of ₹${best.circleRate.toLocaleString('en-IN')}/sqft.`);
+        } else {
+          insights.push(`🏆 ${best.name} leads ${cityName} localities with a median price of ₹${best.medianPsf.toLocaleString('en-IN')}/sqft${best.trend === 'up' ? ' and rising demand' : ''}.`);
+        }
+      }
+
+      // Best rental locality (by rentYield)
+      const topRental = localities.filter(l => l.rentYield > 0).sort((a, b) => b.rentYield - a.rentYield)[0];
+      if (topRental && topRental.name !== best?.name && topRental.rentYield >= 3) {
+        insights.push(`💰 ${topRental.name} offers the best rental yield at ${topRental.rentYield.toFixed(1)}% — a top pick for rental investors in ${cityName}.`);
+      }
+    }
+
+    // ── Insight 5: Buy vs Rent recommendation ─────────────────────────────────
+    if (buySavingsPct > 0) {
+      if (buySavingsPct >= 15) {
+        insights.push(`🔑 Over 10 years, buying in ${cityName} saves ~${buySavingsPct.toFixed(0)}% more than renting — strongly favour purchasing if you plan to stay long-term.`);
+      } else if (buySavingsPct >= 5) {
+        insights.push(`🔑 Buying in ${cityName} is estimated to be ${buySavingsPct.toFixed(0)}% more cost-effective than renting over a 10-year horizon.`);
+      }
+    }
+
+    // ── Insight 6: Data quality notice ────────────────────────────────────────
+    if (dataQuality === 'low' || confidenceScore < 30) {
+      insights.push(`⚠️ Data in ${cityName} is limited (${confidenceScore ?? 0} confidence score). Figures are indicative — verify with local agents before making decisions.`);
+    } else if (dataQuality === 'high' && confidenceScore >= 70) {
+      insights.push(`✅ Analysis for ${cityName} is based on high-confidence data (score: ${confidenceScore}) from recent active listings — reliable for market benchmarking.`);
+    }
+
+    // Return top 5 insights
+    return insights.slice(0, 5);
+  }
+
+  // ─── Admin: Circle Rate CRUD ──────────────────────────────────────────────────
+
+  async listCircleRates(city?: string): Promise<LocalityCircleRate[]> {
+    const qb = this.circleRateRepo.createQueryBuilder('lcr').orderBy('lcr.city').addOrderBy('lcr.locality');
+    if (city) qb.where('LOWER(lcr.city) = LOWER(:city)', { city });
+    return qb.getMany();
+  }
+
+  async upsertCircleRate(dto: {
+    city: string;
+    locality: string;
+    circleRate: number;
+    effectiveFrom?: string;
+    notes?: string;
+    source?: string;
+  }): Promise<LocalityCircleRate> {
+    const existing = await this.circleRateRepo.findOne({
+      where: { city: dto.city, locality: dto.locality } as any,
+    });
+    const entity = existing || this.circleRateRepo.create({ city: dto.city, locality: dto.locality });
+    entity.circleRate    = dto.circleRate;
+    entity.effectiveFrom = dto.effectiveFrom ? new Date(dto.effectiveFrom) : null;
+    entity.notes         = dto.notes || null;
+    entity.source        = dto.source || null;
+    return this.circleRateRepo.save(entity);
+  }
+
+  async updateCircleRate(id: string, dto: Partial<{
+    circleRate: number;
+    effectiveFrom: string;
+    notes: string;
+    source: string;
+  }>): Promise<LocalityCircleRate> {
+    const entity = await this.circleRateRepo.findOneOrFail({ where: { id } as any });
+    if (dto.circleRate !== undefined) entity.circleRate = dto.circleRate;
+    if (dto.effectiveFrom !== undefined) entity.effectiveFrom = dto.effectiveFrom ? new Date(dto.effectiveFrom) : null;
+    if (dto.notes      !== undefined) entity.notes  = dto.notes;
+    if (dto.source     !== undefined) entity.source = dto.source;
+    return this.circleRateRepo.save(entity);
+  }
+
+  async deleteCircleRate(id: string): Promise<void> {
+    await this.circleRateRepo.delete(id);
   }
 
   async aggregateProjects(): Promise<void> {

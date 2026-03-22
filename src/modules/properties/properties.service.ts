@@ -824,6 +824,25 @@ export class PropertiesService {
     return { success: true };
   }
 
+  async uploadBrochure(propertyId: string, brochureUrl: string, user: User) {
+    const property = await this.findById(propertyId);
+    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException();
+    }
+    property.brochureUrl = brochureUrl;
+    return this.propertyRepo.save(property);
+  }
+
+  async removeBrochure(propertyId: string, user: User) {
+    const property = await this.findById(propertyId);
+    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException();
+    }
+    property.brochureUrl = null;
+    await this.propertyRepo.save(property);
+    return { success: true };
+  }
+
   async getStats() {
     const [total, forSale, forRent, forPG, citiesRow] = await Promise.all([
       this.propertyRepo.count({ where: { status: PropertyStatus.ACTIVE } }),
@@ -903,6 +922,98 @@ export class PropertiesService {
       .addOrderBy('p.updatedAt', 'DESC')
       .take(limit)
       .getMany();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // AI Recommendations: similar + trending in area
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Returns personalised recommendations for a given context:
+   * - "similar"   → same type + city, price range ±30%
+   * - "trending"  → highest 7-day view velocity in the same city
+   * - "nearby"    → properties within 5 km radius (requires lat/lng)
+   */
+  async getRecommendations(params: {
+    propertyId?: string;
+    city?: string;
+    type?: string;
+    category?: string;
+    price?: number;
+    lat?: number;
+    lng?: number;
+    limit?: number;
+  }): Promise<{ similar: Property[]; trending: Property[]; nearby: Property[] }> {
+    const limit = params.limit ?? 4;
+    const baseConditions = (qb: any, alias: string) => {
+      qb.where(`${alias}.status = :status`, { status: PropertyStatus.ACTIVE })
+        .andWhere(`${alias}.approvalStatus = :approval`, { approval: ApprovalStatus.APPROVED })
+        .andWhere(`${alias}.isDraft = :isDraft`, { isDraft: false });
+      if (params.propertyId) {
+        qb.andWhere(`${alias}.id != :excludeId`, { excludeId: params.propertyId });
+      }
+    };
+
+    // Similar properties — same city + type + price range
+    const similarQb = this.propertyRepo
+      .createQueryBuilder('p')
+      .leftJoinAndSelect('p.images', 'images');
+    baseConditions(similarQb, 'p');
+    if (params.city) similarQb.andWhere('LOWER(p.city) = LOWER(:city)', { city: params.city });
+    if (params.type) similarQb.andWhere('p.type = :type', { type: params.type });
+    if (params.category) similarQb.andWhere('p.category = :category', { category: params.category });
+    if (params.price) {
+      similarQb.andWhere('p.price BETWEEN :minP AND :maxP', {
+        minP: params.price * 0.7,
+        maxP: params.price * 1.3,
+      });
+    }
+    const similar = await similarQb
+      .orderBy('p.isFeatured', 'DESC')
+      .addOrderBy('p.listingScore', 'DESC')
+      .addOrderBy('p.updatedAt', 'DESC')
+      .take(limit)
+      .getMany();
+
+    // Trending in city — highest viewsLast7d
+    const trendingQb = this.propertyRepo
+      .createQueryBuilder('p')
+      .leftJoinAndSelect('p.images', 'images');
+    baseConditions(trendingQb, 'p');
+    if (params.city) trendingQb.andWhere('LOWER(p.city) = LOWER(:city)', { city: params.city });
+    const trending = await trendingQb
+      .orderBy('p.viewsLast7d', 'DESC')
+      .addOrderBy('p.viewCount', 'DESC')
+      .take(limit)
+      .getMany();
+
+    // Nearby properties using Haversine formula
+    let nearby: Property[] = [];
+    if (params.lat !== undefined && params.lng !== undefined) {
+      nearby = await this.propertyRepo
+        .createQueryBuilder('p')
+        .leftJoinAndSelect('p.images', 'images')
+        .where('p.status = :status', { status: PropertyStatus.ACTIVE })
+        .andWhere('p.approvalStatus = :approval', { approval: ApprovalStatus.APPROVED })
+        .andWhere('p.isDraft = :isDraft', { isDraft: false })
+        .andWhere('p.latitude IS NOT NULL')
+        .andWhere('p.longitude IS NOT NULL')
+        .andWhere(
+          `(6371 * ACOS(
+            COS(RADIANS(:lat)) * COS(RADIANS(p.latitude)) *
+            COS(RADIANS(p.longitude) - RADIANS(:lng)) +
+            SIN(RADIANS(:lat)) * SIN(RADIANS(p.latitude))
+          )) <= :radius`,
+          { lat: params.lat, lng: params.lng, radius: 5 },
+        )
+        .andWhere(params.propertyId ? 'p.id != :excludeId' : '1=1',
+          params.propertyId ? { excludeId: params.propertyId } : {})
+        .orderBy('p.isFeatured', 'DESC')
+        .take(limit)
+        .getMany();
+    }
+
+    return { similar, trending, nearby };
   }
 
   async getAmenities(): Promise<Amenity[]> {
@@ -1171,6 +1282,22 @@ export class PropertiesService {
           { [`reqAmenityId${i}`]: ids[i] },
         );
       }
+    }
+
+    // ── Geo radius search (Near Me / POI-based) using Haversine formula ─────────
+    // Supported API: ?lat=xx&lng=yy&radius=5 (radius in km, default 5)
+    if (filters.lat !== undefined && filters.lng !== undefined) {
+      const radiusKm = filters.radius ?? 5;
+      qb.andWhere('property.latitude IS NOT NULL')
+        .andWhere('property.longitude IS NOT NULL')
+        .andWhere(
+          `(6371 * ACOS(
+            COS(RADIANS(:geoLat)) * COS(RADIANS(property.latitude)) *
+            COS(RADIANS(property.longitude) - RADIANS(:geoLng)) +
+            SIN(RADIANS(:geoLat)) * SIN(RADIANS(property.latitude))
+          )) <= :geoRadius`,
+          { geoLat: filters.lat, geoLng: filters.lng, geoRadius: radiusKm },
+        );
     }
 
     // Geo bounding box (for map search)

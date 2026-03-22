@@ -8,6 +8,7 @@ import { TopProjectsCache } from './entities/top-projects-cache.entity';
 import { TopLocationsCache } from './entities/top-locations-cache.entity';
 import { CategoryAnalytics } from './entities/category-analytics.entity';
 import { MarketSnapshot } from './entities/market-snapshot.entity';
+import { LocalityCircleRate } from './entities/locality-circle-rate.entity';
 import { ScoringConfig } from './entities/scoring-config.entity';
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsCronService } from './analytics-cron.service';
@@ -24,6 +25,7 @@ import { AnalyticsController } from './analytics.controller';
       TopLocationsCache,
       CategoryAnalytics,
       MarketSnapshot,
+      LocalityCircleRate,
       ScoringConfig,
     ]),
   ],

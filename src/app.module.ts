@@ -52,6 +52,7 @@ import { TopProjectsCache } from './modules/analytics/entities/top-projects-cach
 import { TopLocationsCache } from './modules/analytics/entities/top-locations-cache.entity';
 import { CategoryAnalytics } from './modules/analytics/entities/category-analytics.entity';
 import { MarketSnapshot } from './modules/analytics/entities/market-snapshot.entity';
+import { LocalityCircleRate } from './modules/analytics/entities/locality-circle-rate.entity';
 import { ScoringConfig } from './modules/analytics/entities/scoring-config.entity';
 import { SeoModule } from './modules/seo/seo.module';
 import { CityPage } from './modules/seo/entities/city-page.entity';
@@ -87,6 +88,9 @@ import { MessageService as MsgService } from './modules/messaging/entities/messa
 import { MessageTemplate } from './modules/messaging/entities/message-template.entity';
 import { EventTemplateMapping } from './modules/messaging/entities/event-template-mapping.entity';
 import { MessageLog } from './modules/messaging/entities/message-log.entity';
+import { SmartSearchModule } from './modules/smart-search/smart-search.module';
+import { SearchLog } from './modules/smart-search/entities/search-log.entity';
+import { UserBehavior } from './modules/smart-search/entities/user-behavior.entity';
 
 @Module({
   imports: [
@@ -152,6 +156,7 @@ import { MessageLog } from './modules/messaging/entities/message-log.entity';
           TopLocationsCache,
           CategoryAnalytics,
           MarketSnapshot,
+          LocalityCircleRate,
           ScoringConfig,
           CityPage,
           SeoConfig,
@@ -178,6 +183,8 @@ import { MessageLog } from './modules/messaging/entities/message-log.entity';
           MessageTemplate,
           EventTemplateMapping,
           MessageLog,
+          SearchLog,
+          UserBehavior,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -210,6 +217,7 @@ import { MessageLog } from './modules/messaging/entities/message-log.entity';
     AgentFeedbackModule,
     NotificationsModule,
     MessagingModule,
+    SmartSearchModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)

@@ -143,6 +143,25 @@ export class FilterPropertyDto {
   @IsString()
   builderName?: string;
 
+  // ── Geo radius search (Near Me / landmark) ───────────────────────────────
+  @ApiPropertyOptional({ description: 'Center latitude for radius-based geo search' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  lat?: number;
+
+  @ApiPropertyOptional({ description: 'Center longitude for radius-based geo search' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  lng?: number;
+
+  @ApiPropertyOptional({ description: 'Search radius in km (default 5)', default: 5 })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  radius?: number;
+
   // Geo bounding box search (for map view)
   @ApiPropertyOptional({ description: 'Minimum latitude for bounding box search' })
   @IsOptional()

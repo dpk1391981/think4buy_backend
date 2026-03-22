@@ -264,14 +264,19 @@ async function seedMarketSnapshots() {
         ? Math.round((loc.avgRent * 12 / loc.avgBuyPrice) * 1000) / 10
         : 0;
       return {
-        name:         loc.name,
-        medianPsf:    loc.avgPsf,
-        avgBuyPrice:  loc.avgBuyPrice,
-        avgRent:      loc.avgRent,
-        listingCount: loc.listingCount,
-        trend:        lt,
-        rentYield:    locRentYield,
-        rankScore:    0,
+        name:             loc.name,
+        medianPsf:        loc.avgPsf,
+        rentPsf:          0,
+        avgBuyPrice:      loc.avgBuyPrice,
+        avgRent:          loc.avgRent,
+        listingCount:     loc.listingCount,
+        rentListingCount: 0,
+        trend:            lt,
+        rentTrend:        'stable' as const,
+        rentYield:        locRentYield,
+        circleRate:       0,
+        pricePremium:     0,
+        rankScore:        0,
       };
     });
 
