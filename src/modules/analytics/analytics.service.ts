@@ -438,6 +438,7 @@ export class AnalyticsService {
       .from('properties', 'p')
       .where('p.approvalStatus = :s', { s: 'approved' })
       .andWhere("p.status = 'active'")
+      .andWhere('p.isDraft = :isDraft', { isDraft: false })
       .groupBy('p.type');
 
     if (filters.city)        liveQb.andWhere('p.city = :city',   { city:  filters.city  });
@@ -500,6 +501,7 @@ export class AnalyticsService {
       .from('properties', 'p')
       .where('p.approvalStatus = :s', { s: 'approved' })
       .andWhere("p.status = 'active'")
+      .andWhere('p.isDraft = :isDraft', { isDraft: false })
       .groupBy('p.type')
       .orderBy('totalListings', 'DESC')
       .limit(limit);
