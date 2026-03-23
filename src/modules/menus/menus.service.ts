@@ -34,7 +34,7 @@ const ROLE_MENUS: Record<UserRole, string[]> = {
   ],
   [UserRole.OWNER]: [
     'dashboard', 'add_property', 'my_properties', 'leads',
-    'messages', 'property_analytics', 'boost_listing', 'profile', 'settings',
+    'messages', 'property_analytics', 'boost_listing', 'saved_properties', 'profile', 'settings',
   ],
   [UserRole.AGENT]: [
     'dashboard', 'add_property', 'my_properties', 'leads',
@@ -43,7 +43,7 @@ const ROLE_MENUS: Record<UserRole, string[]> = {
   [UserRole.ADMIN]: SEED_MENUS.map((m) => m.slug),
   [UserRole.SELLER]: [
     'dashboard', 'add_property', 'my_properties', 'leads',
-    'messages', 'property_analytics', 'boost_listing', 'profile', 'settings',
+    'messages', 'property_analytics', 'boost_listing', 'saved_properties', 'profile', 'settings',
   ],
 };
 
@@ -58,11 +58,29 @@ export class MenusService implements OnModuleInit {
     private rmpRepo: Repository<RoleMenuPermission>,
   ) {}
 
-  /** Auto-seed menus on first boot if the table is empty */
+  /** Seed on first boot; always patch any missing role-menu permissions. */
   async onModuleInit() {
     const count = await this.menuRepo.count();
     if (count === 0) {
       await this.seed();
+    } else {
+      // Ensure any newly-added slugs in ROLE_MENUS get their permissions created
+      await this.syncMissingPermissions();
+    }
+  }
+
+  /** Adds only missing role-menu permissions without touching existing ones. */
+  private async syncMissingPermissions() {
+    for (const [role, slugs] of Object.entries(ROLE_MENUS) as [UserRole, string[]][]) {
+      for (const slug of slugs) {
+        const menu = await this.menuRepo.findOne({ where: { slug } });
+        if (!menu) continue;
+        const exists = await this.rmpRepo.findOne({ where: { role, menuId: menu.id } });
+        if (!exists) {
+          await this.rmpRepo.save(this.rmpRepo.create({ role, menuId: menu.id, isVisible: true }));
+          console.log(`[MenusService] Added missing permission: ${role} → ${slug}`);
+        }
+      }
     }
   }
 
