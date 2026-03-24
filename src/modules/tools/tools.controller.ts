@@ -88,13 +88,15 @@ export class ToolsController {
 
   // ── GET /api/v1/tools/predict ─────────────────────────────────────────────
   @Get('tools/predict')
-  @ApiOperation({ summary: 'Price prediction: estimated range based on city, type, BHK, and area' })
+  @ApiOperation({ summary: 'Price prediction: estimated range based on city, locality, type, BHK, and area' })
   @ApiQuery({ name: 'city',         description: 'City name' })
+  @ApiQuery({ name: 'locality',     required: false, description: 'Locality / area within city' })
   @ApiQuery({ name: 'propertyType', required: false, description: 'apartment|villa|plot|commercial' })
   @ApiQuery({ name: 'bhk',         required: false, type: Number })
   @ApiQuery({ name: 'area',         type: Number, description: 'Area in sq.ft' })
   async predict(
     @Query('city')         city:          string,
+    @Query('locality')     locality?:     string,
     @Query('propertyType') propertyType?: string,
     @Query('bhk')          bhk?:          string,
     @Query('area')         area?:         string,
@@ -102,23 +104,35 @@ export class ToolsController {
     if (!city) throw new BadRequestException('city is required');
     const bhkNum  = bhk  ? parseInt(bhk, 10) : 2;
     const areaNum = area ? parseFloat(area)  : 1000;
-    const data = await this.svc.predictPrice(city, propertyType ?? 'apartment', bhkNum, areaNum);
+    const data = await this.svc.predictPrice(city, propertyType ?? 'apartment', bhkNum, areaNum, locality);
     return { success: true, data };
   }
 
   // ── GET /api/v1/insights/price-trends ─────────────────────────────────────
   @Get('insights/price-trends')
-  @ApiOperation({ summary: 'Price trends for a city: monthly PSF trend, locality breakdown, YoY growth' })
+  @ApiOperation({ summary: 'Price trends for a city / locality: monthly PSF trend, locality breakdown, YoY growth' })
   @ApiQuery({ name: 'city',         description: 'City name (required)' })
+  @ApiQuery({ name: 'locality',     required: false, description: 'Locality / area within city' })
   @ApiQuery({ name: 'propertyType', required: false })
   @ApiQuery({ name: 'listingType',  required: false, description: 'sale|rent' })
   async priceTrends(
     @Query('city')         city:          string,
+    @Query('locality')     locality?:     string,
     @Query('propertyType') propertyType?: string,
     @Query('listingType')  listingType?:  string,
   ) {
     if (!city) throw new BadRequestException('city is required');
-    const data = await this.svc.getPriceTrends(city, propertyType, listingType);
+    const data = await this.svc.getPriceTrends(city, propertyType, listingType, locality);
+    return { success: true, data };
+  }
+
+  // ── GET /api/v1/insights/localities ───────────────────────────────────────
+  @Get('insights/localities')
+  @ApiOperation({ summary: 'List localities with data for a given city' })
+  @ApiQuery({ name: 'city', description: 'City name' })
+  async localities(@Query('city') city: string) {
+    if (!city) throw new BadRequestException('city is required');
+    const data = await this.svc.getLocalitiesForCity(city);
     return { success: true, data };
   }
 
