@@ -1,17 +1,16 @@
 import {
-  Controller, Post, Get, Put, Param, Body, Query,
-  HttpCode, HttpStatus, UseGuards,
+  Controller, Post, Get, Put, Param, Body, Query, Request,
+  HttpCode, HttpStatus, UseGuards, ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { AuthGuard } from '@nestjs/passport';
 import { ServiceLeadsService } from './service-leads.service';
 import {
   CreateServiceLeadDto,
   UpdateServiceLeadDto,
   ServiceLeadsQueryDto,
 } from './dto/service-lead.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../users/entities/user.entity';
 
 // ── Public lead capture ───────────────────────────────────────────────────────
@@ -38,33 +37,42 @@ export class ServiceLeadsController {
 
 @ApiTags('admin / service-leads')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
-@Roles(UserRole.ADMIN)
+@UseGuards(AuthGuard('jwt'))
 @Controller('admin/service-leads')
 export class AdminServiceLeadsController {
   constructor(private readonly svc: ServiceLeadsService) {}
 
+  private assertAdmin(req: any) {
+    if (req.user?.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Admin access required');
+    }
+  }
+
   @Get()
   @ApiOperation({ summary: 'List service leads with filters (admin)' })
-  findAll(@Query() query: ServiceLeadsQueryDto) {
+  findAll(@Request() req: any, @Query() query: ServiceLeadsQueryDto) {
+    this.assertAdmin(req);
     return this.svc.findAll(query);
   }
 
   @Get('stats')
   @ApiOperation({ summary: 'Service lead stats (admin)' })
-  getStats() {
+  getStats(@Request() req: any) {
+    this.assertAdmin(req);
     return this.svc.getStats();
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get single service lead (admin)' })
-  findOne(@Param('id') id: string) {
+  findOne(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
     return this.svc.findOne(id);
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Update lead status / note (admin)' })
-  update(@Param('id') id: string, @Body() dto: UpdateServiceLeadDto) {
+  update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateServiceLeadDto) {
+    this.assertAdmin(req);
     return this.svc.update(id, dto);
   }
 }
