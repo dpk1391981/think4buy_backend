@@ -107,6 +107,13 @@ export class AdminController {
     return this.adminService.rejectProperty(id, dto.reason);
   }
 
+  @Patch('properties/:id/reactivate')
+  @ApiOperation({ summary: 'Reactivate a rejected property — sets status back to pending review' })
+  reactivateProperty(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.reactivateProperty(id);
+  }
+
   // ── Agents ─────────────────────────────────────────────────────────────────
   @Get('agents')
   @ApiOperation({ summary: 'List all agents' })

@@ -36,10 +36,22 @@ interface ParsedKeyword {
   maxPrice?: number;
   minPrice?: number;
   type?: string;
+  typeGroup?: 'residential' | 'commercial';
   category?: string;
   features?: string[];
   remainder?: string;
+  nearbySearch?: boolean;
 }
+
+// Types that belong to residential vs commercial — used for STRICT category segregation
+const RESIDENTIAL_TYPES = new Set([
+  'apartment', 'villa', 'house', 'builder_floor', 'penthouse',
+  'studio', 'plot', 'farm_house', 'co_living', 'pg',
+]);
+const COMMERCIAL_TYPES = new Set([
+  'commercial_office', 'commercial_shop', 'commercial_warehouse',
+  'factory', 'showroom', 'industrial_shed', 'land',
+]);
 
 @Injectable()
 export class PropertiesService {
@@ -156,10 +168,16 @@ export class PropertiesService {
     for (const [key, val] of Object.entries(typeMap)) {
       if (text.includes(key)) {
         result.type = val;
+        result.typeGroup = RESIDENTIAL_TYPES.has(val) ? 'residential'
+          : COMMERCIAL_TYPES.has(val) ? 'commercial'
+          : undefined;
         text = text.replace(new RegExp(key, 'gi'), '').trim();
         break;
       }
     }
+
+    // Detect "near / nearby / close to" intent
+    result.nearbySearch = /\b(?:near|nearby|close to)\b/i.test(text);
 
     // Extract category from context
     if (text.includes(' for rent') || text.includes(' on rent')) result.category = 'rent';
@@ -1101,7 +1119,8 @@ export class PropertiesService {
     // ── Smart keyword (NLP) ────────────────────────────────────────────────────
     // If city param looks like a keyword (contains spaces or type slugs), treat it as keyword
     // Match only clear keyword signals: underscore slugs OR known property type words
-    const KEYWORD_PATTERNS = /\b(bhk|flat|apartment|villa|plot|house|office|shop|warehouse|factory|studio|penthouse|pg|commercial|industrial|farmhouse|showroom)\b|_/i;
+    // Also match "2bhk" (digit directly followed by "bhk" — no word boundary)
+    const KEYWORD_PATTERNS = /\d\s*bhk|\b(bhk|flat|apartment|villa|plot|house|office|shop|warehouse|factory|studio|penthouse|pg|commercial|industrial|farmhouse|showroom)\b|_/i;
     if (filters.city && !filters.cityId && KEYWORD_PATTERNS.test(filters.city)) {
       if (!filters.keyword) filters.keyword = filters.city;
       delete filters.city;
@@ -1131,6 +1150,21 @@ export class PropertiesService {
       }
       if (parsed.type && !filters.type) {
         qb.andWhere('property.type = :kwType', { kwType: parsed.type });
+
+        // STRICT: enforce residential/commercial segregation — NEVER mix across categories
+        if (!filters.category && !parsed.category) {
+          if (parsed.typeGroup === 'residential') {
+            // Residential search must NEVER return commercial/industrial listings
+            qb.andWhere('property.category NOT IN (:...kwExcludeCats)', {
+              kwExcludeCats: ['commercial', 'industrial'],
+            });
+          } else if (parsed.typeGroup === 'commercial') {
+            // Commercial search must ONLY return commercial/industrial listings
+            qb.andWhere('property.category IN (:...kwCommercialCats)', {
+              kwCommercialCats: ['commercial', 'industrial'],
+            });
+          }
+        }
       }
       if (parsed.category && !filters.category) {
         qb.andWhere('property.category = :kwCategory', { kwCategory: parsed.category });

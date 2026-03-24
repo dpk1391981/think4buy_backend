@@ -81,11 +81,17 @@ export class AdminService {
       .createQueryBuilder('property')
       .leftJoinAndSelect('property.owner', 'owner')
       .leftJoinAndSelect('property.images', 'images')
-      .where('property.isDraft = :isDraft', { isDraft: isDraft === true })
       .orderBy('property.createdAt', 'DESC');
 
     if (approvalStatus) {
-      qb.andWhere('property.approvalStatus = :approvalStatus', { approvalStatus });
+      // When filtering by approval status, show all matching properties
+      // regardless of isDraft (e.g. rejected properties may still have isDraft=true)
+      qb.where('property.approvalStatus = :approvalStatus', { approvalStatus });
+    } else if (isDraft === true) {
+      qb.where('property.isDraft = true');
+    } else {
+      // Default "All" tab: exclude drafts
+      qb.where('property.isDraft = false');
     }
     if (search) {
       qb.andWhere(
@@ -177,6 +183,30 @@ export class AdminService {
       });
     }
 
+    return saved;
+  }
+
+  async reactivateProperty(id: string): Promise<Property> {
+    const property = await this.propertyRepo.findOne({ where: { id }, relations: ['owner'] });
+    if (!property) throw new NotFoundException('Property not found');
+
+    property.approvalStatus = ApprovalStatus.PENDING;
+    property.status = PropertyStatus.INACTIVE;
+    property.isDraft = false;
+    property.rejectionReason = null;
+    const saved = await this.propertyRepo.save(property);
+
+    if (saved.owner?.id) {
+      this.notificationsService.createSilent({
+        userId: saved.owner.id,
+        role: saved.owner.role,
+        title: 'Property Resubmitted for Review',
+        message: `Your property "${saved.title}" has been requeued for admin review.`,
+        type: NotificationType.PROPERTY,
+        entityType: 'property',
+        entityId: saved.id,
+      });
+    }
     return saved;
   }
 

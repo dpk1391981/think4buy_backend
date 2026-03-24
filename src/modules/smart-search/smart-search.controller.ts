@@ -14,6 +14,47 @@ export class SmartSearchController {
   constructor(private readonly service: SmartSearchService) {}
 
   /**
+   * GLOBAL SMART SEARCH — parse natural language query into structured filters.
+   * Called by every search bar across the platform.
+   * Returns redirect URL + filter chips for UI.
+   * Rate-limited to 60/min per IP.
+   */
+  @Post()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @UseGuards(OptionalAuthGuard)
+  @ApiOperation({ summary: 'Parse natural language search query and get structured filters + redirect URL' })
+  async smartSearch(
+    @Body() body: { query: string; category?: string },
+    @Req() req: any,
+  ) {
+    const query = (body.query || '').trim();
+    if (!query) {
+      return {
+        filters: {},
+        redirectUrl: '/properties',
+        chips: [],
+        nearbySearch: false,
+        parsed: {},
+      };
+    }
+
+    const result = this.service.parseQuery(query, body.category);
+
+    // Log the search (fire-and-forget — don't await)
+    const userId = req.user?.id ?? null;
+    void this.service.logSearch({
+      userId,
+      searchQuery: query,
+      parsedFilters: result.filters,
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    });
+
+    return result;
+  }
+
+  /**
    * Log a search query (fire-and-forget from client)
    * Rate-limited to 30/min per IP
    */

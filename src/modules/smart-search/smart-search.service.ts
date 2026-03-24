@@ -10,6 +10,62 @@ import {
 } from './entities/user-behavior.entity';
 import { Lead, LeadSource, LeadStatus, LeadTemperature } from '../leads/entities/lead.entity';
 
+// ─── Types for centralized smart search ──────────────────────────────────────
+
+export interface ParsedSearchQuery {
+  /** Detected BHK / bedroom count */
+  bedrooms?: number;
+  /** Detected city name */
+  city?: string;
+  /** Detected locality */
+  locality?: string;
+  /** Max price (INR) */
+  maxPrice?: number;
+  /** Min price (INR) */
+  minPrice?: number;
+  /** Detected property type (enum value from PropertyType) */
+  type?: string;
+  /** High-level type group: residential or commercial */
+  typeGroup?: 'residential' | 'commercial';
+  /** Detected category (buy/rent/pg/commercial) */
+  category?: string;
+  /** Whether query has a "near/nearby" intent */
+  nearbySearch: boolean;
+}
+
+export interface SmartSearchResult {
+  /** Structured URL params for GET /properties */
+  filters: Record<string, string>;
+  /** Ready-to-use redirect URL */
+  redirectUrl: string;
+  /** Parsed query summary chips for UI display */
+  chips: { key: string; label: string; value: string }[];
+  /** Whether nearby/geo search was requested */
+  nearbySearch: boolean;
+  /** The full parsed query details */
+  parsed: ParsedSearchQuery;
+}
+
+// ─── Type group sets ─────────────────────────────────────────────────────────
+const RESIDENTIAL_TYPES = new Set([
+  'apartment', 'villa', 'house', 'builder_floor', 'penthouse',
+  'studio', 'plot', 'farm_house', 'co_living', 'pg',
+]);
+const COMMERCIAL_TYPES = new Set([
+  'commercial_office', 'commercial_shop', 'commercial_warehouse',
+  'factory', 'showroom', 'industrial_shed', 'land',
+]);
+
+// ─── Type display labels ──────────────────────────────────────────────────────
+const TYPE_LABELS: Record<string, string> = {
+  apartment: 'Flat/Apartment', villa: 'Villa', house: 'House',
+  builder_floor: 'Builder Floor', penthouse: 'Penthouse', studio: 'Studio',
+  plot: 'Plot', farm_house: 'Farmhouse', co_living: 'Co-Living', pg: 'PG',
+  commercial_office: 'Office Space', commercial_shop: 'Shop',
+  commercial_warehouse: 'Warehouse', factory: 'Factory/Industrial',
+  showroom: 'Showroom', industrial_shed: 'Industrial Shed', land: 'Land',
+};
+
 export class LogSearchDto {
   userId?: string;
   searchQuery: string;
@@ -150,6 +206,162 @@ export class SmartSearchService {
     } catch (err) {
       this.logger.warn(`Auto-lead upsert failed: ${err.message}`);
     }
+  }
+
+  // ─── Centralized smart search parser ─────────────────────────────────────────
+
+  /**
+   * Parse a natural language query into structured filters + redirect URL.
+   * This is the core of the Global Smart Search system.
+   * No DB access needed — pure text analysis.
+   */
+  parseQuery(rawQuery: string, categoryOverride?: string): SmartSearchResult {
+    const parsed: ParsedSearchQuery = { nearbySearch: false };
+    let text = rawQuery.toLowerCase().trim();
+
+    // 1. BHK / bedrooms
+    const bedroomMatch = text.match(/(\d+)\s*(?:bhk|bedroom|bed)/i);
+    if (bedroomMatch) {
+      parsed.bedrooms = parseInt(bedroomMatch[1]);
+      text = text.replace(bedroomMatch[0], '').trim();
+    }
+
+    // 2. Budget — "under X lakh/cr", "above X lakh", "between X-Y lakh"
+    const budgetUnder = text.match(
+      /(?:under|below|upto|up to|less than)\s*(?:rs\.?\s*)?(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore|k)?/i,
+    );
+    if (budgetUnder) {
+      const amt = parseFloat(budgetUnder[1]);
+      const unit = (budgetUnder[2] || '').toLowerCase();
+      parsed.maxPrice = unit.startsWith('cr') ? amt * 10_000_000 : unit === 'k' ? amt * 1_000 : amt * 100_000;
+      text = text.replace(budgetUnder[0], '').trim();
+    }
+    const budgetAbove = text.match(
+      /(?:above|over|more than|minimum)\s*(?:rs\.?\s*)?(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore|k)?/i,
+    );
+    if (budgetAbove) {
+      const amt = parseFloat(budgetAbove[1]);
+      const unit = (budgetAbove[2] || '').toLowerCase();
+      parsed.minPrice = unit.startsWith('cr') ? amt * 10_000_000 : unit === 'k' ? amt * 1_000 : amt * 100_000;
+      text = text.replace(budgetAbove[0], '').trim();
+    }
+    const budgetRange = text.match(
+      /(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore)?\s*(?:to|-)\s*(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore)/i,
+    );
+    if (budgetRange && !parsed.maxPrice) {
+      const minUnit = (budgetRange[2] || '').toLowerCase();
+      const maxUnit = (budgetRange[4] || '').toLowerCase();
+      parsed.minPrice = minUnit.startsWith('cr') ? parseFloat(budgetRange[1]) * 10_000_000 : parseFloat(budgetRange[1]) * 100_000;
+      parsed.maxPrice = maxUnit.startsWith('cr') ? parseFloat(budgetRange[3]) * 10_000_000 : parseFloat(budgetRange[3]) * 100_000;
+      text = text.replace(budgetRange[0], '').trim();
+    }
+
+    // 3. Property type — STRICT matching, longer phrases first
+    const typeMap: [string, string][] = [
+      ['commercial_warehouse', 'commercial_warehouse'],
+      ['commercial_office', 'commercial_office'],
+      ['commercial_shop', 'commercial_shop'],
+      ['industrial_shed', 'industrial_shed'],
+      ['builder floor', 'builder_floor'],
+      ['office space', 'commercial_office'],
+      ['farm house', 'farm_house'],
+      ['paying guest', 'pg'],
+      ['co-living', 'co_living'],
+      ['coliving', 'co_living'],
+      ['apartment', 'apartment'],
+      ['flat', 'apartment'],         // ← flat STRICTLY maps to apartment
+      ['villa', 'villa'],
+      ['bungalow', 'villa'],
+      ['penthouse', 'penthouse'],
+      ['studio', 'studio'],
+      ['builder_floor', 'builder_floor'],
+      ['farmhouse', 'farm_house'],
+      ['warehouse', 'commercial_warehouse'],
+      ['office', 'commercial_office'],
+      ['showroom', 'showroom'],
+      ['factory', 'factory'],
+      ['industrial', 'factory'],
+      ['plot', 'plot'],
+      ['land', 'land'],
+      ['house', 'house'],
+      ['independent', 'house'],
+      ['pg', 'pg'],
+      ['hostel', 'pg'],
+      ['shop', 'commercial_shop'],
+    ];
+    for (const [key, val] of typeMap) {
+      // Use word-boundary check to avoid partial matches (e.g. "flat" in "flatted")
+      const re = new RegExp(`\\b${key.replace(/[-\s]/g, '[\\s\\-]')}\\b`, 'i');
+      if (re.test(text)) {
+        parsed.type = val;
+        parsed.typeGroup = RESIDENTIAL_TYPES.has(val) ? 'residential'
+          : COMMERCIAL_TYPES.has(val) ? 'commercial'
+          : undefined;
+        text = text.replace(re, '').trim();
+        break;
+      }
+    }
+
+    // 4. Nearby intent
+    parsed.nearbySearch = /\b(?:near|nearby|close to)\b/i.test(text);
+
+    // 5. Category from context
+    if (!categoryOverride) {
+      if (/\b(?:for rent|on rent|to rent)\b/i.test(text)) parsed.category = 'rent';
+      else if (/\b(?:for sale|to buy|buy|purchase)\b/i.test(text)) parsed.category = 'buy';
+      else if (/\bpg\b|\bhostel\b/i.test(text)) parsed.category = 'pg';
+      else if (/\bcommercial\b/i.test(text)) parsed.category = 'commercial';
+      else if (/\bindustrial\b/i.test(text)) parsed.category = 'industrial';
+    } else {
+      parsed.category = categoryOverride;
+    }
+
+    // 6. Location extraction — "in X", "at X", "near X"
+    const locMatch = text.match(/\b(?:in|at|near)\s+([a-z0-9][a-z0-9\s\-]{1,30}?)(?:\s+(?:under|below|upto|above|for|with)|$)/i);
+    if (locMatch) {
+      const loc = locMatch[1].trim().replace(/\s+/g, ' ');
+      if (/sector|phase|block|nagar|vihar|enclave|colony|road|marg|street|expressway/i.test(loc)) {
+        parsed.locality = loc;
+      } else {
+        parsed.city = loc;
+      }
+      text = text.replace(locMatch[0], '').trim();
+    }
+
+    // 7. Build URL filters
+    const filters: Record<string, string> = {};
+    if (parsed.bedrooms)  filters.bedrooms  = String(parsed.bedrooms);
+    if (parsed.type)      filters.type      = parsed.type;
+    if (parsed.city)      filters.city      = parsed.city;
+    if (parsed.locality)  filters.locality  = parsed.locality;
+    if (parsed.maxPrice)  filters.maxPrice  = String(parsed.maxPrice);
+    if (parsed.minPrice)  filters.minPrice  = String(parsed.minPrice);
+    if (parsed.category)  filters.category  = parsed.category;
+
+    const qs = new URLSearchParams(filters).toString();
+    const redirectUrl = `/properties${qs ? `?${qs}` : ''}`;
+
+    // 8. Build user-friendly chips
+    const chips: { key: string; label: string; value: string }[] = [];
+    if (parsed.bedrooms)  chips.push({ key: 'bedrooms', label: `${parsed.bedrooms} BHK`, value: String(parsed.bedrooms) });
+    if (parsed.type)      chips.push({ key: 'type', label: TYPE_LABELS[parsed.type] || parsed.type, value: parsed.type });
+    if (parsed.city)      chips.push({ key: 'city', label: parsed.city, value: parsed.city });
+    if (parsed.locality)  chips.push({ key: 'locality', label: parsed.locality, value: parsed.locality });
+    if (parsed.category)  chips.push({ key: 'category', label: parsed.category, value: parsed.category });
+    if (parsed.maxPrice) {
+      const label = parsed.maxPrice >= 10_000_000
+        ? `Under ₹${(parsed.maxPrice / 10_000_000).toFixed(1)}Cr`
+        : `Under ₹${(parsed.maxPrice / 100_000).toFixed(0)}L`;
+      chips.push({ key: 'maxPrice', label, value: String(parsed.maxPrice) });
+    }
+    if (parsed.minPrice) {
+      const label = parsed.minPrice >= 10_000_000
+        ? `Above ₹${(parsed.minPrice / 10_000_000).toFixed(1)}Cr`
+        : `Above ₹${(parsed.minPrice / 100_000).toFixed(0)}L`;
+      chips.push({ key: 'minPrice', label, value: String(parsed.minPrice) });
+    }
+
+    return { filters, redirectUrl, chips, nearbySearch: parsed.nearbySearch, parsed };
   }
 
   // ─── Trending searches ────────────────────────────────────────────────────────
