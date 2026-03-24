@@ -10,8 +10,9 @@ import {
   UpdateServiceLeadDto,
   ServiceLeadsQueryDto,
 } from './dto/service-lead.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../users/entities/user.entity';
 
 // ── Public lead capture ───────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ export class ServiceLeadsController {
 @ApiTags('admin / service-leads')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Roles('admin')
+@Roles(UserRole.ADMIN)
 @Controller('admin/service-leads')
 export class AdminServiceLeadsController {
   constructor(private readonly svc: ServiceLeadsService) {}
