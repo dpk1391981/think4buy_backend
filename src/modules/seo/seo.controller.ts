@@ -1,4 +1,8 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, ForbiddenException, DefaultValuePipe, ParseIntPipe, NotFoundException } from '@nestjs/common';
+import {
+  Controller, Get, Post, Patch, Delete, Body, Param, Query,
+  UseGuards, Request, ForbiddenException, DefaultValuePipe,
+  ParseIntPipe, NotFoundException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { SeoService } from './seo.service';
@@ -13,7 +17,28 @@ export class SeoController {
     if (req.user?.role !== UserRole.ADMIN) throw new ForbiddenException('Admin access required');
   }
 
-  // ── Public endpoints ─────────────────────────────────────────────────────────
+  // ── Public: Listing Page SEO Resolver ────────────────────────────────────
+
+  @Get('listing-page')
+  @ApiOperation({ summary: 'Resolve SEO config for a listing page (priority-based)' })
+  @ApiQuery({ name: 'category', required: false })
+  @ApiQuery({ name: 'city', required: false })
+  @ApiQuery({ name: 'locality', required: false })
+  async resolveListingPage(
+    @Query('category') category?: string,
+    @Query('city') city?: string,
+    @Query('locality') locality?: string,
+  ) {
+    const config = await this.seoService.resolveListingPageSeo({
+      categorySlug: category,
+      citySlug: city,
+      localitySlug: locality,
+    });
+    if (!config) throw new NotFoundException('No SEO configuration found for this page');
+    return config;
+  }
+
+  // ── Public: Categories SEO ────────────────────────────────────────────────
 
   @Get('categories')
   @ApiOperation({ summary: 'Get all active categories with SEO content (public)' })
@@ -27,11 +52,39 @@ export class SeoController {
     return this.seoService.getCategorySeoBySlug(slug);
   }
 
+  // ── Public: Legacy City Pages ─────────────────────────────────────────────
+
   @Get('city-pages/:slug')
   @ApiOperation({ summary: 'Get city SEO page by slug (public)' })
   getCityPageBySlug(@Param('slug') slug: string) {
     return this.seoService.getCityPageBySlug(slug);
   }
+
+  // ── Public: Locality SEO ──────────────────────────────────────────────────
+
+  @Get('locality-pages/:slug')
+  @ApiOperation({ summary: 'Get locality SEO page by slug (public)' })
+  getLocalitySeoBySlug(@Param('slug') slug: string) {
+    return this.seoService.getLocalitySeoBySlug(slug);
+  }
+
+  // ── Public: Category+City SEO ─────────────────────────────────────────────
+
+  @Get('category-city-pages/:slug')
+  @ApiOperation({ summary: 'Get category+city SEO page by slug (public)' })
+  getCategoryCitySeoBySlug(@Param('slug') slug: string) {
+    return this.seoService.getCategoryCitySeoBySlug(slug);
+  }
+
+  // ── Public: Category+Locality SEO ─────────────────────────────────────────
+
+  @Get('category-locality-pages/:slug')
+  @ApiOperation({ summary: 'Get category+locality SEO page by slug (public)' })
+  getCategoryLocalitySeoBySlug(@Param('slug') slug: string) {
+    return this.seoService.getCategoryLocalitySeoBySlug(slug);
+  }
+
+  // ── Public: Footer Links ──────────────────────────────────────────────────
 
   @Get('footer-links')
   @ApiOperation({ summary: 'Get active footer SEO links (public)' })
@@ -45,7 +98,7 @@ export class SeoController {
     return this.seoService.getSeoConfigAsMap();
   }
 
-  // ── Admin endpoints ──────────────────────────────────────────────────────────
+  // ── Admin: Legacy City Pages ──────────────────────────────────────────────
 
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
@@ -91,7 +144,145 @@ export class SeoController {
     return this.seoService.deleteCityPage(id);
   }
 
-  // ── SEO Config ──────────────────────────────────────────────────────────────
+  // ── Admin: Locality SEO ───────────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('admin/locality-pages')
+  @ApiOperation({ summary: 'List all locality SEO pages (admin)' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  getLocalitySeoPages(
+    @Request() req,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+  ) {
+    this.assertAdmin(req);
+    return this.seoService.getLocalitySeoPages(page, limit, search);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('admin/locality-pages')
+  @ApiOperation({ summary: 'Create locality SEO page (admin)' })
+  createLocalitySeo(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.createLocalitySeo(body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Patch('admin/locality-pages/:id')
+  @ApiOperation({ summary: 'Update locality SEO page (admin)' })
+  updateLocalitySeo(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.updateLocalitySeo(id, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Delete('admin/locality-pages/:id')
+  @ApiOperation({ summary: 'Delete locality SEO page (admin)' })
+  deleteLocalitySeo(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.seoService.deleteLocalitySeo(id);
+  }
+
+  // ── Admin: Category+City SEO ──────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('admin/category-city-pages')
+  @ApiOperation({ summary: 'List all category+city SEO pages (admin)' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  getCategoryCitySeoPages(
+    @Request() req,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+  ) {
+    this.assertAdmin(req);
+    return this.seoService.getCategoryCitySeoPages(page, limit, search);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('admin/category-city-pages')
+  @ApiOperation({ summary: 'Create category+city SEO page (admin)' })
+  createCategoryCitySeo(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.createCategoryCitySeo(body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Patch('admin/category-city-pages/:id')
+  @ApiOperation({ summary: 'Update category+city SEO page (admin)' })
+  updateCategoryCitySeo(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.updateCategoryCitySeo(id, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Delete('admin/category-city-pages/:id')
+  @ApiOperation({ summary: 'Delete category+city SEO page (admin)' })
+  deleteCategoryCitySeo(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.seoService.deleteCategoryCitySeo(id);
+  }
+
+  // ── Admin: Category+Locality SEO ──────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('admin/category-locality-pages')
+  @ApiOperation({ summary: 'List all category+locality SEO pages (admin)' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  getCategoryLocalitySeoPages(
+    @Request() req,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+  ) {
+    this.assertAdmin(req);
+    return this.seoService.getCategoryLocalitySeoPages(page, limit, search);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('admin/category-locality-pages')
+  @ApiOperation({ summary: 'Create category+locality SEO page (admin)' })
+  createCategoryLocalitySeo(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.createCategoryLocalitySeo(body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Patch('admin/category-locality-pages/:id')
+  @ApiOperation({ summary: 'Update category+locality SEO page (admin)' })
+  updateCategoryLocalitySeo(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.updateCategoryLocalitySeo(id, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Delete('admin/category-locality-pages/:id')
+  @ApiOperation({ summary: 'Delete category+locality SEO page (admin)' })
+  deleteCategoryLocalitySeo(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.seoService.deleteCategoryLocalitySeo(id);
+  }
+
+  // ── Admin: SEO Config ─────────────────────────────────────────────────────
 
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
@@ -129,7 +320,7 @@ export class SeoController {
     return this.seoService.deleteSeoConfig(id);
   }
 
-  // ── Footer Link Groups ──────────────────────────────────────────────────────
+  // ── Admin: Footer Groups ──────────────────────────────────────────────────
 
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
@@ -167,7 +358,7 @@ export class SeoController {
     return this.seoService.deleteFooterGroup(id);
   }
 
-  // ── Footer Links ─────────────────────────────────────────────────────────────
+  // ── Admin: Footer Links ───────────────────────────────────────────────────
 
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()

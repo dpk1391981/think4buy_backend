@@ -59,6 +59,9 @@ import { SeoModule } from './modules/seo/seo.module';
 import { CityPage } from './modules/seo/entities/city-page.entity';
 import { SeoConfig } from './modules/seo/entities/seo-config.entity';
 import { FooterSeoLink, FooterSeoLinkGroup } from './modules/seo/entities/footer-seo-link.entity';
+import { LocalitySeo } from './modules/seo/entities/locality-seo.entity';
+import { CategoryCitySeo } from './modules/seo/entities/category-city-seo.entity';
+import { CategoryLocalitySeo } from './modules/seo/entities/category-locality-seo.entity';
 import { AgencyModule } from './modules/agency/agency.module';
 import { Agency } from './modules/agency/entities/agency.entity';
 import { AgentProfile } from './modules/agency/entities/agent-profile.entity';
@@ -165,6 +168,9 @@ import { ToolsModule } from './modules/tools/tools.module';
           SeoConfig,
           FooterSeoLink,
           FooterSeoLinkGroup,
+          LocalitySeo,
+          CategoryCitySeo,
+          CategoryLocalitySeo,
           Agency,
           AgentProfile,
           PropertyAgentMap,
