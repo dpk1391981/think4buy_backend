@@ -92,6 +92,7 @@ import { MessageLog } from './modules/messaging/entities/message-log.entity';
 import { SmartSearchModule } from './modules/smart-search/smart-search.module';
 import { SearchLog } from './modules/smart-search/entities/search-log.entity';
 import { UserBehavior } from './modules/smart-search/entities/user-behavior.entity';
+import { ToolsModule } from './modules/tools/tools.module';
 
 @Module({
   imports: [
@@ -220,6 +221,7 @@ import { UserBehavior } from './modules/smart-search/entities/user-behavior.enti
     NotificationsModule,
     MessagingModule,
     SmartSearchModule,
+    ToolsModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)
