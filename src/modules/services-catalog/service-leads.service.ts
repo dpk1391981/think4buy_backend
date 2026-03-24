@@ -1,25 +1,43 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, Like, FindOptionsWhere } from 'typeorm';
 import { ServiceLead, ServiceLeadStatus } from './entities/service-lead.entity';
+import { ServiceCatalog } from './entities/service-catalog.entity';
 import {
   CreateServiceLeadDto,
   UpdateServiceLeadDto,
   ServiceLeadsQueryDto,
 } from './dto/service-lead.dto';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class ServiceLeadsService {
   constructor(
     @InjectRepository(ServiceLead)
     private readonly repo: Repository<ServiceLead>,
+    @InjectRepository(ServiceCatalog)
+    private readonly catalogRepo: Repository<ServiceCatalog>,
   ) {}
 
   // ── Public: capture lead ────────────────────────────────────────────────────
 
   async create(dto: CreateServiceLeadDto): Promise<ServiceLead> {
+    // Accept either a UUID or a slug — resolve to the actual UUID
+    let resolvedServiceId = dto.serviceId;
+    if (!UUID_RE.test(dto.serviceId)) {
+      const service = await this.catalogRepo.findOne({
+        where: { slug: dto.serviceId },
+        select: ['id'],
+      });
+      if (!service) {
+        throw new BadRequestException(`Service "${dto.serviceId}" not found`);
+      }
+      resolvedServiceId = service.id;
+    }
+
     const lead = this.repo.create({
-      serviceId: dto.serviceId,
+      serviceId: resolvedServiceId,
       name:      dto.name.trim(),
       phone:     dto.phone,
       email:     dto.email || null,
