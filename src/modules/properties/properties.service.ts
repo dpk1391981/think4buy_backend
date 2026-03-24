@@ -1264,6 +1264,11 @@ export class PropertiesService {
       qb.andWhere("owner.agentTick != 'none'");
     }
 
+    // Zero brokerage filter — stored value is 'no_brokerage' from post-property form
+    if (filters.zeroBrokerage) {
+      qb.andWhere('property.brokerage = :zeroBrok', { zeroBrok: 'no_brokerage' });
+    }
+
     // Owner / agent filter
     if (filters.agentId) {
       qb.andWhere('property.ownerId = :agentId', { agentId: filters.agentId });

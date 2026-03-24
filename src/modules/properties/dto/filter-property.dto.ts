@@ -223,4 +223,10 @@ export class FilterPropertyDto {
   @IsBoolean()
   @Transform(({ value }) => value === 'true' || value === true)
   topAgent?: boolean;
+
+  @ApiPropertyOptional({ description: 'Filter properties with zero brokerage (brokerage = "0")' })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === true)
+  zeroBrokerage?: boolean;
 }
