@@ -955,6 +955,7 @@ export class AnalyticsService {
         type:             r.type,
         viewCount:        parseInt(r.viewCount) || 0,
         weeklyInquiries:  parseInt(r.weeklyInquiries) || 0,
+        createdAt:        r.createdAt,
         trendScore:       Math.round(score * 10) / 10,
         demandLevel,
         rank:             i + 1,
