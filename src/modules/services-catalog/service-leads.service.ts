@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, Like, FindOptionsWhere } from 'typeorm';
+import { Repository } from 'typeorm';
 import { ServiceLead, ServiceLeadStatus } from './entities/service-lead.entity';
 import { ServiceCatalog } from './entities/service-catalog.entity';
 import {
@@ -58,34 +58,15 @@ export class ServiceLeadsService {
       page = 1, limit = 20,
     } = query;
 
-    const where: FindOptionsWhere<ServiceLead> = {};
-
-    if (serviceId) where.serviceId = serviceId;
-    if (status)    where.status    = status as ServiceLeadStatus;
-    if (location)  where.location  = Like(`%${location}%`);
-
-    if (from && to) {
-      where.createdAt = Between(new Date(from), new Date(to));
-    }
-
     const qb = this.repo
       .createQueryBuilder('sl')
-      .leftJoinAndSelect('sl.service', 'svc')
-      .where(where);
+      .leftJoinAndSelect('sl.service', 'svc');
 
-    if (search) {
-      qb.andWhere(
-        '(sl.name LIKE :s OR sl.phone LIKE :s OR sl.email LIKE :s)',
-        { s: `%${search}%` },
-      );
-    }
-
-    if (from && to) {
-      qb.andWhere('sl.createdAt BETWEEN :from AND :to', {
-        from: new Date(from),
-        to:   new Date(to),
-      });
-    }
+    if (serviceId) qb.andWhere('sl.serviceId = :serviceId', { serviceId });
+    if (status)    qb.andWhere('sl.status = :status', { status });
+    if (location)  qb.andWhere('sl.location LIKE :location', { location: `%${location}%` });
+    if (from && to) qb.andWhere('sl.createdAt BETWEEN :from AND :to', { from: new Date(from), to: new Date(to) });
+    if (search)    qb.andWhere('(sl.name LIKE :s OR sl.phone LIKE :s OR sl.email LIKE :s)', { s: `%${search}%` });
 
     const take   = Math.min(Number(limit), 100);
     const skip   = (Number(page) - 1) * take;
