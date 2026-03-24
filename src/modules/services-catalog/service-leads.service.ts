@@ -1,0 +1,123 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Between, Like, FindOptionsWhere } from 'typeorm';
+import { ServiceLead, ServiceLeadStatus } from './entities/service-lead.entity';
+import {
+  CreateServiceLeadDto,
+  UpdateServiceLeadDto,
+  ServiceLeadsQueryDto,
+} from './dto/service-lead.dto';
+
+@Injectable()
+export class ServiceLeadsService {
+  constructor(
+    @InjectRepository(ServiceLead)
+    private readonly repo: Repository<ServiceLead>,
+  ) {}
+
+  // ── Public: capture lead ────────────────────────────────────────────────────
+
+  async create(dto: CreateServiceLeadDto): Promise<ServiceLead> {
+    const lead = this.repo.create({
+      serviceId: dto.serviceId,
+      name:      dto.name.trim(),
+      phone:     dto.phone,
+      email:     dto.email || null,
+      location:  dto.location?.trim() || null,
+      interest:  dto.interest?.trim() || null,
+      message:   dto.message?.trim() || null,
+      source:    dto.source || 'web',
+      status:    ServiceLeadStatus.NEW,
+    });
+    return this.repo.save(lead);
+  }
+
+  // ── Admin: list with filters + pagination ───────────────────────────────────
+
+  async findAll(query: ServiceLeadsQueryDto) {
+    const {
+      serviceId, status, location, from, to, search,
+      page = 1, limit = 20,
+    } = query;
+
+    const where: FindOptionsWhere<ServiceLead> = {};
+
+    if (serviceId) where.serviceId = serviceId;
+    if (status)    where.status    = status as ServiceLeadStatus;
+    if (location)  where.location  = Like(`%${location}%`);
+
+    if (from && to) {
+      where.createdAt = Between(new Date(from), new Date(to));
+    }
+
+    const qb = this.repo
+      .createQueryBuilder('sl')
+      .leftJoinAndSelect('sl.service', 'svc')
+      .where(where);
+
+    if (search) {
+      qb.andWhere(
+        '(sl.name LIKE :s OR sl.phone LIKE :s OR sl.email LIKE :s)',
+        { s: `%${search}%` },
+      );
+    }
+
+    if (from && to) {
+      qb.andWhere('sl.createdAt BETWEEN :from AND :to', {
+        from: new Date(from),
+        to:   new Date(to),
+      });
+    }
+
+    const take   = Math.min(Number(limit), 100);
+    const skip   = (Number(page) - 1) * take;
+    const [data, total] = await qb
+      .orderBy('sl.createdAt', 'DESC')
+      .skip(skip)
+      .take(take)
+      .getManyAndCount();
+
+    return { data, total, page: Number(page), limit: take };
+  }
+
+  // ── Admin: get single lead ──────────────────────────────────────────────────
+
+  async findOne(id: string): Promise<ServiceLead> {
+    const lead = await this.repo.findOne({
+      where: { id },
+      relations: ['service'],
+    });
+    if (!lead) throw new NotFoundException('Service lead not found');
+    return lead;
+  }
+
+  // ── Admin: update status / note ─────────────────────────────────────────────
+
+  async update(id: string, dto: UpdateServiceLeadDto): Promise<ServiceLead> {
+    const lead = await this.findOne(id);
+    if (dto.status)    lead.status    = dto.status as ServiceLeadStatus;
+    if (dto.adminNote !== undefined) lead.adminNote = dto.adminNote;
+    return this.repo.save(lead);
+  }
+
+  // ── Admin: stats ─────────────────────────────────────────────────────────────
+
+  async getStats() {
+    const total     = await this.repo.count();
+    const newCount  = await this.repo.count({ where: { status: ServiceLeadStatus.NEW } });
+    const contacted = await this.repo.count({ where: { status: ServiceLeadStatus.CONTACTED } });
+    const closed    = await this.repo.count({ where: { status: ServiceLeadStatus.CLOSED } });
+
+    // Leads per service (top 10)
+    const byService = await this.repo
+      .createQueryBuilder('sl')
+      .leftJoin('sl.service', 'svc')
+      .select(['svc.name AS serviceName', 'svc.slug AS serviceSlug', 'COUNT(sl.id) AS cnt'])
+      .groupBy('sl.serviceId')
+      .orderBy('cnt', 'DESC')
+      .limit(10)
+      .getRawMany();
+
+    return { total, new: newCount, contacted, closed, byService };
+  }
+}

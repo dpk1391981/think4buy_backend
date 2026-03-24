@@ -37,6 +37,7 @@ import { City } from './modules/locations/entities/city.entity';
 import { Country } from './modules/locations/entities/country.entity';
 import { Inquiry } from './modules/inquiries/entities/inquiry.entity';
 import { ServiceCatalog } from './modules/services-catalog/entities/service-catalog.entity';
+import { ServiceLead } from './modules/services-catalog/entities/service-lead.entity';
 import { Wallet } from './modules/wallet/entities/wallet.entity';
 import { WalletTransaction } from './modules/wallet/entities/wallet-transaction.entity';
 import { SubscriptionPlan } from './modules/wallet/entities/subscription-plan.entity';
@@ -137,6 +138,7 @@ import { UserBehavior } from './modules/smart-search/entities/user-behavior.enti
           Country,
           Inquiry,
           ServiceCatalog,
+          ServiceLead,
           Wallet,
           WalletTransaction,
           SubscriptionPlan,
