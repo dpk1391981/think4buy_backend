@@ -290,12 +290,12 @@ export class ToolsService {
       // Most common BHK in published listings
       this.propertyRepo
         .createQueryBuilder('p')
-        .select('p.bhk', 'bhk')
+        .select('p.bedrooms', 'bhk')
         .addSelect('COUNT(*)', 'count')
         .where('p.status = :status', { status: 'published' })
-        .andWhere('p.bhk IS NOT NULL')
+        .andWhere('p.bedrooms IS NOT NULL')
         .andWhere(city ? 'p.city = :city' : '1=1', city ? { city } : {})
-        .groupBy('p.bhk')
+        .groupBy('p.bedrooms')
         .orderBy('count', 'DESC')
         .limit(6)
         .getRawMany(),
