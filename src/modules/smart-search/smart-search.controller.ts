@@ -39,7 +39,7 @@ export class SmartSearchController {
       };
     }
 
-    const result = this.service.parseQuery(query, body.category);
+    const result = await this.service.parseQuery(query, body.category);
 
     // Log the search (fire-and-forget — don't await)
     const userId = req.user?.id ?? null;

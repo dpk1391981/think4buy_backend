@@ -9,6 +9,7 @@ import {
   HOT_LEAD_THRESHOLD,
 } from './entities/user-behavior.entity';
 import { Lead, LeadSource, LeadStatus, LeadTemperature } from '../leads/entities/lead.entity';
+import { City } from '../locations/entities/city.entity';
 
 // ─── Types for centralized smart search ──────────────────────────────────────
 
@@ -102,6 +103,8 @@ export class SmartSearchService {
     private behaviorRepo: Repository<UserBehavior>,
     @InjectRepository(Lead)
     private leadRepo: Repository<Lead>,
+    @InjectRepository(City)
+    private cityRepo: Repository<City>,
   ) {}
 
   // ─── Log a search ────────────────────────────────────────────────────────────
@@ -215,7 +218,7 @@ export class SmartSearchService {
    * This is the core of the Global Smart Search system.
    * No DB access needed — pure text analysis.
    */
-  parseQuery(rawQuery: string, categoryOverride?: string): SmartSearchResult {
+  async parseQuery(rawQuery: string, categoryOverride?: string): Promise<SmartSearchResult> {
     const parsed: ParsedSearchQuery = { nearbySearch: false };
     let text = rawQuery.toLowerCase().trim();
 
@@ -363,7 +366,36 @@ export class SmartSearchService {
       text = text.replace(locMatch[0], '').trim();
     }
 
-    // 7. Build URL filters
+    // 7. Normalise city against DB — fixes casing + catches partial matches
+    //    e.g. "south delhi" → "South Delhi", "bengaluru" → "Bangalore"
+    if (parsed.city) {
+      try {
+        // Exact case-insensitive match first (fastest, handles 99% of cases)
+        let match = await this.cityRepo
+          .createQueryBuilder('c')
+          .select(['c.id', 'c.name'])
+          .where('LOWER(c.name) = LOWER(:city)', { city: parsed.city })
+          .andWhere('c.isActive = true')
+          .getOne();
+
+        // Fallback: partial LIKE match (handles "greater noida" prefix etc.)
+        if (!match) {
+          match = await this.cityRepo
+            .createQueryBuilder('c')
+            .select(['c.id', 'c.name'])
+            .where('LOWER(c.name) LIKE :city', { city: `%${parsed.city.toLowerCase()}%` })
+            .andWhere('c.isActive = true')
+            .orderBy('LENGTH(c.name)', 'ASC') // prefer shortest match
+            .getOne();
+        }
+
+        if (match) parsed.city = match.name; // use DB-canonical casing
+      } catch {
+        // DB lookup failed — keep raw parsed city, no hard failure
+      }
+    }
+
+    // 8. Build URL filters
     const filters: Record<string, string> = {};
     if (parsed.bedrooms)  filters.bedrooms  = String(parsed.bedrooms);
     if (parsed.type)      filters.type      = parsed.type;
