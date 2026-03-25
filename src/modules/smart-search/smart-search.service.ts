@@ -219,79 +219,93 @@ export class SmartSearchService {
     const parsed: ParsedSearchQuery = { nearbySearch: false };
     let text = rawQuery.toLowerCase().trim();
 
-    // 1. BHK / bedrooms
-    const bedroomMatch = text.match(/(\d+)\s*(?:bhk|bedroom|bed)/i);
+    // ── Helper: convert amount + unit to INR ─────────────────────────────────
+    const toINR = (num: string, unit: string): number => {
+      const amt = parseFloat(num);
+      const u = (unit || '').toLowerCase().trim();
+      if (u.startsWith('cr')) return amt * 10_000_000;
+      if (u === 'k' || u === 'thousand') return amt * 1_000;
+      return amt * 100_000; // lakh / lac / l / default
+    };
+
+    // 1. BHK / bedrooms  (also strips "1 rk" — handled in type map below)
+    const bedroomMatch = text.match(/\b(\d+)\s*[-]?\s*(?:bhk|bedroom[s]?|bed)\b/i);
     if (bedroomMatch) {
       parsed.bedrooms = parseInt(bedroomMatch[1]);
       text = text.replace(bedroomMatch[0], '').trim();
     }
 
-    // 2. Budget — "under X lakh/cr", "above X lakh", "between X-Y lakh"
-    const budgetUnder = text.match(
-      /(?:under|below|upto|up to|less than)\s*(?:rs\.?\s*)?(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore|k)?/i,
-    );
-    if (budgetUnder) {
-      const amt = parseFloat(budgetUnder[1]);
-      const unit = (budgetUnder[2] || '').toLowerCase();
-      parsed.maxPrice = unit.startsWith('cr') ? amt * 10_000_000 : unit === 'k' ? amt * 1_000 : amt * 100_000;
-      text = text.replace(budgetUnder[0], '').trim();
-    }
-    const budgetAbove = text.match(
-      /(?:above|over|more than|minimum)\s*(?:rs\.?\s*)?(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore|k)?/i,
-    );
-    if (budgetAbove) {
-      const amt = parseFloat(budgetAbove[1]);
-      const unit = (budgetAbove[2] || '').toLowerCase();
-      parsed.minPrice = unit.startsWith('cr') ? amt * 10_000_000 : unit === 'k' ? amt * 1_000 : amt * 100_000;
-      text = text.replace(budgetAbove[0], '').trim();
-    }
+    // 2. Budget — range first (more specific), then upper/lower bounds
+    //    Handles: "50L to 1Cr", "50 lakh – 80 lakh", "under 50 lakh", "above 1 cr"
     const budgetRange = text.match(
-      /(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore)?\s*(?:to|-)\s*(\d+(?:\.\d+)?)\s*(lakh|lac|l|cr|crore)/i,
+      /\b(\d+(?:\.\d+)?)\s*(lakh|lac|l|crore|cr|k|thousand)?\s*(?:to|-|–)\s*(\d+(?:\.\d+)?)\s*(lakh|lac|l|crore|cr|k|thousand)\b/i,
     );
     if (budgetRange && !parsed.maxPrice) {
-      const minUnit = (budgetRange[2] || '').toLowerCase();
-      const maxUnit = (budgetRange[4] || '').toLowerCase();
-      parsed.minPrice = minUnit.startsWith('cr') ? parseFloat(budgetRange[1]) * 10_000_000 : parseFloat(budgetRange[1]) * 100_000;
-      parsed.maxPrice = maxUnit.startsWith('cr') ? parseFloat(budgetRange[3]) * 10_000_000 : parseFloat(budgetRange[3]) * 100_000;
+      parsed.minPrice = toINR(budgetRange[1], budgetRange[2] || '');
+      parsed.maxPrice = toINR(budgetRange[3], budgetRange[4]);
       text = text.replace(budgetRange[0], '').trim();
     }
 
-    // 3. Property type — STRICT matching, longer phrases first
+    if (!parsed.maxPrice) {
+      const budgetUnder = text.match(
+        /\b(?:under|below|upto|up\s+to|within|less\s+than|max(?:imum)?)\s*(?:rs\.?\s*)?(\d+(?:\.\d+)?)\s*(lakh|lac|l|crore|cr|k|thousand)?\b/i,
+      );
+      if (budgetUnder) {
+        parsed.maxPrice = toINR(budgetUnder[1], budgetUnder[2] || '');
+        text = text.replace(budgetUnder[0], '').trim();
+      }
+    }
+
+    if (!parsed.minPrice) {
+      const budgetAbove = text.match(
+        /\b(?:above|over|more\s+than|min(?:imum)?|starting\s+(?:from|at)?|from)\s*(?:rs\.?\s*)?(\d+(?:\.\d+)?)\s*(lakh|lac|l|crore|cr|k|thousand)?\b/i,
+      );
+      if (budgetAbove) {
+        parsed.minPrice = toINR(budgetAbove[1], budgetAbove[2] || '');
+        text = text.replace(budgetAbove[0], '').trim();
+      }
+    }
+
+    // 3. Property type — STRICT matching, multi-word phrases FIRST
     const typeMap: [string, string][] = [
-      ['commercial_warehouse', 'commercial_warehouse'],
-      ['commercial_office', 'commercial_office'],
-      ['commercial_shop', 'commercial_shop'],
-      ['industrial_shed', 'industrial_shed'],
-      ['builder floor', 'builder_floor'],
-      ['office space', 'commercial_office'],
-      ['farm house', 'farm_house'],
-      ['paying guest', 'pg'],
-      ['co-living', 'co_living'],
-      ['coliving', 'co_living'],
-      ['apartment', 'apartment'],
-      ['flat', 'apartment'],         // ← flat STRICTLY maps to apartment
-      ['villa', 'villa'],
-      ['bungalow', 'villa'],
-      ['penthouse', 'penthouse'],
-      ['studio', 'studio'],
-      ['builder_floor', 'builder_floor'],
-      ['farmhouse', 'farm_house'],
-      ['warehouse', 'commercial_warehouse'],
-      ['office', 'commercial_office'],
-      ['showroom', 'showroom'],
-      ['factory', 'factory'],
-      ['industrial', 'factory'],
-      ['plot', 'plot'],
-      ['land', 'land'],
-      ['house', 'house'],
-      ['independent', 'house'],
-      ['pg', 'pg'],
-      ['hostel', 'pg'],
-      ['shop', 'commercial_shop'],
+      // Multi-word first (order matters — more specific before generic)
+      ['service[\\s\\-]apartment',   'apartment'],
+      ['commercial[\\s\\-]warehouse','commercial_warehouse'],
+      ['commercial[\\s\\-]office',   'commercial_office'],
+      ['commercial[\\s\\-]shop',     'commercial_shop'],
+      ['industrial[\\s\\-]shed',     'industrial_shed'],
+      ['builder[\\s\\-]floor',       'builder_floor'],
+      ['independent[\\s\\-]floor',   'builder_floor'],
+      ['office[\\s\\-]space',        'commercial_office'],
+      ['farm[\\s\\-]house',          'farm_house'],
+      ['paying[\\s\\-]guest',        'pg'],
+      ['co[\\s\\-]?living',          'co_living'],
+      // Single-word
+      ['apartment',     'apartment'],
+      ['flat(?:s)?',    'apartment'],          // flat / flats → apartment
+      ['unit',          'apartment'],          // unit → apartment
+      ['villa(?:s)?',   'villa'],
+      ['bungalow',      'villa'],
+      ['penthouse',     'penthouse'],
+      ['studio',        'studio'],
+      ['1\\s*rk',       'studio'],             // 1 RK → studio
+      ['farmhouse',     'farm_house'],
+      ['warehouse',     'commercial_warehouse'],
+      ['showroom',      'showroom'],
+      ['factory',       'factory'],
+      ['plot(?:s)?',    'plot'],
+      ['land',          'plot'],               // land → plot (same category)
+      ['independent',   'house'],
+      ['house(?:s)?',   'house'],
+      ['home',          'house'],
+      ['pg',            'pg'],
+      ['hostel',        'pg'],
+      ['office',        'commercial_office'],
+      ['shop(?:s)?',    'commercial_shop'],
+      ['industrial',    'factory'],
     ];
     for (const [key, val] of typeMap) {
-      // Use word-boundary check to avoid partial matches (e.g. "flat" in "flatted")
-      const re = new RegExp(`\\b${key.replace(/[-\s]/g, '[\\s\\-]')}\\b`, 'i');
+      const re = new RegExp(`\\b${key}\\b`, 'i');
       if (re.test(text)) {
         parsed.type = val;
         parsed.typeGroup = RESIDENTIAL_TYPES.has(val) ? 'residential'
@@ -303,24 +317,45 @@ export class SmartSearchService {
     }
 
     // 4. Nearby intent
-    parsed.nearbySearch = /\b(?:near|nearby|close to)\b/i.test(text);
+    parsed.nearbySearch = /\b(?:near\s+me|nearby|close\s+to)\b/i.test(text);
 
-    // 5. Category from context
+    // 5. Category from context — evaluated BEFORE location stripping so keywords are present
     if (!categoryOverride) {
-      if (/\b(?:for rent|on rent|to rent)\b/i.test(text)) parsed.category = 'rent';
-      else if (/\b(?:for sale|to buy|buy|purchase)\b/i.test(text)) parsed.category = 'buy';
-      else if (/\bpg\b|\bhostel\b/i.test(text)) parsed.category = 'pg';
-      else if (/\bcommercial\b/i.test(text)) parsed.category = 'commercial';
-      else if (/\bindustrial\b/i.test(text)) parsed.category = 'industrial';
+      if (/\b(?:for\s+rent|on\s+rent|to\s+rent|rent(?:al)?|lease|on\s+lease)\b/i.test(rawQuery)) {
+        parsed.category = 'rent';
+      } else if (/\b(?:for\s+sale|to\s+buy|buy|purchase)\b/i.test(rawQuery)) {
+        parsed.category = 'buy';
+      } else if (/\bpg\b|\bhostel\b|\bpaying\s+guest\b/i.test(rawQuery)) {
+        parsed.category = 'pg';
+      } else if (/\bnew\s+project(?:s)?\b/i.test(rawQuery)) {
+        parsed.category = 'new_projects';
+      } else if (/\bbuilder\s+project(?:s)?\b/i.test(rawQuery)) {
+        parsed.category = 'builder_project';
+      } else if (/\binvestment\b/i.test(rawQuery)) {
+        parsed.category = 'investment';
+      } else if (/\bcommercial\b/i.test(rawQuery)) {
+        parsed.category = 'commercial';
+      } else if (/\bindustrial\b/i.test(rawQuery)) {
+        parsed.category = 'industrial';
+      }
+      // Infer category from type when not explicitly mentioned
+      if (!parsed.category && parsed.type) {
+        if (COMMERCIAL_TYPES.has(parsed.type)) parsed.category = 'commercial';
+        if (parsed.type === 'factory' || parsed.type === 'industrial_shed') parsed.category = 'industrial';
+        if (parsed.type === 'pg' || parsed.type === 'co_living') parsed.category = 'pg';
+      }
     } else {
       parsed.category = categoryOverride;
     }
 
-    // 6. Location extraction — "in X", "at X", "near X"
-    const locMatch = text.match(/\b(?:in|at|near)\s+([a-z0-9][a-z0-9\s\-]{1,30}?)(?:\s+(?:under|below|upto|above|for|with)|$)/i);
+    // 6. Location extraction — "in X", "at X"  (stripped after category detection)
+    const locMatch = text.match(
+      /\b(?:in|at)\s+([a-z0-9][a-z0-9\s\-]{1,30}?)(?:\s+(?:under|below|upto|above|for|with|near)|$)/i,
+    );
     if (locMatch) {
       const loc = locMatch[1].trim().replace(/\s+/g, ' ');
-      if (/sector|phase|block|nagar|vihar|enclave|colony|road|marg|street|expressway/i.test(loc)) {
+      // Locality signals: sector, phase, block, nagar, vihar, colony, etc.
+      if (/\b(?:sector|phase|block|nagar|vihar|enclave|colony|road|marg|street|expressway|layout|extension|hills|gardens?|park)\b/i.test(loc)) {
         parsed.locality = loc;
       } else {
         parsed.city = loc;
