@@ -220,7 +220,9 @@ export class SmartSearchService {
    */
   async parseQuery(rawQuery: string, categoryOverride?: string): Promise<SmartSearchResult> {
     const parsed: ParsedSearchQuery = { nearbySearch: false };
-    let text = rawQuery.toLowerCase().trim();
+    // Normalise SEO slug-style input: "flat-in-noida" → "flat in noida"
+    // All type-map entries already support both hyphen and space, so this is safe.
+    let text = rawQuery.replace(/-/g, ' ').toLowerCase().trim();
 
     // ── Helper: convert amount + unit to INR ─────────────────────────────────
     const toINR = (num: string, unit: string): number => {
