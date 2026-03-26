@@ -8,6 +8,7 @@ import { SaveConsentDto } from './dto/save-consent.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { UserRole } from '../users/entities/user.entity';
 
 @Controller('consent')
 export class ConsentController {
@@ -70,7 +71,7 @@ export class ConsentController {
    */
   @Get('stats')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('admin')
+  @Roles(UserRole.ADMIN)
   async getStats() {
     return this.svc.getStats();
   }
