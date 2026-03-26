@@ -85,6 +85,20 @@ export class AgentProfile {
   @Column({ type: 'timestamp', nullable: true })
   authorityScoreUpdatedAt: Date;
 
+  /**
+   * Average response time in hours, admin-settable or derived from inquiry logs.
+   * NULL = unknown / not yet measured.
+   */
+  @Column({ type: 'int', nullable: true })
+  avgResponseHours: number | null;
+
+  /**
+   * Number of formal complaints received (set / reviewed by admin).
+   * Intentionally transparent — always shown on the trust profile.
+   */
+  @Column({ type: 'int', default: 0 })
+  complaintCount: number;
+
   @OneToMany(() => PropertyAgentMap, (map) => map.agent)
   propertyMaps: PropertyAgentMap[];
 

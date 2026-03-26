@@ -21,6 +21,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { AgencyService } from './agency.service';
+import { BrokerTransparencyService } from './broker-transparency.service';
 import {
   CreateAgencyDto,
   UpdateAgencyDto,
@@ -35,7 +36,10 @@ import { UserRole } from '../users/entities/user.entity';
 @ApiTags('agency')
 @Controller('agency')
 export class AgencyController {
-  constructor(private readonly agencyService: AgencyService) {}
+  constructor(
+    private readonly agencyService: AgencyService,
+    private readonly transparencyService: BrokerTransparencyService,
+  ) {}
 
   private assertAdmin(req: any) {
     if (req.user?.role !== UserRole.ADMIN) {
@@ -529,5 +533,33 @@ export class AgencyController {
   adminRemoveCoverage(@Request() req, @Param('id') id: string) {
     this.assertAdmin(req);
     return this.agencyService.removeAgentLocation(id);
+  }
+
+  // ── Broker Transparency Profile ─────────────────────────────────────────────
+
+  /**
+   * Public — returns the trust profile JSON for any agent by their user ID.
+   * Used on agent cards, listing pages, and the agent detail page.
+   */
+  @Get('agent/:userId/transparency-profile')
+  @ApiOperation({ summary: 'Get Broker Transparency Profile for an agent (public)' })
+  async getTransparencyProfile(@Param('userId') userId: string) {
+    return this.agencyService.getTransparencyProfile(userId, this.transparencyService);
+  }
+
+  /**
+   * Admin — update complaint count and/or avg response hours on an agent profile.
+   */
+  @Patch('admin/agent-profiles/:id/trust-signals')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Update complaint count and response time for an agent' })
+  async updateTrustSignals(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { complaintCount?: number; avgResponseHours?: number | null },
+  ) {
+    this.assertAdmin(req);
+    return this.agencyService.updateTrustSignals(id, body);
   }
 }

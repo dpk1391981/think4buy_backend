@@ -96,6 +96,7 @@ import { SmartSearchModule } from './modules/smart-search/smart-search.module';
 import { SearchLog } from './modules/smart-search/entities/search-log.entity';
 import { UserBehavior } from './modules/smart-search/entities/user-behavior.entity';
 import { ToolsModule } from './modules/tools/tools.module';
+import { StorageConfig } from './modules/storage-config/entities/storage-config.entity';
 
 @Module({
   imports: [
@@ -194,6 +195,7 @@ import { ToolsModule } from './modules/tools/tools.module';
           MessageLog,
           SearchLog,
           UserBehavior,
+          StorageConfig,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',

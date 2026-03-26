@@ -34,6 +34,9 @@
     "reset:production": "node -r dotenv/config -r ts-node/register src/database/seeds/reset-production.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "@aws-sdk/client-s3": "^3.1017.0",
+    "@aws-sdk/lib-storage": "^3.1017.0",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.0.0",

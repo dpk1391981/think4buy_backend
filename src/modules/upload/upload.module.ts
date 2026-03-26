@@ -1,13 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ImageUploadService } from './image-upload.service';
+import { StorageConfigModule } from '../storage-config/storage-config.module';
 
-/**
- * Provides `ImageUploadService` to any module that imports `UploadModule`.
- * ConfigModule is imported so ImageUploadService can read PUBLIC_API_URL.
- */
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, StorageConfigModule],
   providers: [ImageUploadService],
   exports: [ImageUploadService],
 })

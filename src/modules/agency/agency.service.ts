@@ -984,4 +984,69 @@ export class AgencyService {
     }));
 
   }
+
+  // ── Broker Transparency Profile ─────────────────────────────────────────────
+
+  async getTransparencyProfile(
+    userId: string,
+    transparencyService: import('./broker-transparency.service').BrokerTransparencyService,
+  ) {
+    const db = this.agentProfileRepo.manager.connection;
+
+    const profile = await this.agentProfileRepo.findOne({ where: { userId } });
+
+    const userRows: any[] = await db.query(
+      'SELECT agentRating, totalDeals, avatar, agentBio, agentLicense, city, state, phone, company, agentExperience FROM users WHERE id = ?',
+      [userId],
+    );
+    const userRow = userRows[0] ?? null;
+    if (!userRow) throw new NotFoundException('Agent not found');
+
+    const reviewResult: any[] = await db.query(
+      'SELECT COUNT(*) AS cnt FROM agent_feedback WHERE agentId = ?',
+      [userId],
+    );
+    const totalReviews = Number(reviewResult[0]?.cnt ?? 0);
+
+    return transparencyService.buildProfile(userId, {
+      totalDeals:      Number(userRow.totalDeals   ?? 0),
+      rating:          Number(userRow.agentRating  ?? 0),
+      totalReviews,
+      avgResponseHours: profile?.avgResponseHours ?? null,
+      complaintCount:   profile?.complaintCount   ?? 0,
+      profileScore:     this.computeProfileScore(userRow),
+    });
+  }
+
+  private computeProfileScore(u: any): number {
+    let score = 0;
+    if (u.avatar)                   score += 15;
+    if (u.agentBio)                 score += 15;
+    if (u.agentLicense)             score += 10;
+    if (u.agentExperience)          score += 10;
+    if (u.phone)                    score += 10;
+    if (u.company)                  score += 10;
+    if (u.city && u.state)          score += 10;
+    if (Number(u.totalDeals) > 0)   score += 10;
+    if (Number(u.agentRating) > 0)  score += 10;
+    return score;
+  }
+
+  async updateTrustSignals(
+    profileId: string,
+    dto: { complaintCount?: number; avgResponseHours?: number | null },
+  ) {
+    const profile = await this.agentProfileRepo.findOne({ where: { id: profileId } });
+    if (!profile) throw new NotFoundException('Agent profile not found');
+
+    if (dto.complaintCount !== undefined) {
+      profile.complaintCount = Math.max(0, dto.complaintCount);
+    }
+    if ('avgResponseHours' in dto) {
+      profile.avgResponseHours = dto.avgResponseHours ?? null;
+    }
+
+    await this.agentProfileRepo.save(profile);
+    return { success: true, profileId };
+  }
 }

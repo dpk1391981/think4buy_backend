@@ -37,6 +37,7 @@ import {
 import { UserRole } from '../users/entities/user.entity';
 import { ApprovalStatus } from '../properties/entities/property.entity';
 import { AgencyService } from '../agency/agency.service';
+import { StorageConfigService } from '../storage-config/storage-config.service';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -47,6 +48,7 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly agencyService: AgencyService,
     private readonly imageUploadService: ImageUploadService,
+    private readonly storageConfigService: StorageConfigService,
   ) {}
 
   private assertAdmin(req: any) {
@@ -610,5 +612,86 @@ export class AdminController {
     if (!file) throw new BadRequestException('No file uploaded');
     const url = await this.imageUploadService.saveImage(file, 'locations');
     return { url };
+  }
+
+  // ── Storage & Watermark Configuration ────────────────────────────────────────
+  @Get('storage-config')
+  @ApiOperation({ summary: 'Get storage & watermark config (admin)' })
+  async getStorageConfig(@Request() req) {
+    this.assertAdmin(req);
+    const map = await this.storageConfigService.getMap();
+    return {
+      s3_enabled:        map['s3_enabled']        ?? '0',
+      s3_region:         map['s3_region']         ?? 'ap-south-1',
+      s3_bucket:         map['s3_bucket']         ?? '',
+      s3_access_key:     map['s3_access_key']     ?? '',
+      // Never return secret key — send a masked placeholder
+      s3_secret_key:     map['s3_secret_key'] ? '••••••••' : '',
+      s3_cdn_url:        map['s3_cdn_url']        ?? '',
+      watermark_enabled: map['watermark_enabled'] ?? '0',
+      watermark_text:    map['watermark_text']    ?? '',
+    };
+  }
+
+  @Post('storage-config')
+  @ApiOperation({ summary: 'Save storage & watermark config (admin)' })
+  async saveStorageConfig(
+    @Request() req,
+    @Body() body: {
+      s3_enabled?: string;
+      s3_region?: string;
+      s3_bucket?: string;
+      s3_access_key?: string;
+      s3_secret_key?: string;
+      s3_cdn_url?: string;
+      watermark_enabled?: string;
+      watermark_text?: string;
+    },
+  ) {
+    this.assertAdmin(req);
+    const entries: { key: string; value: string }[] = [];
+
+    const push = (key: string, val: string | undefined) => {
+      if (val !== undefined) entries.push({ key, value: val });
+    };
+
+    push('s3_enabled',        body.s3_enabled);
+    push('s3_region',         body.s3_region);
+    push('s3_bucket',         body.s3_bucket);
+    push('s3_access_key',     body.s3_access_key);
+    push('s3_cdn_url',        body.s3_cdn_url);
+    push('watermark_enabled', body.watermark_enabled);
+    push('watermark_text',    body.watermark_text);
+
+    // Only update secret if a real value (not the masked placeholder) is sent
+    if (body.s3_secret_key && body.s3_secret_key !== '••••••••') {
+      push('s3_secret_key', body.s3_secret_key);
+    }
+
+    await this.storageConfigService.bulkUpsert(entries);
+    return { success: true };
+  }
+
+  @Post('storage-config/test-s3')
+  @ApiOperation({ summary: 'Test S3 connectivity with current config (admin)' })
+  async testS3Connection(@Request() req) {
+    this.assertAdmin(req);
+    const s3 = await this.storageConfigService.getS3Settings();
+
+    if (!s3.bucket || !s3.accessKey || !s3.secretKey) {
+      return { success: false, message: 'S3 credentials are incomplete.' };
+    }
+
+    try {
+      const { S3Client, ListBucketsCommand } = await import('@aws-sdk/client-s3');
+      const client = new S3Client({
+        region: s3.region,
+        credentials: { accessKeyId: s3.accessKey, secretAccessKey: s3.secretKey },
+      });
+      await client.send(new ListBucketsCommand({}));
+      return { success: true, message: 'S3 connection successful.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message ?? 'S3 connection failed.' };
+    }
   }
 }
