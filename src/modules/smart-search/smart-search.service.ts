@@ -32,6 +32,16 @@ export interface ParsedSearchQuery {
   category?: string;
   /** Whether query has a "near/nearby" intent */
   nearbySearch: boolean;
+  /** Furnishing status extracted from query */
+  furnishingStatus?: 'furnished' | 'semi_furnished' | 'unfurnished';
+  /** Possession status extracted from query */
+  possessionStatus?: 'ready_to_move' | 'under_construction';
+  /** Minimum area (sq ft) */
+  minArea?: number;
+  /** Maximum area (sq ft) */
+  maxArea?: number;
+  /** Lifestyle/amenity keywords extracted (near metro, parking, etc.) */
+  lifestyleTags?: string[];
 }
 
 export interface SmartSearchResult {
@@ -45,6 +55,8 @@ export interface SmartSearchResult {
   nearbySearch: boolean;
   /** The full parsed query details */
   parsed: ParsedSearchQuery;
+  /** Suggested city correction when user city was unrecognised */
+  didYouMean?: string;
 }
 
 // ─── Type group sets ─────────────────────────────────────────────────────────
@@ -66,6 +78,34 @@ const TYPE_LABELS: Record<string, string> = {
   commercial_warehouse: 'Warehouse', factory: 'Factory/Industrial',
   showroom: 'Showroom', industrial_shed: 'Industrial Shed', land: 'Land',
 };
+
+// ─── Lifestyle/amenity keyword patterns ──────────────────────────────────────
+// Each entry: [regex, canonical tag label]
+const LIFESTYLE_PATTERNS: [RegExp, string][] = [
+  [/\bnear\s+metro\b|\bmetro[\s-]?nearby\b|\bmetro[\s-]?station\b/i, 'Near Metro'],
+  [/\bwith\s+parking\b|\bparking\s*(?:available|space|slot)?\b/i, 'Parking'],
+  [/\bswimming\s*pool\b|\bpool\b/i, 'Swimming Pool'],
+  [/\bgym\b|\bfitness\s*(?:center|centre)?\b/i, 'Gym'],
+  [/\bgated\s*(?:society|community|complex|colony)?\b/i, 'Gated Society'],
+  [/\bpower\s*backup\b|\b24[\s\-]?(?:hr|hour|x7)\s*power\b/i, 'Power Backup'],
+  [/\blift\b|\belevator\b/i, 'Lift'],
+  [/\bpark[\s-]?facing\b|\bpark[\s-]?view\b/i, 'Park Facing'],
+  [/\b24[\s\-x\/]*7\s*(?:security|guard)\b|\bsecurity\s*guard\b/i, '24×7 Security'],
+  [/\bbalcony\b/i, 'Balcony'],
+  [/\bmodular\s*kitchen\b/i, 'Modular Kitchen'],
+  [/\bclub[\s-]?house\b|\bclubhouse\b/i, 'Clubhouse'],
+  [/\bwifi\b|\binternet\s*(?:included|connection)?\b/i, 'WiFi'],
+  [/\bwater\s*(?:supply|24[\s\-x\/]*7)\b|\b24[\s\-x\/]*7\s*water\b/i, '24×7 Water'],
+  [/\bair[\s-]?conditioned\b|\bac\s*(?:rooms?)?\b/i, 'Air Conditioned'],
+  [/\bpet[\s-]?friendly\b|\bpets?\s*allowed\b/i, 'Pet Friendly'],
+  [/\bchildren\s*play\b|\bplay[\s-]?area\b|\bkids?\s*play\b/i, 'Play Area'],
+  [/\bschool\s*nearby\b|\bnear\s*school\b/i, 'Near School'],
+  [/\bhospital\s*nearby\b|\bnear\s*hospital\b/i, 'Near Hospital'],
+  [/\bshopping\s*(?:mall|complex|centre)?\s*nearby\b|\bnear\s*mall\b/i, 'Near Mall'],
+  [/\bcorner\s*(?:unit|flat|plot)?\b/i, 'Corner Unit'],
+  [/\bsea[\s-]?facing\b|\bocean[\s-]?view\b/i, 'Sea Facing'],
+  [/\bvaastu\b|\bvastu\b/i, 'Vastu Compliant'],
+];
 
 export class LogSearchDto {
   userId?: string;
@@ -211,17 +251,35 @@ export class SmartSearchService {
     }
   }
 
+  // ─── Levenshtein distance (for "did you mean" city suggestions) ───────────────
+
+  private levenshtein(a: string, b: string): number {
+    const m = a.length;
+    const n = b.length;
+    // Use two rows instead of full matrix for memory efficiency
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    let curr = new Array(n + 1).fill(0);
+    for (let i = 1; i <= m; i++) {
+      curr[0] = i;
+      for (let j = 1; j <= n; j++) {
+        curr[j] = a[i - 1] === b[j - 1]
+          ? prev[j - 1]
+          : 1 + Math.min(prev[j], curr[j - 1], prev[j - 1]);
+      }
+      [prev, curr] = [curr, prev];
+    }
+    return prev[n];
+  }
+
   // ─── Centralized smart search parser ─────────────────────────────────────────
 
   /**
    * Parse a natural language query into structured filters + redirect URL.
    * This is the core of the Global Smart Search system.
-   * No DB access needed — pure text analysis.
    */
   async parseQuery(rawQuery: string, categoryOverride?: string): Promise<SmartSearchResult> {
     const parsed: ParsedSearchQuery = { nearbySearch: false };
     // Normalise SEO slug-style input: "flat-in-noida" → "flat in noida"
-    // All type-map entries already support both hyphen and space, so this is safe.
     let text = rawQuery.replace(/-/g, ' ').toLowerCase().trim();
 
     // ── Helper: convert amount + unit to INR ─────────────────────────────────
@@ -231,6 +289,14 @@ export class SmartSearchService {
       if (u.startsWith('cr')) return amt * 10_000_000;
       if (u === 'k' || u === 'thousand') return amt * 1_000;
       return amt * 100_000; // lakh / lac / l / default
+    };
+
+    // ── Helper: convert area to sq ft ────────────────────────────────────────
+    const toSqFt = (num: string, unit: string): number => {
+      const val = parseFloat(num);
+      const u = (unit || '').toLowerCase().trim();
+      if (u.startsWith('sqm') || u.startsWith('sq m')) return Math.round(val * 10.764);
+      return val; // sq ft / sqft / sft / default
     };
 
     // 1. BHK / bedrooms  (also strips "1 rk" — handled in type map below)
@@ -271,6 +337,25 @@ export class SmartSearchService {
       }
     }
 
+    // 2.5. Area extraction — "1000 sqft", "800 to 1200 sq ft", "1000 sq.ft"
+    const areaRange = text.match(
+      /\b(\d+(?:\.\d+)?)\s*(?:to|-|–)\s*(\d+(?:\.\d+)?)\s*(sq\.?\s*ft|sqft|sft|sq\.?\s*m(?:eter|etre)?s?|sqm)\b/i,
+    );
+    if (areaRange) {
+      parsed.minArea = toSqFt(areaRange[1], areaRange[3]);
+      parsed.maxArea = toSqFt(areaRange[2], areaRange[3]);
+      text = text.replace(areaRange[0], '').trim();
+    } else {
+      const areaSingle = text.match(
+        /\b(\d+(?:\.\d+)?)\s*(sq\.?\s*ft|sqft|sft|sq\.?\s*m(?:eter|etre)?s?|sqm)\b/i,
+      );
+      if (areaSingle) {
+        // Treat single area as minimum (user wants "at least X sqft")
+        parsed.minArea = toSqFt(areaSingle[1], areaSingle[2]);
+        text = text.replace(areaSingle[0], '').trim();
+      }
+    }
+
     // 3. Property type — STRICT matching, multi-word phrases FIRST
     const typeMap: [string, string][] = [
       // Multi-word first (order matters — more specific before generic)
@@ -287,19 +372,19 @@ export class SmartSearchService {
       ['co[\\s\\-]?living',          'co_living'],
       // Single-word
       ['apartment',     'apartment'],
-      ['flat(?:s)?',    'apartment'],          // flat / flats → apartment
-      ['unit',          'apartment'],          // unit → apartment
+      ['flat(?:s)?',    'apartment'],
+      ['unit',          'apartment'],
       ['villa(?:s)?',   'villa'],
       ['bungalow',      'villa'],
       ['penthouse',     'penthouse'],
       ['studio',        'studio'],
-      ['1\\s*rk',       'studio'],             // 1 RK → studio
+      ['1\\s*rk',       'studio'],
       ['farmhouse',     'farm_house'],
       ['warehouse',     'commercial_warehouse'],
       ['showroom',      'showroom'],
       ['factory',       'factory'],
       ['plot(?:s)?',    'plot'],
-      ['land',          'plot'],               // land → plot (same category)
+      ['land',          'plot'],
       ['independent',   'house'],
       ['house(?:s)?',   'house'],
       ['home',          'house'],
@@ -319,6 +404,27 @@ export class SmartSearchService {
         text = text.replace(re, '').trim();
         break;
       }
+    }
+
+    // 3.5. Furnishing status
+    if (/\bsemi[\s\-]?furnished\b|\bsemi[\s\-]?furnish(?:ed)?\b/i.test(text)) {
+      parsed.furnishingStatus = 'semi_furnished';
+      text = text.replace(/\bsemi[\s\-]?furnished?\b/i, '').trim();
+    } else if (/\bunfurnished\b|\bun[\s\-]?furnished\b|\bbare[\s\-]?shell\b/i.test(text)) {
+      parsed.furnishingStatus = 'unfurnished';
+      text = text.replace(/\bunfurnished\b|\bun[\s\-]?furnished\b|\bbare[\s\-]?shell\b/i, '').trim();
+    } else if (/\bfurnished\b/i.test(text)) {
+      parsed.furnishingStatus = 'furnished';
+      text = text.replace(/\bfurnished\b/i, '').trim();
+    }
+
+    // 3.6. Possession status
+    if (/\bready[\s\-]?to[\s\-]?move\b|\brtm\b|\bpossession[\s\-]?ready\b/i.test(text)) {
+      parsed.possessionStatus = 'ready_to_move';
+      text = text.replace(/\bready[\s\-]?to[\s\-]?move\b|\brtm\b|\bpossession[\s\-]?ready\b/i, '').trim();
+    } else if (/\bunder[\s\-]?construction\b|\bnew[\s\-]?launch\b|\bpre[\s\-]?launch\b|\buc\b/i.test(text)) {
+      parsed.possessionStatus = 'under_construction';
+      text = text.replace(/\bunder[\s\-]?construction\b|\bnew[\s\-]?launch\b|\bpre[\s\-]?launch\b|\buc\b/i, '').trim();
     }
 
     // 4. Nearby intent
@@ -353,6 +459,19 @@ export class SmartSearchService {
       parsed.category = categoryOverride;
     }
 
+    // 5.5. Lifestyle / amenity keyword extraction
+    //      Extract BEFORE location so "near metro in Noida" works correctly
+    const extractedTags: string[] = [];
+    for (const [pattern, tag] of LIFESTYLE_PATTERNS) {
+      if (pattern.test(text)) {
+        extractedTags.push(tag);
+        text = text.replace(pattern, '').trim();
+      }
+    }
+    if (extractedTags.length > 0) {
+      parsed.lifestyleTags = extractedTags;
+    }
+
     // 6. Location extraction — "in X", "at X"  (stripped after category detection)
     const locMatch = text.match(
       /\b(?:in|at)\s+([a-z0-9][a-z0-9\s\-]{1,30}?)(?:\s+(?:under|below|upto|above|for|with|near)|$)/i,
@@ -370,6 +489,7 @@ export class SmartSearchService {
 
     // 7. Normalise city against DB — fixes casing + catches partial matches
     //    e.g. "south delhi" → "South Delhi", "bengaluru" → "Bangalore"
+    let didYouMean: string | undefined;
     if (parsed.city) {
       try {
         // Exact case-insensitive match first (fastest, handles 99% of cases)
@@ -391,7 +511,30 @@ export class SmartSearchService {
             .getOne();
         }
 
-        if (match) parsed.city = match.name; // use DB-canonical casing
+        if (match) {
+          parsed.city = match.name; // use DB-canonical casing
+        } else {
+          // No match at all — compute "did you mean" via Levenshtein
+          const allCities = await this.cityRepo.find({
+            where: { isActive: true },
+            select: ['name'],
+          });
+          const inputLower = parsed.city.toLowerCase();
+          let bestName = '';
+          let bestDist = Infinity;
+          for (const c of allCities) {
+            const d = this.levenshtein(inputLower, c.name.toLowerCase());
+            if (d < bestDist) {
+              bestDist = d;
+              bestName = c.name;
+            }
+          }
+          // Only suggest if distance is within 40% of query length (or at most 3 chars)
+          const threshold = Math.max(3, Math.floor(parsed.city.length * 0.4));
+          if (bestName && bestDist <= threshold) {
+            didYouMean = bestName;
+          }
+        }
       } catch {
         // DB lookup failed — keep raw parsed city, no hard failure
       }
@@ -399,24 +542,32 @@ export class SmartSearchService {
 
     // 8. Build URL filters
     const filters: Record<string, string> = {};
-    if (parsed.bedrooms)  filters.bedrooms  = String(parsed.bedrooms);
-    if (parsed.type)      filters.type      = parsed.type;
-    if (parsed.city)      filters.city      = parsed.city;
-    if (parsed.locality)  filters.locality  = parsed.locality;
-    if (parsed.maxPrice)  filters.maxPrice  = String(parsed.maxPrice);
-    if (parsed.minPrice)  filters.minPrice  = String(parsed.minPrice);
-    if (parsed.category)  filters.category  = parsed.category;
+    if (parsed.bedrooms)          filters.bedrooms          = String(parsed.bedrooms);
+    if (parsed.type)              filters.type              = parsed.type;
+    if (parsed.city)              filters.city              = parsed.city;
+    if (parsed.locality)          filters.locality          = parsed.locality;
+    if (parsed.maxPrice)          filters.maxPrice          = String(parsed.maxPrice);
+    if (parsed.minPrice)          filters.minPrice          = String(parsed.minPrice);
+    if (parsed.minArea)           filters.minArea           = String(parsed.minArea);
+    if (parsed.maxArea)           filters.maxArea           = String(parsed.maxArea);
+    if (parsed.category)          filters.category          = parsed.category;
+    if (parsed.furnishingStatus)  filters.furnishingStatus  = parsed.furnishingStatus;
+    if (parsed.possessionStatus)  filters.possessionStatus  = parsed.possessionStatus;
+    // Lifestyle tags → keyword param (full-text search on property fields)
+    if (parsed.lifestyleTags?.length) {
+      filters.keyword = parsed.lifestyleTags.join(' ');
+    }
 
     const qs = new URLSearchParams(filters).toString();
     const redirectUrl = `/properties${qs ? `?${qs}` : ''}`;
 
-    // 8. Build user-friendly chips
+    // 9. Build user-friendly chips
     const chips: { key: string; label: string; value: string }[] = [];
-    if (parsed.bedrooms)  chips.push({ key: 'bedrooms', label: `${parsed.bedrooms} BHK`, value: String(parsed.bedrooms) });
-    if (parsed.type)      chips.push({ key: 'type', label: TYPE_LABELS[parsed.type] || parsed.type, value: parsed.type });
-    if (parsed.city)      chips.push({ key: 'city', label: parsed.city, value: parsed.city });
-    if (parsed.locality)  chips.push({ key: 'locality', label: parsed.locality, value: parsed.locality });
-    if (parsed.category)  chips.push({ key: 'category', label: parsed.category, value: parsed.category });
+    if (parsed.bedrooms)  chips.push({ key: 'bedrooms',  label: `${parsed.bedrooms} BHK`, value: String(parsed.bedrooms) });
+    if (parsed.type)      chips.push({ key: 'type',      label: TYPE_LABELS[parsed.type] || parsed.type, value: parsed.type });
+    if (parsed.city)      chips.push({ key: 'city',      label: parsed.city, value: parsed.city });
+    if (parsed.locality)  chips.push({ key: 'locality',  label: parsed.locality, value: parsed.locality });
+    if (parsed.category)  chips.push({ key: 'category',  label: parsed.category, value: parsed.category });
     if (parsed.maxPrice) {
       const label = parsed.maxPrice >= 10_000_000
         ? `Under ₹${(parsed.maxPrice / 10_000_000).toFixed(1)}Cr`
@@ -429,8 +580,30 @@ export class SmartSearchService {
         : `Above ₹${(parsed.minPrice / 100_000).toFixed(0)}L`;
       chips.push({ key: 'minPrice', label, value: String(parsed.minPrice) });
     }
+    if (parsed.minArea && parsed.maxArea) {
+      chips.push({ key: 'area', label: `${parsed.minArea}–${parsed.maxArea} sqft`, value: `${parsed.minArea}-${parsed.maxArea}` });
+    } else if (parsed.minArea) {
+      chips.push({ key: 'minArea', label: `${parsed.minArea}+ sqft`, value: String(parsed.minArea) });
+    }
+    if (parsed.furnishingStatus) {
+      const furnishLabels: Record<string, string> = {
+        furnished: 'Furnished', semi_furnished: 'Semi-Furnished', unfurnished: 'Unfurnished',
+      };
+      chips.push({ key: 'furnishingStatus', label: furnishLabels[parsed.furnishingStatus], value: parsed.furnishingStatus });
+    }
+    if (parsed.possessionStatus) {
+      const possessionLabels: Record<string, string> = {
+        ready_to_move: 'Ready to Move', under_construction: 'Under Construction',
+      };
+      chips.push({ key: 'possessionStatus', label: possessionLabels[parsed.possessionStatus], value: parsed.possessionStatus });
+    }
+    if (parsed.lifestyleTags?.length) {
+      for (const tag of parsed.lifestyleTags) {
+        chips.push({ key: 'lifestyle', label: tag, value: tag });
+      }
+    }
 
-    return { filters, redirectUrl, chips, nearbySearch: parsed.nearbySearch, parsed };
+    return { filters, redirectUrl, chips, nearbySearch: parsed.nearbySearch, parsed, didYouMean };
   }
 
   // ─── Trending searches ────────────────────────────────────────────────────────
