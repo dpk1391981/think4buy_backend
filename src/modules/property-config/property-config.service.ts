@@ -95,21 +95,31 @@ export class PropertyConfigService {
 
   // ─── Public read endpoints ──────────────────────────────────────────────────
 
-  getActiveCategories() {
-    return this.catRepo.find({
-      where: { status: true },
-      order: { sortOrder: 'ASC', name: 'ASC' },
-    });
+  async getActiveCategories() {
+    const [cats, counts] = await Promise.all([
+      this.catRepo.find({ where: { status: true }, order: { sortOrder: 'ASC', name: 'ASC' } }),
+      this.catRepo.manager.query(`
+        SELECT p.category AS slug, COUNT(*) AS cnt
+        FROM properties p
+        WHERE p.approvalStatus = 'approved' AND p.status = 'active' AND p.isDraft = 0
+          AND p.category != '' AND p.category IS NOT NULL
+        GROUP BY p.category
+      `),
+    ]);
+    const countMap = new Map<string, number>(
+      (counts as { slug: string; cnt: string }[]).map(r => [r.slug, parseInt(r.cnt)]),
+    );
+    return cats.map(c => ({ ...c, totalListings: countMap.get(c.slug) ?? 0 }));
   }
 
   async getTypesByCategory(categoryId: string, categorySlug?: string) {
     let cat: PropCategory | null = null;
     if (categorySlug) {
       cat = await this.catRepo.findOne({ where: { slug: categorySlug } });
-    } else {
+    } else if (categoryId) {
       cat = await this.catRepo.findOne({ where: { id: categoryId } });
     }
-    if (!cat) throw new NotFoundException('Category not found');
+    if (!cat) return [];
     return this.typeRepo.find({
       where: { categoryId: cat.id, status: true },
       order: { sortOrder: 'ASC', name: 'ASC' },
@@ -312,6 +322,14 @@ export class PropertyConfigService {
       order: { sortOrder: 'ASC' },
     });
     if (!category) return all;
+
+    // Collect all category slugs that have explicit filter restrictions
+    const knownCategories = new Set<string>();
+    all.forEach(f => (f.categories || []).forEach(c => knownCategories.add(c)));
+
+    // Dynamic/admin-created categories not in any filter's list → show all filters
+    if (!knownCategories.has(category)) return all;
+
     return all.filter(f => !f.categories?.length || f.categories.includes(category));
   }
 

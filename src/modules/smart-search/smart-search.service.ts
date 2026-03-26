@@ -509,6 +509,40 @@ export class SmartSearchService {
       text = text.replace(locMatch[0], '').trim();
     }
 
+    // 6.5. Fallback city detection — if no city/locality parsed yet and text remains,
+    //      try to match the leftover text directly against the cities DB.
+    //      This handles bare city-name queries like "noida" (without "in/at" prefix).
+    if (!parsed.city && !parsed.locality) {
+      const remainder = text.trim();
+      if (remainder.length > 1) {
+        try {
+          let fallbackMatch = await this.cityRepo
+            .createQueryBuilder('c')
+            .select(['c.id', 'c.name'])
+            .where('LOWER(c.name) = LOWER(:city)', { city: remainder })
+            .andWhere('c.isActive = true')
+            .getOne();
+
+          if (!fallbackMatch) {
+            fallbackMatch = await this.cityRepo
+              .createQueryBuilder('c')
+              .select(['c.id', 'c.name'])
+              .where('LOWER(c.name) LIKE :city', { city: `%${remainder.toLowerCase()}%` })
+              .andWhere('c.isActive = true')
+              .orderBy('LENGTH(c.name)', 'ASC')
+              .getOne();
+          }
+
+          if (fallbackMatch) {
+            parsed.city = fallbackMatch.name;
+            text = ''; // consumed
+          }
+        } catch {
+          // ignore — DB lookup failure
+        }
+      }
+    }
+
     // 7. Normalise city against DB — fixes casing + catches partial matches
     //    e.g. "south delhi" → "South Delhi", "bengaluru" → "Bangalore"
     let didYouMean: string | undefined;

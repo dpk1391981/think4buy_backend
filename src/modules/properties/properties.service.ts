@@ -1204,8 +1204,49 @@ export class PropertiesService {
     }
 
     // ── Standard filters ───────────────────────────────────────────────────────
+
+    // Hardcoded fallback: maps category slugs → known type slugs when admin hasn't
+    // configured prop_types under that category yet.
+    const CATEGORY_TYPE_DEFAULTS: Record<string, string[]> = {
+      buy:             ['apartment', 'flat', 'villa', 'house', 'builder_floor', 'penthouse', 'studio', 'plot', 'farm_house', 'co_living'],
+      rent:            ['apartment', 'flat', 'villa', 'house', 'builder_floor', 'studio', 'pg', 'co_living'],
+      pg:              ['pg', 'co_living'],
+      commercial:      ['commercial_office', 'commercial_shop', 'commercial_warehouse', 'showroom'],
+      industrial:      ['factory', 'industrial_shed'],
+      builder_project: ['apartment', 'flat', 'villa', 'house', 'builder_floor', 'studio'],
+      investment:      ['apartment', 'flat', 'villa', 'plot', 'land', 'commercial_office'],
+    };
+
     if (filters.category) {
-      qb.andWhere('property.category = :category', { category: filters.category });
+      // Translate category slug → prop_type slugs: admin-configured types first, then defaults.
+      // Filter: (property.category = slug) OR (property.type IN expanded type slugs)
+      // This handles old data (category field populated) and new data (category='', type set).
+      try {
+        const catTypes = await this.propTypeRepo
+          .createQueryBuilder('pt')
+          .innerJoin('pt.category', 'cat')
+          .where('cat.slug = :slug', { slug: filters.category })
+          .andWhere('pt.status = :status', { status: true })
+          .select(['pt.slug'])
+          .getMany();
+
+        const baseSlugs = catTypes.length > 0
+          ? catTypes.map(t => t.slug)
+          : (CATEGORY_TYPE_DEFAULTS[filters.category] ?? []);
+
+        if (baseSlugs.length > 0) {
+          const expanded = await Promise.all(baseSlugs.map(s => this.resolveTypeAliases(s)));
+          const catTypeList = [...new Set(expanded.flat())];
+          qb.andWhere(
+            '(property.category = :catSlug OR property.type IN (:...catTypeList))',
+            { catSlug: filters.category, catTypeList },
+          );
+        } else {
+          qb.andWhere('property.category = :category', { category: filters.category });
+        }
+      } catch {
+        qb.andWhere('property.category = :category', { category: filters.category });
+      }
     }
     if (filters.type) {
       const inputTypes = Array.isArray(filters.type) ? filters.type : [filters.type];

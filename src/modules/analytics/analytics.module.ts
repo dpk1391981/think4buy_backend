@@ -10,6 +10,7 @@ import { CategoryAnalytics } from './entities/category-analytics.entity';
 import { MarketSnapshot } from './entities/market-snapshot.entity';
 import { LocalityCircleRate } from './entities/locality-circle-rate.entity';
 import { ScoringConfig } from './entities/scoring-config.entity';
+import { PropType } from '../property-config/entities/prop-type.entity';
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsCronService } from './analytics-cron.service';
 import { AnalyticsController } from './analytics.controller';
@@ -27,6 +28,7 @@ import { AnalyticsController } from './analytics.controller';
       MarketSnapshot,
       LocalityCircleRate,
       ScoringConfig,
+      PropType,
     ]),
   ],
   providers: [AnalyticsService, AnalyticsCronService],

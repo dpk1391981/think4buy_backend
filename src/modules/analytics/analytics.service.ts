@@ -10,6 +10,7 @@ import { CategoryAnalytics } from './entities/category-analytics.entity';
 import { MarketSnapshot } from './entities/market-snapshot.entity';
 import { LocalityCircleRate } from './entities/locality-circle-rate.entity';
 import { ScoringConfig } from './entities/scoring-config.entity';
+import { PropType } from '../property-config/entities/prop-type.entity';
 
 // ─── Resolve area value from column or extraDetails JSON fallback ─────────────
 // Priority: p.area column → extraDetails.carpet_area[0].value → extraDetails.area[0].value
@@ -329,8 +330,60 @@ export class AnalyticsService {
     @InjectRepository(ScoringConfig)
     private readonly scoringConfigRepo: Repository<ScoringConfig>,
 
+    @InjectRepository(PropType)
+    private readonly propTypeRepo: Repository<PropType>,
+
     private readonly dataSource: DataSource,
   ) {}
+
+  // ─── Dynamic type alias resolution ──────────────────────────────────────────
+
+  /**
+   * Returns a map of slug → canonicalSlug from the prop_types table.
+   * Aliases (aliasOf != null) map to their canonical slug.
+   * Canonical types map to themselves.
+   */
+  private async getAliasMap(): Promise<Map<string, string>> {
+    try {
+      const types = await this.propTypeRepo.find({ select: ['slug', 'aliasOf'] });
+      const map = new Map<string, string>();
+      for (const t of types) {
+        map.set(t.slug, t.aliasOf ?? t.slug);
+      }
+      return map;
+    } catch {
+      return new Map();
+    }
+  }
+
+  /**
+   * Returns label+icon for each canonical type slug.
+   * Prefers values from prop_types DB, falls back to PROPERTY_TYPE_META.
+   */
+  private async getTypeMeta(): Promise<Map<string, { label: string; icon: string }>> {
+    const map = new Map<string, { label: string; icon: string }>();
+    // Seed with hardcoded fallbacks first
+    for (const [slug, meta] of Object.entries(PROPERTY_TYPE_META)) {
+      map.set(slug, { ...meta });
+    }
+    try {
+      const types = await this.propTypeRepo.find({ where: { status: true }, select: ['slug', 'name', 'icon', 'aliasOf'] });
+      for (const t of types) {
+        const canonical = t.aliasOf ?? t.slug;
+        if (!map.has(canonical)) {
+          // New type not in hardcoded list — use DB name/icon
+          map.set(canonical, { label: t.name || canonical, icon: t.icon || '🏠' });
+        }
+        // Alias itself should also resolve meta through canonical
+        if (t.aliasOf && !map.has(t.slug)) {
+          map.set(t.slug, map.get(t.aliasOf) ?? { label: t.name || t.slug, icon: t.icon || '🏠' });
+        }
+      }
+    } catch {
+      // ignore — hardcoded fallbacks already seeded
+    }
+    return map;
+  }
 
   // ─── Load weights (DB overrides defaults) ────────────────────────────────────
   private async loadWeights(): Promise<Weights> {
@@ -445,7 +498,14 @@ export class AnalyticsService {
     else if (filters.state)  liveQb.andWhere('p.state = :state', { state: filters.state });
 
     const liveCounts: { propertyType: string; cnt: string }[] = await liveQb.getRawMany();
-    const liveCountMap = new Map(liveCounts.map(r => [r.propertyType, parseInt(r.cnt)]));
+
+    // Resolve aliases so canonical type → sum of all alias type counts
+    const aliasMapForLive = await this.getAliasMap();
+    const liveCountMap = new Map<string, number>();
+    for (const r of liveCounts) {
+      const canonical = aliasMapForLive.get(r.propertyType) ?? r.propertyType;
+      liveCountMap.set(canonical, (liveCountMap.get(canonical) ?? 0) + parseInt(r.cnt));
+    }
 
     // ── Build location-aware WHERE for cache (used for rank / trending only) ──
     const qb = this.catRepo
@@ -489,7 +549,7 @@ export class AnalyticsService {
       .sort((a, b) => a.rank - b.rank);
   }
 
-  /** Live fallback: count properties by type from main DB */
+  /** Live fallback: count properties by type from main DB, with alias resolution */
   private async getLiveCategoryData(
     filters: { country?: string; state?: string; city?: string },
     limit: number,
@@ -504,28 +564,40 @@ export class AnalyticsService {
       .andWhere('p.isDraft = :isDraft', { isDraft: false })
       .groupBy('p.type')
       .orderBy('totalListings', 'DESC')
-      .limit(limit);
+      .limit(limit * 3); // fetch more to account for alias merging
 
     if (filters.city)    qb.andWhere('p.city = :city', { city: filters.city });
     else if (filters.state) qb.andWhere('p.state = :state', { state: filters.state });
 
     const rows: { propertyType: string; totalListings: string }[] = await qb.getRawMany();
 
-    return rows.map((r, idx) => {
-      const meta = PROPERTY_TYPE_META[r.propertyType] || { label: r.propertyType, icon: '🏠' };
-      return {
-        propertyType:  r.propertyType,
-        label:         meta.label,
-        icon:          meta.icon,
-        totalListings: parseInt(r.totalListings),
-        totalViews:    0,
-        totalSearches: 0,
-        score:         parseInt(r.totalListings),
-        rank:          idx + 1,
-        isTrending:    false,
-        trendingScore: 0,
-      };
-    });
+    const [aliasMap, typeMeta] = await Promise.all([this.getAliasMap(), this.getTypeMeta()]);
+
+    // Merge aliased types into their canonical slug
+    const merged = new Map<string, number>();
+    for (const r of rows) {
+      const canonical = aliasMap.get(r.propertyType) ?? r.propertyType;
+      merged.set(canonical, (merged.get(canonical) ?? 0) + parseInt(r.totalListings));
+    }
+
+    return Array.from(merged.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([slug, count], idx) => {
+        const meta = typeMeta.get(slug) ?? { label: slug, icon: '🏠' };
+        return {
+          propertyType:  slug,
+          label:         meta.label,
+          icon:          meta.icon,
+          totalListings: count,
+          totalViews:    0,
+          totalSearches: 0,
+          score:         count,
+          rank:          idx + 1,
+          isTrending:    false,
+          trendingScore: 0,
+        };
+      });
   }
 
   // ─── Home API: Top States ────────────────────────────────────────────────────
@@ -2172,9 +2244,17 @@ export class AnalyticsService {
         GROUP BY ae.metadata->>'$.propertyType'
       `, [since14d, since7d]);
 
-    const prevViewMap = new Map(prevViews.map(r => [r.entityId, parseInt(r.cnt)]));
+    // Load alias map + type meta from DB (dynamic, admin-configurable)
+    const [aliasMap, typeMeta] = await Promise.all([this.getAliasMap(), this.getTypeMeta()]);
 
-    // Build a map: propertyType+city+state → metrics
+    // Build prevViewMap with alias resolution (canonical type → count)
+    const prevViewMap = new Map<string, number>();
+    for (const r of prevViews) {
+      const canonical = aliasMap.get(r.entityId) ?? r.entityId;
+      prevViewMap.set(canonical, (prevViewMap.get(canonical) ?? 0) + parseInt(r.cnt));
+    }
+
+    // Build a map: canonicalType+city+state → metrics (aliases merged into canonical)
     type MetricsKey = string;
     const metricsMap = new Map<MetricsKey, {
       type: string; city: string; state: string;
@@ -2185,22 +2265,25 @@ export class AnalyticsService {
       `${type}|${city || ''}|${state || ''}`;
 
     for (const r of listingCounts) {
-      const k = key(r.type, r.city, r.state);
-      const entry = metricsMap.get(k) || { type: r.type, city: r.city, state: r.state, listings: 0, views: 0, searches: 0, prevViews: 0 };
-      entry.listings = parseInt(r.cnt);
+      const canonical = aliasMap.get(r.type) ?? r.type;
+      const k = key(canonical, r.city, r.state);
+      const entry = metricsMap.get(k) || { type: canonical, city: r.city, state: r.state, listings: 0, views: 0, searches: 0, prevViews: 0 };
+      entry.listings += parseInt(r.cnt);
       metricsMap.set(k, entry);
     }
 
     for (const r of viewCounts) {
-      const k = key(r.entityId, r.city, r.state);
-      const entry = metricsMap.get(k) || { type: r.entityId, city: r.city, state: r.state, listings: 0, views: 0, searches: 0, prevViews: 0 };
+      const canonical = aliasMap.get(r.entityId) ?? r.entityId;
+      const k = key(canonical, r.city, r.state);
+      const entry = metricsMap.get(k) || { type: canonical, city: r.city, state: r.state, listings: 0, views: 0, searches: 0, prevViews: 0 };
       entry.views += parseInt(r.cnt);
       metricsMap.set(k, entry);
     }
 
     for (const r of searchCounts) {
-      const k = key(r.entityId, r.city, r.state);
-      const entry = metricsMap.get(k) || { type: r.entityId, city: r.city, state: r.state, listings: 0, views: 0, searches: 0, prevViews: 0 };
+      const canonical = aliasMap.get(r.entityId) ?? r.entityId;
+      const k = key(canonical, r.city, r.state);
+      const entry = metricsMap.get(k) || { type: canonical, city: r.city, state: r.state, listings: 0, views: 0, searches: 0, prevViews: 0 };
       entry.searches += parseInt(r.cnt);
       metricsMap.set(k, entry);
     }
@@ -2245,7 +2328,7 @@ export class AnalyticsService {
         const trendingScore = prevV > 0 ? (e.views - prevV) / prevV : 0;
         const isTrending = trendingScore >= TRENDING_THRESHOLD;
 
-        const meta = PROPERTY_TYPE_META[e.type] || { label: e.type, icon: '🏠' };
+        const meta = typeMeta.get(e.type) ?? { label: e.type, icon: '🏠' };
 
         return { ...e, score, trendingScore, isTrending, ...meta };
       }).sort((a, b) => b.score - a.score);
