@@ -12,8 +12,6 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  PropertyType,
-  PropertyCategory,
   FurnishingStatus,
   PossessionStatus,
 } from '../entities/property.entity';
@@ -27,13 +25,13 @@ export class CreatePropertyDto {
   @IsString()
   description: string;
 
-  @ApiProperty({ enum: PropertyType })
-  @IsEnum(PropertyType)
-  type: PropertyType;
+  @ApiProperty({ example: 'apartment', description: 'Property type slug from admin panel (dynamic)' })
+  @IsString()
+  type: string;
 
-  @ApiProperty({ enum: PropertyCategory })
-  @IsEnum(PropertyCategory)
-  category: PropertyCategory;
+  @ApiProperty({ example: 'buy', description: 'Property category slug from admin panel (dynamic)' })
+  @IsString()
+  category: string;
 
   @ApiProperty({ example: 15000000 })
   @IsNumber()

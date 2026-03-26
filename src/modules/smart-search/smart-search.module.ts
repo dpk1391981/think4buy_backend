@@ -6,9 +6,10 @@ import { SearchLog } from './entities/search-log.entity';
 import { UserBehavior } from './entities/user-behavior.entity';
 import { Lead } from '../leads/entities/lead.entity';
 import { City } from '../locations/entities/city.entity';
+import { PropType } from '../property-config/entities/prop-type.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([SearchLog, UserBehavior, Lead, City])],
+  imports: [TypeOrmModule.forFeature([SearchLog, UserBehavior, Lead, City, PropType])],
   controllers: [SmartSearchController],
   providers: [SmartSearchService],
   exports: [SmartSearchService],

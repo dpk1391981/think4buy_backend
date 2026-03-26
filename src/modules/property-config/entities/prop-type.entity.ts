@@ -26,6 +26,14 @@ export class PropType {
   @Column({ type: 'int', default: 0 })
   sortOrder: number;
 
+  /**
+   * If set, this type is an alias for the canonical type with this slug.
+   * e.g. "flat" and "builder_floor" may both have aliasOf = "apartment"
+   * so searches for any of them return the full group.
+   */
+  @Column({ length: 100, nullable: true, default: null })
+  aliasOf: string | null;
+
   @ManyToOne(() => PropCategory, (c) => c.propertyTypes, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'category_id' })
   category: PropCategory;

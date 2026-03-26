@@ -10,6 +10,7 @@ import {
 } from './entities/user-behavior.entity';
 import { Lead, LeadSource, LeadStatus, LeadTemperature } from '../leads/entities/lead.entity';
 import { City } from '../locations/entities/city.entity';
+import { PropType } from '../property-config/entities/prop-type.entity';
 
 // ─── Types for centralized smart search ──────────────────────────────────────
 
@@ -61,7 +62,7 @@ export interface SmartSearchResult {
 
 // ─── Type group sets ─────────────────────────────────────────────────────────
 const RESIDENTIAL_TYPES = new Set([
-  'apartment', 'villa', 'house', 'builder_floor', 'penthouse',
+  'apartment', 'flat', 'villa', 'house', 'builder_floor', 'penthouse',
   'studio', 'plot', 'farm_house', 'co_living', 'pg',
 ]);
 const COMMERCIAL_TYPES = new Set([
@@ -71,7 +72,7 @@ const COMMERCIAL_TYPES = new Set([
 
 // ─── Type display labels ──────────────────────────────────────────────────────
 const TYPE_LABELS: Record<string, string> = {
-  apartment: 'Flat/Apartment', villa: 'Villa', house: 'House',
+  apartment: 'Flat/Apartment', flat: 'Flat/Apartment', villa: 'Villa', house: 'House',
   builder_floor: 'Builder Floor', penthouse: 'Penthouse', studio: 'Studio',
   plot: 'Plot', farm_house: 'Farmhouse', co_living: 'Co-Living', pg: 'PG',
   commercial_office: 'Office Space', commercial_shop: 'Shop',
@@ -145,6 +146,8 @@ export class SmartSearchService {
     private leadRepo: Repository<Lead>,
     @InjectRepository(City)
     private cityRepo: Repository<City>,
+    @InjectRepository(PropType)
+    private propTypeRepo: Repository<PropType>,
   ) {}
 
   // ─── Log a search ────────────────────────────────────────────────────────────
@@ -271,6 +274,25 @@ export class SmartSearchService {
     return prev[n];
   }
 
+  // ─── Resolve type aliases (same logic as PropertiesService) ─────────────────
+
+  private async resolveTypeAliases(slug: string): Promise<string[]> {
+    try {
+      const typeRecord = await this.propTypeRepo.findOne({ where: { slug, status: true } });
+      const canonicalSlug = typeRecord?.aliasOf ?? slug;
+      const aliasGroup = await this.propTypeRepo.find({
+        where: [
+          { slug: canonicalSlug, status: true },
+          { aliasOf: canonicalSlug, status: true },
+        ],
+        select: ['slug'],
+      });
+      return [...new Set([slug, ...aliasGroup.map(t => t.slug)])];
+    } catch {
+      return [slug];
+    }
+  }
+
   // ─── Centralized smart search parser ─────────────────────────────────────────
 
   /**
@@ -372,7 +394,7 @@ export class SmartSearchService {
       ['co[\\s\\-]?living',          'co_living'],
       // Single-word
       ['apartment',     'apartment'],
-      ['flat(?:s)?',    'apartment'],
+      ['flat(?:s)?',    'flat'],
       ['unit',          'apartment'],
       ['villa(?:s)?',   'villa'],
       ['bungalow',      'villa'],

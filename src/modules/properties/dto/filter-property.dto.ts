@@ -2,8 +2,6 @@ import { IsOptional, IsEnum, IsNumber, IsString, IsBoolean } from 'class-validat
 import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  PropertyType,
-  PropertyCategory,
   FurnishingStatus,
   PossessionStatus,
   PropertyStatus,
@@ -11,14 +9,14 @@ import {
 } from '../entities/property.entity';
 
 export class FilterPropertyDto {
-  @ApiPropertyOptional({ enum: PropertyCategory })
+  @ApiPropertyOptional({ description: 'Category slug from admin panel (dynamic)', example: 'buy' })
   @IsOptional()
-  @IsEnum(PropertyCategory)
-  category?: PropertyCategory;
+  @IsString()
+  category?: string;
 
-  @ApiPropertyOptional({ enum: PropertyType, isArray: true })
+  @ApiPropertyOptional({ description: 'Property type slug(s) from admin panel (dynamic)', example: 'apartment' })
   @IsOptional()
-  type?: PropertyType | PropertyType[];
+  type?: string | string[];
 
   @ApiPropertyOptional()
   @IsOptional()

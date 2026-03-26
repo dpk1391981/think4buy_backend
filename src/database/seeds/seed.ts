@@ -1724,26 +1724,28 @@ async function seed() {
   ]);
   console.log('Seeded prop_categories (aligned with listing categories)');
 
-  // ─── prop_types — slugs mirror PropertyType enum values ──────────────────────
+  // ─── prop_types — slugs come from admin panel prop_types table (dynamic) ─────
   // buy: residential types
-  const [apt, villa, house, builderFloor, penthouse, studio, farmHouse, plot] = await typeRepo.save([
+  const [apt, villa, house, builderFloor, penthouse, studio, farmHouse, plot, flatBuy] = await typeRepo.save([
     { name: 'Apartment',         slug: 'apartment',         icon: '🏙️', categoryId: buyCat.id, status: true, sortOrder: 1 },
     { name: 'Villa',             slug: 'villa',             icon: '🏡', categoryId: buyCat.id, status: true, sortOrder: 2 },
     { name: 'Independent House', slug: 'house',             icon: '🏠', categoryId: buyCat.id, status: true, sortOrder: 3 },
-    { name: 'Builder Floor',     slug: 'builder_floor',     icon: '🏗️', categoryId: buyCat.id, status: true, sortOrder: 4 },
+    { name: 'Builder Floor',     slug: 'builder_floor',     icon: '🏗️', categoryId: buyCat.id, status: true, sortOrder: 4, aliasOf: 'apartment' },
     { name: 'Penthouse',         slug: 'penthouse',         icon: '🌆', categoryId: buyCat.id, status: true, sortOrder: 5 },
     { name: 'Studio Apartment',  slug: 'studio',            icon: '🛋️', categoryId: buyCat.id, status: true, sortOrder: 6 },
     { name: 'Farm House',        slug: 'farm_house',        icon: '🌾', categoryId: buyCat.id, status: true, sortOrder: 7 },
     { name: 'Residential Plot',  slug: 'plot',              icon: '📐', categoryId: buyCat.id, status: true, sortOrder: 8 },
+    { name: 'Flat',              slug: 'flat',              icon: '🏢', categoryId: buyCat.id, status: true, sortOrder: 9, aliasOf: 'apartment' },
   ]);
   // rent: same types
-  const [rApt, rVilla, rHouse, rBuilderFloor, rPenthouse, rStudio] = await typeRepo.save([
+  const [rApt, rVilla, rHouse, rBuilderFloor, rPenthouse, rStudio, rFlat] = await typeRepo.save([
     { name: 'Apartment',         slug: 'apartment',         icon: '🏙️', categoryId: rentCat.id, status: true, sortOrder: 1 },
     { name: 'Villa',             slug: 'villa',             icon: '🏡', categoryId: rentCat.id, status: true, sortOrder: 2 },
     { name: 'Independent House', slug: 'house',             icon: '🏠', categoryId: rentCat.id, status: true, sortOrder: 3 },
-    { name: 'Builder Floor',     slug: 'builder_floor',     icon: '🏗️', categoryId: rentCat.id, status: true, sortOrder: 4 },
+    { name: 'Builder Floor',     slug: 'builder_floor',     icon: '🏗️', categoryId: rentCat.id, status: true, sortOrder: 4, aliasOf: 'apartment' },
     { name: 'Penthouse',         slug: 'penthouse',         icon: '🌆', categoryId: rentCat.id, status: true, sortOrder: 5 },
     { name: 'Studio Apartment',  slug: 'studio',            icon: '🛋️', categoryId: rentCat.id, status: true, sortOrder: 6 },
+    { name: 'Flat',              slug: 'flat',              icon: '🏢', categoryId: rentCat.id, status: true, sortOrder: 7, aliasOf: 'apartment' },
   ]);
   // pg
   const [pgType, coLiving] = await typeRepo.save([
@@ -1765,16 +1767,17 @@ async function seed() {
     { name: 'Industrial Shed',   slug: 'industrial_shed',      icon: '🏚️', categoryId: indCat.id, status: true, sortOrder: 3 },
   ]);
   // builder_project (same residential types for new construction)
-  const [bpApt, bpVilla] = await typeRepo.save([
+  const [bpApt, bpVilla, bpFlat] = await typeRepo.save([
     { name: 'Apartment',         slug: 'apartment',         icon: '🏙️', categoryId: bpCat.id, status: true, sortOrder: 1 },
     { name: 'Villa / Plots',     slug: 'villa',             icon: '🏡', categoryId: bpCat.id, status: true, sortOrder: 2 },
+    { name: 'Flat',              slug: 'flat',              icon: '🏢', categoryId: bpCat.id, status: true, sortOrder: 3, aliasOf: 'apartment' },
   ]);
   // investment
   const [invPlot, invLand] = await typeRepo.save([
     { name: 'Residential Plot',  slug: 'plot',              icon: '📐', categoryId: invCat.id, status: true, sortOrder: 1 },
     { name: 'Agricultural Land', slug: 'land',              icon: '🌱', categoryId: invCat.id, status: true, sortOrder: 2 },
   ]);
-  console.log('Seeded prop_types (slugs match PropertyType enum)');
+  console.log('Seeded prop_types (dynamic slugs from admin panel)');
 
   // ─── prop_type_amenities — map amenities to each property type ────────────────
   const allAmenities = await dataSource.getRepository(Amenity).find();

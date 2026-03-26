@@ -10,10 +10,11 @@ import { Amenity } from './entities/amenity.entity';
 import { PropertyView } from './entities/property-view.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { UploadModule } from '../upload/upload.module';
+import { PropType } from '../property-config/entities/prop-type.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Property, PropertyImage, PropertyStatusHistory, Amenity, PropertyView]),
+    TypeOrmModule.forFeature([Property, PropertyImage, PropertyStatusHistory, Amenity, PropertyView, PropType]),
     WalletModule,
     ScheduleModule.forRoot(),
     UploadModule,

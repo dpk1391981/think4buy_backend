@@ -185,7 +185,7 @@ export class PropertyConfigService {
 
   async createType(dto: {
     name: string; slug: string; categoryId: string;
-    icon?: string; status?: boolean; sortOrder?: number;
+    icon?: string; status?: boolean; sortOrder?: number; aliasOf?: string | null;
   }) {
     const cat = await this.catRepo.findOne({ where: { id: dto.categoryId } });
     if (!cat) throw new NotFoundException('Category not found');
@@ -195,7 +195,7 @@ export class PropertyConfigService {
 
   async updateType(id: string, dto: Partial<{
     name: string; slug: string; categoryId: string;
-    icon: string; status: boolean; sortOrder: number;
+    icon: string; status: boolean; sortOrder: number; aliasOf: string | null;
   }>) {
     const pt = await this.typeRepo.findOne({ where: { id } });
     if (!pt) throw new NotFoundException('Property type not found');

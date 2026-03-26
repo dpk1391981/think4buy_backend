@@ -98,12 +98,12 @@ export class Property {
   @Column({ type: 'text' })
   description: string;
 
-  @Column({ type: 'enum', enum: PropertyType })
-  type: PropertyType;
+  @Column({ length: 100 })
+  type: string;
 
-  @Column({ type: 'enum', enum: PropertyCategory })
+  @Column({ length: 100 })
   @Index()
-  category: PropertyCategory;
+  category: string;
 
   @Column({ type: 'decimal', precision: 15, scale: 2 })
   price: number;

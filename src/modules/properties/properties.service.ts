@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { Repository, SelectQueryBuilder, In } from 'typeorm';
 import slugify from 'slugify';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -15,13 +15,13 @@ import {
   PropertyStatus,
   PropertyCategory,
   ApprovalStatus,
-  PropertyType,
   ListingUserType,
 } from './entities/property.entity';
 import { PropertyImage } from './entities/property-image.entity';
 import { PropertyStatusHistory } from './entities/property-status-history.entity';
 import { Amenity } from './entities/amenity.entity';
 import { PropertyView } from './entities/property-view.entity';
+import { PropType } from '../property-config/entities/prop-type.entity';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { FilterPropertyDto } from './dto/filter-property.dto';
 import { User, UserRole } from '../users/entities/user.entity';
@@ -45,7 +45,7 @@ interface ParsedKeyword {
 
 // Types that belong to residential vs commercial — used for STRICT category segregation
 const RESIDENTIAL_TYPES = new Set([
-  'apartment', 'villa', 'house', 'builder_floor', 'penthouse',
+  'apartment', 'flat', 'villa', 'house', 'builder_floor', 'penthouse',
   'studio', 'plot', 'farm_house', 'co_living', 'pg',
 ]);
 const COMMERCIAL_TYPES = new Set([
@@ -68,8 +68,32 @@ export class PropertiesService {
     private viewRepo: Repository<PropertyView>,
     @InjectRepository(PropertyStatusHistory)
     private statusHistoryRepo: Repository<PropertyStatusHistory>,
+    @InjectRepository(PropType)
+    private propTypeRepo: Repository<PropType>,
     private walletService: WalletService,
   ) {}
+
+  /**
+   * Given a type slug, returns an expanded list of slugs that belong to the
+   * same alias group. E.g. "flat" → ["flat", "apartment", "builder_floor"]
+   * so searches for any alias return the full group.
+   */
+  private async resolveTypeAliases(slug: string): Promise<string[]> {
+    // Find the type record for this slug (any category is fine for alias lookup)
+    const typeRecord = await this.propTypeRepo.findOne({ where: { slug, status: true } });
+    // Determine canonical slug
+    const canonicalSlug = typeRecord?.aliasOf ?? slug;
+    // Fetch all active types that are the canonical or alias of the canonical
+    const aliasGroup = await this.propTypeRepo.find({
+      where: [
+        { slug: canonicalSlug, status: true },
+        { aliasOf: canonicalSlug, status: true },
+      ],
+      select: ['slug'],
+    });
+    // Return unique slugs (include the original in case it wasn't found in DB)
+    return [...new Set([slug, ...aliasGroup.map(t => t.slug)])];
+  }
 
   /** Runs every hour — expires paid boosts whose boostExpiresAt has passed */
   @Cron(CronExpression.EVERY_HOUR)
@@ -155,7 +179,7 @@ export class PropertiesService {
       'farm house': 'farm_house', 'paying guest': 'pg',
       'co-living': 'co_living', coliving: 'co_living',
       // single keywords
-      apartment: 'apartment', flat: 'apartment',
+      apartment: 'apartment', flat: 'flat',
       villa: 'villa', bungalow: 'villa',
       house: 'house', independent: 'house',
       plot: 'plot', penthouse: 'penthouse', studio: 'studio',
@@ -432,7 +456,7 @@ export class PropertiesService {
     if (!dto.title || !dto.title.trim()) {
       const bedroomPrefix = dto.bedrooms ? `${dto.bedrooms} BHK ` : '';
       const typeMap: Record<string, string> = {
-        apartment: 'Apartment', villa: 'Villa', house: 'Independent House',
+        apartment: 'Apartment', flat: 'Flat', villa: 'Villa', house: 'Independent House',
         plot: 'Plot', studio: 'Studio', penthouse: 'Penthouse',
         commercial_office: 'Office Space', commercial_shop: 'Shop',
         commercial_warehouse: 'Warehouse', factory: 'Factory',
@@ -540,7 +564,7 @@ export class PropertiesService {
         ))`,
       );
 
-    this.applyFilters(qb, filters);
+    await this.applyFilters(qb, filters);
 
     // Sorting
     const allowedSort = ['createdAt', 'price', 'area', 'viewCount'];
@@ -659,7 +683,7 @@ export class PropertiesService {
       .andWhere('property.latitude IS NOT NULL')
       .andWhere('property.longitude IS NOT NULL');
 
-    this.applyFilters(qb, filters);
+    await this.applyFilters(qb, filters);
     return qb.limit(200).getMany();
   }
 
@@ -1115,7 +1139,7 @@ export class PropertiesService {
   // ─────────────────────────────────────────────────────────────────────────────
   // Apply Filters (core query builder logic)
   // ─────────────────────────────────────────────────────────────────────────────
-  private applyFilters(qb: SelectQueryBuilder<Property>, filters: FilterPropertyDto) {
+  private async applyFilters(qb: SelectQueryBuilder<Property>, filters: FilterPropertyDto) {
     // ── Smart keyword (NLP) ────────────────────────────────────────────────────
     // If city param looks like a keyword (contains spaces or type slugs), treat it as keyword
     // Match only clear keyword signals: underscore slugs OR known property type words
@@ -1149,7 +1173,8 @@ export class PropertiesService {
         qb.andWhere('property.price >= :kwMinPrice', { kwMinPrice: parsed.minPrice });
       }
       if (parsed.type && !filters.type) {
-        qb.andWhere('property.type = :kwType', { kwType: parsed.type });
+        const kwTypes = await this.resolveTypeAliases(parsed.type);
+        qb.andWhere('property.type IN (:...kwTypes)', { kwTypes });
 
         // STRICT: enforce residential/commercial segregation — NEVER mix across categories
         if (!filters.category && !parsed.category) {
@@ -1183,7 +1208,10 @@ export class PropertiesService {
       qb.andWhere('property.category = :category', { category: filters.category });
     }
     if (filters.type) {
-      const types = Array.isArray(filters.type) ? filters.type : [filters.type];
+      const inputTypes = Array.isArray(filters.type) ? filters.type : [filters.type];
+      // Expand each requested slug to its alias group so flat/apartment/builder_floor return together
+      const expanded = await Promise.all(inputTypes.map(s => this.resolveTypeAliases(s)));
+      const types = [...new Set(expanded.flat())];
       qb.andWhere('property.type IN (:...types)', { types });
     }
 
