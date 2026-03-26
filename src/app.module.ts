@@ -97,6 +97,8 @@ import { SearchLog } from './modules/smart-search/entities/search-log.entity';
 import { UserBehavior } from './modules/smart-search/entities/user-behavior.entity';
 import { ToolsModule } from './modules/tools/tools.module';
 import { StorageConfig } from './modules/storage-config/entities/storage-config.entity';
+import { ConsentModule } from './modules/consent/consent.module';
+import { CookieConsent } from './modules/consent/entities/cookie-consent.entity';
 
 @Module({
   imports: [
@@ -196,6 +198,7 @@ import { StorageConfig } from './modules/storage-config/entities/storage-config.
           SearchLog,
           UserBehavior,
           StorageConfig,
+          CookieConsent,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -230,6 +233,7 @@ import { StorageConfig } from './modules/storage-config/entities/storage-config.
     MessagingModule,
     SmartSearchModule,
     ToolsModule,
+    ConsentModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)
