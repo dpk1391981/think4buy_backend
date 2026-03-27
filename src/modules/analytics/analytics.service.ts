@@ -779,7 +779,24 @@ export class AnalyticsService {
       qb.orderBy('p.viewCount', 'DESC');
     }
 
-    return qb.getRawMany();
+    const properties = await qb.getRawMany();
+    if (!properties.length) return properties;
+
+    const ids = properties.map((p: any) => p.id);
+    const images: any[] = await this.dataSource.query(
+      `SELECT propertyId, url, isPrimary, alt
+       FROM property_images
+       WHERE propertyId IN (${ids.map(() => '?').join(',')})
+       ORDER BY isPrimary DESC, sortOrder ASC`,
+      ids,
+    );
+    const imgMap = new Map<string, any[]>();
+    for (const img of images) {
+      if (!imgMap.has(img.propertyId)) imgMap.set(img.propertyId, []);
+      imgMap.get(img.propertyId)!.push({ url: img.url, alt: img.alt, isPrimary: !!img.isPrimary });
+    }
+
+    return properties.map((p: any) => ({ ...p, images: imgMap.get(p.id) || [] }));
   }
 
   // ─── Home API: Top Agents ─────────────────────────────────────────────────────
