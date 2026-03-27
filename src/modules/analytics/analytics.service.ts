@@ -1062,7 +1062,9 @@ export class AnalyticsService {
 
     const placeholders = ids.map(() => '?').join(',');
     const rows: any[] = await this.dataSource.query(`
-      SELECT p.*
+      SELECT p.*,
+        (${RESOLVED_AREA_SQL}) AS resolvedArea,
+        (${RESOLVED_UNIT_SQL}) AS resolvedUnit
       FROM properties p
       WHERE p.id IN (${placeholders})
         AND p.approvalStatus = 'approved'
@@ -1094,19 +1096,14 @@ export class AnalyticsService {
     `, ids);
     const amenityCountMap = new Map(amenityCounts.map((r: any) => [r.propertyId, parseInt(r.cnt)]));
 
-    return rows.map((p: any) => ({
-      id:                p.id,
-      title:             p.title,
-      slug:              p.slug,
-      price:             parseFloat(p.price) || 0,
-      priceUnit:         p.priceUnit,
-      area:              p.area ? parseFloat(p.area) : null,
-      areaUnit:          p.areaUnit,
-      pricePerSqft:      (() => {
-        const price = parseFloat(p.price);
-        const area  = parseFloat(p.area);
+    return rows.map((p: any) => {
+      const area     = p.resolvedArea  ? parseFloat(p.resolvedArea)  : null;
+      const areaUnit = p.resolvedUnit  || p.areaUnit || 'Sq.ft.';
+      const price    = parseFloat(p.price) || 0;
+
+      const pricePerSqft = (() => {
         if (!price || !area) return null;
-        const unit = (p.areaUnit || '').toLowerCase();
+        const unit = areaUnit.toLowerCase();
         const sqft =
           unit.includes('sq') && unit.includes('yd') ? area * 9 :
           unit.includes('sq') && (unit.includes('mt') || unit.includes('m')) ? area * 10.764 :
@@ -1114,27 +1111,38 @@ export class AnalyticsService {
           unit.includes('bigha') ? area * 27000 :
           unit.includes('marla') ? area * 272.25 :
           unit.includes('kanal') ? area * 5445 :
-          area; // sqft or unknown
+          area;
         if (p.priceUnit === 'per sqft') return Math.round(price);
         return sqft > 0 ? Math.round(price / sqft) : null;
-      })(),
-      bedrooms:          p.bedrooms ? parseInt(p.bedrooms) : null,
-      bathrooms:         p.bathrooms ? parseInt(p.bathrooms) : null,
-      floorNumber:       p.floorNumber ?? null,
-      totalFloors:       p.totalFloors ?? null,
-      city:              p.city,
-      locality:          p.locality,
-      state:             p.state,
-      category:          p.category,
-      type:              p.type,
-      furnishingStatus:  p.furnishingStatus,
-      possessionStatus:  p.possessionStatus,
-      isFeatured:        !!p.isFeatured,
-      isVerified:        !!p.isVerified,
-      viewCount:         parseInt(p.viewCount) || 0,
-      amenitiesCount:    amenityCountMap.get(p.id) || 0,
-      images:            imgMap.get(p.id) || [],
-    }));
+      })();
+
+      return {
+        id:               p.id,
+        title:            p.title,
+        slug:             p.slug,
+        price,
+        priceUnit:        p.priceUnit,
+        area,
+        areaUnit,
+        pricePerSqft,
+        bedrooms:         p.bedrooms  ? parseInt(p.bedrooms)  : null,
+        bathrooms:        p.bathrooms ? parseInt(p.bathrooms) : null,
+        floorNumber:      p.floorNumber  ?? null,
+        totalFloors:      p.totalFloors  ?? null,
+        city:             p.city,
+        locality:         p.locality,
+        state:            p.state,
+        category:         p.category,
+        type:             p.type,
+        furnishingStatus: p.furnishingStatus,
+        possessionStatus: p.possessionStatus,
+        isFeatured:       !!p.isFeatured,
+        isVerified:       !!p.isVerified,
+        viewCount:        parseInt(p.viewCount) || 0,
+        amenitiesCount:   amenityCountMap.get(p.id) || 0,
+        images:           imgMap.get(p.id) || [],
+      };
+    });
   }
 
   // ─── Home API: Market Cities ──────────────────────────────────────────────────

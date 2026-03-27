@@ -318,6 +318,25 @@ export class AnalyticsController {
     return { success: true, message: 'Property cache refreshed' };
   }
 
+  // ─── POST /api/admin/cache/refresh-all ───────────────────────────────────────
+  @Post('admin/cache/refresh-all')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Admin: force-refresh ALL caches — properties, agents, projects, locations, market snapshots' })
+  async refreshAllCaches(@Request() req: any) {
+    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    const started = Date.now();
+    await this.analyticsService.aggregateProperties();
+    await this.analyticsService.refreshPropertyHotScores();
+    await this.analyticsService.aggregateAgents();
+    await this.analyticsService.aggregateProjects();
+    await this.analyticsService.aggregateLocations();
+    await this.analyticsService.aggregateCategories();
+    await this.analyticsService.refreshAllMarketSnapshots();
+    const elapsed = Math.round((Date.now() - started) / 1000);
+    return { success: true, message: `All caches refreshed in ${elapsed}s` };
+  }
+
   // ─── GET /api/admin/market-snapshots ──────────────────────────────────────────
   @Get('admin/market-snapshots')
   @UseGuards(AuthGuard('jwt'))
