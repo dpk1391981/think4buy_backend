@@ -34,7 +34,7 @@ const dataSource = new DataSource({
   entities: [
     path.resolve(__dirname, '../../modules/**/*.entity.{ts,js}'),
   ],
-  synchronize: false,
+  synchronize: true,   // auto-create all tables from entities before seeding
   charset: 'utf8mb4',
 });
 
