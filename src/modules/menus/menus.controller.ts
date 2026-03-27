@@ -13,7 +13,8 @@ import { MenusService } from './menus.service';
 import { UserRole } from '../users/entities/user.entity';
 
 function requireAdmin(user: any) {
-  if (!user || user.role !== UserRole.ADMIN) {
+  const isAdmin = user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.isSuperAdmin;
+  if (!isAdmin) {
     throw new ForbiddenException('Admin access required');
   }
 }

@@ -9,7 +9,9 @@ import { CreateArticleDto, UpdateArticleDto } from './dto/create-article.dto';
 import { UserRole } from '../users/entities/user.entity';
 
 function assertAdmin(req: any) {
-  if (req.user?.role !== UserRole.ADMIN) {
+  const role = req.user?.role;
+  const isAdmin = role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN || req.user?.isSuperAdmin;
+  if (!isAdmin) {
     const { ForbiddenException } = require('@nestjs/common');
     throw new ForbiddenException('Admin access required');
   }

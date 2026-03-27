@@ -52,7 +52,9 @@ export class AdminController {
   ) {}
 
   private assertAdmin(req: any) {
-    if (req.user?.role !== UserRole.ADMIN) {
+    const role = req.user?.role;
+    const isAdmin = role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN || req.user?.isSuperAdmin;
+    if (!isAdmin) {
       throw new ForbiddenException('Admin access required');
     }
   }
@@ -670,6 +672,21 @@ export class AdminController {
 
     await this.storageConfigService.bulkUpsert(entries);
     return { success: true };
+  }
+
+  // ── User Role Management (super_admin only) ────────────────────────────────
+  @Patch('users/:id/role')
+  @ApiOperation({ summary: 'Change a user\'s role (super_admin only)' })
+  changeUserRole(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { role: string },
+  ) {
+    if (!req.user?.isSuperAdmin && req.user?.role !== UserRole.SUPER_ADMIN) {
+      const { ForbiddenException } = require('@nestjs/common');
+      throw new ForbiddenException('Super admin access required');
+    }
+    return this.adminService.changeUserRole(id, body.role);
   }
 
   @Post('storage-config/test-s3')

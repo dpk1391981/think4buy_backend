@@ -14,7 +14,9 @@ export class SeoController {
   constructor(private readonly seoService: SeoService) {}
 
   private assertAdmin(req: any) {
-    if (req.user?.role !== UserRole.ADMIN) throw new ForbiddenException('Admin access required');
+    const role = req.user?.role;
+    const isAdmin = role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN || req.user?.isSuperAdmin;
+    if (!isAdmin) throw new ForbiddenException('Admin access required');
   }
 
   // ── Public: Listing Page SEO Resolver ────────────────────────────────────

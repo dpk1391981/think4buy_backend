@@ -99,6 +99,10 @@ import { ToolsModule } from './modules/tools/tools.module';
 import { StorageConfig } from './modules/storage-config/entities/storage-config.entity';
 import { ConsentModule } from './modules/consent/consent.module';
 import { CookieConsent } from './modules/consent/entities/cookie-consent.entity';
+import { RbacModule } from './modules/rbac/rbac.module';
+import { Role } from './modules/rbac/entities/role.entity';
+import { Permission } from './modules/rbac/entities/permission.entity';
+import { AuditLog } from './modules/rbac/entities/audit-log.entity';
 
 @Module({
   imports: [
@@ -199,6 +203,9 @@ import { CookieConsent } from './modules/consent/entities/cookie-consent.entity'
           UserBehavior,
           StorageConfig,
           CookieConsent,
+          Role,
+          Permission,
+          AuditLog,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -234,6 +241,7 @@ import { CookieConsent } from './modules/consent/entities/cookie-consent.entity'
     SmartSearchModule,
     ToolsModule,
     ConsentModule,
+    RbacModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)

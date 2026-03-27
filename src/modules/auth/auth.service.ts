@@ -147,7 +147,8 @@ export class AuthService {
     return this.userRepository.findOne({
       where: { id: userId },
       select: [
-        'id', 'name', 'email', 'phone', 'role', 'avatar', 'pendingAvatar',
+        'id', 'name', 'email', 'phone', 'role', 'isSuperAdmin', 'systemRoleId',
+        'avatar', 'pendingAvatar',
         'city', 'company', 'isVerified', 'createdAt', 'lastLoginAt',
         'needsOnboarding', 'agentTick', 'agentLicense', 'agentGstNumber', 'agentBio',
         'agentExperience', 'agentProfileStatus', 'isActive',

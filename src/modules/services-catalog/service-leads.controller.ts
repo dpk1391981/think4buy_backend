@@ -43,7 +43,9 @@ export class AdminServiceLeadsController {
   constructor(private readonly svc: ServiceLeadsService) {}
 
   private assertAdmin(req: any) {
-    if (req.user?.role !== UserRole.ADMIN) {
+    const role = req.user?.role;
+    const isAdmin = role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN || req.user?.isSuperAdmin;
+    if (!isAdmin) {
       throw new ForbiddenException('Admin access required');
     }
   }

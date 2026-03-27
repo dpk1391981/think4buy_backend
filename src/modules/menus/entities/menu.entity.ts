@@ -23,6 +23,10 @@ export class Menu {
   @Column({ length: 100, nullable: true })
   icon: string;
 
+  /** Group/section this menu belongs to e.g. "admin_listings", "user_dashboard" */
+  @Column({ length: 100, nullable: true, name: 'section' })
+  section: string;
+
   /** For nested menus — parent menu id */
   @Column({ type: 'int', nullable: true, name: 'parent_id' })
   parentId: number;
