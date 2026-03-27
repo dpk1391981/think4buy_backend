@@ -257,7 +257,7 @@ export class WalletService {
   }
 
   // Admin methods
-  async getAllWallets(page = 1, limit = 20, search?: string) {
+  async getAllWallets(page = 1, limit = 20, search?: string, role?: string) {
     const qb = this.walletRepository
       .createQueryBuilder('wallet')
       .leftJoinAndSelect('wallet.user', 'user')
@@ -274,9 +274,13 @@ export class WalletService {
       ]);
 
     if (search) {
-      qb.where('user.name LIKE :search OR user.email LIKE :search', {
+      qb.andWhere('(user.name LIKE :search OR user.email LIKE :search OR user.phone LIKE :search)', {
         search: `%${search}%`,
       });
+    }
+
+    if (role && role !== 'all') {
+      qb.andWhere('user.role = :role', { role });
     }
 
     qb.orderBy('wallet.balance', 'DESC')

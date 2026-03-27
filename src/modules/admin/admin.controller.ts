@@ -239,14 +239,16 @@ export class AdminController {
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'role', required: false })
   getAllWallets(
     @Request() req,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
     @Query('search') search?: string,
+    @Query('role') role?: string,
   ) {
     this.assertAdmin(req);
-    return this.adminService.getAllWallets(page, limit, search);
+    return this.adminService.getAllWallets(page, limit, search, role);
   }
 
   @Post('wallets/:userId/top-up')
