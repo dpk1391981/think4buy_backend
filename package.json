@@ -23,6 +23,7 @@
     "seed:articles": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-articles.ts",
     "seed:premium-slots": "node -r dotenv/config -r ts-node/register src/database/seeds/reseed-premium-slots.ts",
     "seed:footer-links": "node -r dotenv/config -r ts-node/register src/database/seeds/reseed-footer-links.ts",
+    "seed:property-config": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-property-config.ts",
     "seed:messaging": "node -r dotenv/config -r ts-node/register src/database/seeds/seed-messaging.ts",
     "correct-locations": "node -r dotenv/config -r ts-node/register src/database/seeds/correct-locations.ts",
     "correct-locations:dry": "DRY_RUN=true node -r dotenv/config -r ts-node/register src/database/seeds/correct-locations.ts",
