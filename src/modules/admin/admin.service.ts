@@ -372,8 +372,8 @@ export class AdminService {
 
   // ── Wallet Management ───────────────────────────────────────────────────────
 
-  async getAllWallets(page = 1, limit = 20, search?: string) {
-    return this.walletService.getAllWallets(page, limit, search);
+  async getAllWallets(page = 1, limit = 20, search?: string, role?: string) {
+    return this.walletService.getAllWallets(page, limit, search, role);
   }
 
   async topUpWallet(userId: string, amount: number, description?: string) {
