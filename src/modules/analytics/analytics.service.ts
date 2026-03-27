@@ -2676,8 +2676,9 @@ export class AnalyticsService {
       tabs.push('just_listed');
       tabs.push('most_viewed');
 
-      // just_listed uses createdAt timestamp as score so newest always ranks first
-      const createdAtScore = p.createdAt ? new Date(p.createdAt).getTime() : 0;
+      // just_listed uses a recency score (high = newer) that fits in DECIMAL(12,4).
+      // Raw ms timestamps overflow the column; use days-inverted score instead.
+      const createdAtScore = Math.max(0, 999999 - Math.round(daysOld * 100));
 
       for (const tab of tabs) {
         toUpsert.push({
