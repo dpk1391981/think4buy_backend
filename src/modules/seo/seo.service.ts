@@ -14,7 +14,7 @@ import { City } from '../locations/entities/city.entity';
 
 export interface SeoPageConfig {
   /** Which table was the winning match */
-  source: 'category_locality' | 'category_city' | 'locality' | 'city' | 'category';
+  source: 'footer_link' | 'category_locality' | 'category_city' | 'locality' | 'city' | 'category';
   h1Title: string | null;
   metaTitle: string | null;
   metaDescription: string | null;
@@ -121,8 +121,45 @@ export class SeoService {
     categorySlug?: string;
     citySlug?: string;
     localitySlug?: string;
+    /** Raw URL slug — used to match footer link SEO (highest priority) */
+    urlSlug?: string;
   }): Promise<SeoPageConfig | null> {
-    const { categorySlug, citySlug, localitySlug } = params;
+    const { categorySlug, citySlug, localitySlug, urlSlug } = params;
+
+    // ── Priority 0: Footer Link SEO ───────────────────────────────────────
+    // Exact URL match against footer_seo_links — takes precedence over all
+    // other levels so admins can fully control programmatic SEO pages.
+    if (urlSlug) {
+      const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+      const footerLink = await this.footerLinkRepo
+        .createQueryBuilder('fl')
+        .where('fl.isActive = 1')
+        .andWhere(
+          "(LOWER(TRIM(BOTH '/' FROM fl.url)) = :slug OR LOWER(TRIM(BOTH '/' FROM fl.url)) = :slashSlug)",
+          { slug: normalized, slashSlug: '/' + normalized },
+        )
+        .andWhere(
+          '(fl.metaTitle IS NOT NULL OR fl.h1Title IS NOT NULL OR fl.introContent IS NOT NULL)',
+        )
+        .getOne();
+
+      if (footerLink) {
+        return {
+          source: 'footer_link',
+          h1Title: footerLink.h1Title ?? null,
+          metaTitle: footerLink.metaTitle ?? null,
+          metaDescription: footerLink.metaDescription ?? null,
+          metaKeywords: footerLink.metaKeywords ?? null,
+          canonicalUrl: footerLink.canonicalUrl ?? null,
+          introContent: footerLink.introContent ?? null,
+          bottomContent: footerLink.bottomContent ?? null,
+          faqJson: footerLink.faqJson ?? null,
+          internalLinks: null,
+          robots: footerLink.robots ?? 'index,follow',
+          context: { citySlug, cityName: citySlug, localitySlug, categorySlug },
+        };
+      }
+    }
 
     // ── Priority 1: Category + Locality ──────────────────────────────────
     if (categorySlug && citySlug && localitySlug) {

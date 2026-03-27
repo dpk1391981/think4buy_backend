@@ -24,15 +24,18 @@ export class SeoController {
   @ApiQuery({ name: 'category', required: false })
   @ApiQuery({ name: 'city', required: false })
   @ApiQuery({ name: 'locality', required: false })
+  @ApiQuery({ name: 'url', required: false, description: 'Raw URL slug for footer-link SEO lookup (Priority 0)' })
   async resolveListingPage(
     @Query('category') category?: string,
     @Query('city') city?: string,
     @Query('locality') locality?: string,
+    @Query('url') url?: string,
   ) {
     const config = await this.seoService.resolveListingPageSeo({
       categorySlug: category,
       citySlug: city,
       localitySlug: locality,
+      urlSlug: url,
     });
     if (!config) throw new NotFoundException('No SEO configuration found for this page');
     return config;

@@ -45,6 +45,34 @@ export class FooterSeoLink {
   @Column({ default: true })
   isActive: boolean;
 
+  // ── SEO Meta ──────────────────────────────────────────────────────────────
+  @Column({ length: 250, nullable: true })
+  h1Title: string;
+
+  @Column({ length: 250, nullable: true })
+  metaTitle: string;
+
+  @Column({ length: 500, nullable: true })
+  metaDescription: string;
+
+  @Column({ length: 300, nullable: true })
+  metaKeywords: string;
+
+  @Column({ length: 500, nullable: true })
+  canonicalUrl: string;
+
+  @Column({ type: 'text', nullable: true })
+  introContent: string;
+
+  @Column({ type: 'text', nullable: true })
+  bottomContent: string;
+
+  @Column({ type: 'json', nullable: true })
+  faqJson: { question: string; answer: string }[];
+
+  @Column({ length: 100, default: 'index,follow' })
+  robots: string;
+
   @CreateDateColumn()
   createdAt: Date;
 
