@@ -572,4 +572,16 @@ export class AdminService {
 
     return this.propertyRepo.save(property);
   }
+
+  async changeUserRole(userId: string, newRole: string): Promise<{ success: boolean }> {
+    const validRoles = Object.values(UserRole);
+    if (!validRoles.includes(newRole as UserRole)) {
+      throw new ConflictException(`Invalid role: ${newRole}`);
+    }
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    user.role = newRole as UserRole;
+    await this.userRepo.save(user);
+    return { success: true };
+  }
 }

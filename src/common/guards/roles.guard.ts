@@ -5,12 +5,7 @@ import { ROLES_KEY } from '../decorators/roles.decorator';
 
 /**
  * Declarative role-based access control guard.
- * Use alongside AuthGuard('jwt'):
- *
- *   @UseGuards(AuthGuard('jwt'), RolesGuard)
- *   @Roles(UserRole.ADMIN)
- *   @Get('admin-only')
- *   adminRoute() { ... }
+ * Super Admins (isSuperAdmin=true) bypass all role checks.
  */
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -26,6 +21,9 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
     if (!user) throw new ForbiddenException('Authentication required');
+
+    // Super admins bypass all role-based guards
+    if (user.isSuperAdmin) return true;
 
     const hasRole = requiredRoles.some((role) => user.role === role);
     if (!hasRole) {

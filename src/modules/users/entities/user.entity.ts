@@ -5,17 +5,23 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
+  Index,
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { Property } from '../../properties/entities/property.entity';
 import { Inquiry } from '../../inquiries/entities/inquiry.entity';
+import { Role } from '../../rbac/entities/role.entity';
 
 export enum UserRole {
-  BUYER = 'buyer',
-  OWNER = 'owner',     // property owner listing (replaces SELLER for new registrations)
-  SELLER = 'seller',   // kept for backward compatibility
-  AGENT = 'agent',
-  ADMIN = 'admin',
+  BUYER       = 'buyer',
+  OWNER       = 'owner',       // property owner listing
+  SELLER      = 'seller',      // kept for backward compatibility
+  AGENT       = 'agent',
+  BROKER      = 'broker',
+  ADMIN       = 'admin',
+  SUPER_ADMIN = 'super_admin', // root level — isSuperAdmin flag must also be true
 }
 
 @Entity('users')
@@ -38,6 +44,28 @@ export class User {
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.BUYER })
   role: UserRole;
+
+  // ── RBAC: Super Admin flag ─────────────────────────────────────────────────
+  /**
+   * When true this user bypasses ALL permission checks.
+   * Only seeded Super Admin(s) should have this set.
+   */
+  @Column({ default: false })
+  isSuperAdmin: boolean;
+
+  // ── RBAC: Dynamic Role reference ──────────────────────────────────────────
+  /**
+   * Optional FK to the dynamic `roles` table.
+   * Drives the PermissionGuard — if null, user has no RBAC permissions
+   * (falls back to role-enum-based access for legacy guards).
+   */
+  @Column({ nullable: true, length: 36 })
+  @Index()
+  systemRoleId: string | null;
+
+  @ManyToOne(() => Role, { nullable: true, eager: false, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'systemRoleId' })
+  systemRole: Role | null;
 
   @Column({ nullable: true, length: 500 })
   avatar: string;
