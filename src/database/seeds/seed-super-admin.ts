@@ -34,13 +34,25 @@ const dataSource = new DataSource({
   entities: [
     path.resolve(__dirname, '../../modules/**/*.entity.{ts,js}'),
   ],
-  synchronize: true,   // auto-create all tables from entities before seeding
+  synchronize: false,
   charset: 'utf8mb4',
 });
 
 async function run() {
   await dataSource.initialize();
   console.log('✅ DB connected');
+
+  // Create any missing tables/columns — ignore duplicate index errors (tables already exist)
+  try {
+    await dataSource.synchronize();
+    console.log('✅ Schema synced');
+  } catch (err: any) {
+    if (err.message?.includes('Duplicate key name') || err.code === 'ER_DUP_KEYNAME') {
+      console.log('⚠️  Some indexes already exist — skipping schema sync (safe)');
+    } else {
+      throw err;
+    }
+  }
 
   // ── 1. Ensure super_admin role exists ──────────────────────────────────────
   const [existingRole] = await dataSource.query(
