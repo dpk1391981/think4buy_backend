@@ -313,6 +313,7 @@ export class AnalyticsController {
   @ApiOperation({ summary: 'Admin: force-refresh property rankings and hot scores cache' })
   async refreshPropertyCache(@Request() req: any) {
     if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    await this.analyticsService.aggregateProperties();
     await this.analyticsService.refreshPropertyHotScores();
     return { success: true, message: 'Property cache refreshed' };
   }

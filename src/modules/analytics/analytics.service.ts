@@ -2659,10 +2659,13 @@ export class AnalyticsService {
       tabs.push('just_listed');
       tabs.push('most_viewed');
 
+      // just_listed uses createdAt timestamp as score so newest always ranks first
+      const createdAtScore = p.createdAt ? new Date(p.createdAt).getTime() : 0;
+
       for (const tab of tabs) {
         toUpsert.push({
           propertyId:     p.id,
-          score:          listingScore,
+          score:          tab === 'just_listed' ? createdAtScore : listingScore,
           rank:           0,
           viewsCount:     views7d,
           inquiriesCount: inq7d,
