@@ -1,16 +1,14 @@
 /**
- * Property Config Seed
+ * Property Config Seed + Data Migration
  *
- * Reads prop_categories and prop_types dynamically from the DB (set up via
- * admin panel), then verifies every existing property's type/category slug
- * resolves to a known row. Any orphan slug found on properties that has no
- * matching row in prop_categories / prop_types is auto-created so labels are
- * never blank on property cards, detail pages, or the homepage section.
+ * 1. Reads prop_categories and prop_types dynamically from DB.
+ * 2. Backfills empty type/category on existing properties by parsing titles.
+ * 3. Auto-creates any orphan slug rows still missing after backfill.
+ * 4. Final verification: confirms every property resolves to a known row.
  *
- * Safe to re-run — skips rows that already exist.
+ * Safe to re-run — skips already-set properties.
  *
  * Run: npm run seed:property-config
- *   or: npx ts-node -r tsconfig-paths/register src/database/seeds/seed-property-config.ts
  */
 
 import * as dotenv from 'dotenv';
@@ -37,6 +35,77 @@ const dataSource = new DataSource({
   synchronize: false,
 });
 
+// ─── Title → type/category inference ──────────────────────────────────────────
+
+/**
+ * TYPE_RULES: ordered list of [titlePattern, typeSlug, categoryOverride | null]
+ * - titlePattern: case-insensitive string to look for in the title
+ * - typeSlug: the prop_types slug to assign
+ * - categoryOverride: if set, always use this category regardless of sale/rent
+ *   (null = derive from "for Sale" / "for Rent" in title → buy / rent)
+ */
+const TYPE_RULES: Array<[string, string, string | null]> = [
+  // ── Commercial / Industrial (category is fixed regardless of sale/rent) ──────
+  ['office space',      'commercial_office',    'commercial'],
+  ['office',            'commercial_office',    'commercial'],
+  ['warehouse',         'commercial_warehouse', 'commercial'],
+  ['showroom',          'showroom',             'commercial'],
+  ['commercial shop',   'commercial_shop',      'commercial'],
+  ['shop',              'commercial_shop',      'commercial'],
+  ['factory',           'factory',              'industrial'],
+  ['industrial shed',   'industrial_shed',      'industrial'],
+  // ── PG / Co-living ───────────────────────────────────────────────────────────
+  ['co-living',         'co_living',            'pg'],
+  ['co living',         'co_living',            'pg'],
+  ['paying guest',      'pg',                   'pg'],
+  // ── Investment / Land ────────────────────────────────────────────────────────
+  ['farm house',        'farm_house',            null],   // farm houses → buy/rent
+  ['farmhouse',         'farm_house',            null],
+  ['land',              'land',                  'investment'],
+  ['plot',              'plot',                  null],   // plots → buy
+  // ── Residential (category from sale/rent keyword) ────────────────────────────
+  ['independent house', 'house',                 null],
+  ['builder floor',     'builder_floor',         null],
+  ['penthouse',         'penthouse',             null],
+  ['studio apartment',  'studio',                null],
+  ['studio',            'studio',                null],
+  ['apartment',         'apartment',             null],
+  ['flat',              'apartment',             null],
+  ['villa',             'villa',                 null],
+  ['house',             'house',                 null],
+];
+
+function inferTypeAndCategory(
+  title: string,
+  listingType: string | null,
+): { type: string; category: string } | null {
+  const t = title.toLowerCase();
+
+  for (const [pattern, typeSlug, catOverride] of TYPE_RULES) {
+    if (t.includes(pattern)) {
+      let category: string;
+
+      if (catOverride) {
+        category = catOverride;
+      } else if (listingType && listingType !== '') {
+        // listingType field is already buy/rent/commercial etc.
+        category = listingType;
+      } else if (t.includes('for rent')) {
+        category = 'rent';
+      } else if (t.includes('for sale')) {
+        category = 'buy';
+      } else {
+        // Special defaults
+        category = typeSlug === 'plot' || typeSlug === 'land' ? 'buy' : 'buy';
+      }
+
+      return { type: typeSlug, category };
+    }
+  }
+
+  return null; // can't infer
+}
+
 // ─── Fallback icon map — used only when auto-creating orphan rows ──────────────
 
 const FALLBACK_CATEGORY_ICONS: Record<string, string> = {
@@ -52,7 +121,6 @@ const FALLBACK_TYPE_ICONS: Record<string, string> = {
   factory: '🏭', industrial_shed: '🏗️', land: '🌍',
 };
 
-/** Convert a slug like "builder_floor" → "Builder Floor" */
 function slugToLabel(slug: string): string {
   return slug.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
@@ -66,150 +134,167 @@ async function seedPropertyConfig() {
   const catRepo  = dataSource.getRepository(PropCategory);
   const typeRepo = dataSource.getRepository(PropType);
 
-  // ── STEP 1: Load all categories from DB (dynamic — set by admin panel) ────────
+  // ── STEP 1: Load all categories from DB ──────────────────────────────────────
   console.log('[PropertyConfig Seed] Step 1: Loading prop_categories from DB...');
   const allCategories = await catRepo.find({ order: { sortOrder: 'ASC', name: 'ASC' } });
   const catMap = new Map<string, string>(); // slug → id
   for (const c of allCategories) catMap.set(c.slug, c.id);
+  console.log(`  Found ${allCategories.length} categories: ${allCategories.map(c => c.slug).join(', ')}`);
 
-  console.log(`  Found ${allCategories.length} categor${allCategories.length === 1 ? 'y' : 'ies'}:`);
-  allCategories.forEach(c => console.log(`    [${c.status ? '✓' : '✗'}] ${c.slug}  →  "${c.name}"  (id: ${c.id})`));
-
-  // ── STEP 2: Load all property types from DB (dynamic — set by admin panel) ────
-  console.log('\n[PropertyConfig Seed] Step 2: Loading prop_types from DB...');
-  const allTypes = await typeRepo.find({
-    relations: ['category'],
-    order: { category: { sortOrder: 'ASC' }, sortOrder: 'ASC', name: 'ASC' } as any,
-  });
+  // ── STEP 2: Load all types from DB ───────────────────────────────────────────
+  console.log('[PropertyConfig Seed] Step 2: Loading prop_types from DB...');
+  const allTypes = await typeRepo.find({ order: { sortOrder: 'ASC', name: 'ASC' } });
   const typeMap = new Map<string, string>(); // slug → id
   for (const t of allTypes) typeMap.set(t.slug, t.id);
+  console.log(`  Found ${allTypes.length} types: ${allTypes.map(t => t.slug).join(', ')}`);
 
-  console.log(`  Found ${allTypes.length} type${allTypes.length === 1 ? '' : 's'}:`);
-  allTypes.forEach(t =>
-    console.log(`    [${t.status ? '✓' : '✗'}] ${t.slug}  →  "${t.name}"  (category: ${t.category?.slug ?? t.categoryId})`),
-  );
+  // ── STEP 3: Backfill properties with empty type / category ───────────────────
+  console.log('\n[PropertyConfig Seed] Step 3: Backfilling properties with empty type/category...');
 
-  // ── STEP 3: Find property slugs that don't resolve to any DB row ──────────────
-  console.log('\n[PropertyConfig Seed] Step 3: Scanning existing properties for orphan slugs...');
+  const emptyProps: { id: string; title: string; listingType: string | null }[] =
+    await dataSource.query(`
+      SELECT id, title, listingType
+      FROM properties
+      WHERE (type IS NULL OR type = '') OR (category IS NULL OR category = '')
+    `);
+
+  console.log(`  Found ${emptyProps.length} properties with missing type/category`);
+
+  let backfilled = 0;
+  let skipped = 0;
+  const cannotInfer: string[] = [];
+
+  for (const prop of emptyProps) {
+    const inferred = inferTypeAndCategory(prop.title, prop.listingType);
+
+    if (!inferred) {
+      console.warn(`  [?] Cannot infer  — "${prop.title}"`);
+      cannotInfer.push(prop.id);
+      skipped++;
+      continue;
+    }
+
+    await dataSource.query(
+      `UPDATE properties SET type = ?, category = ? WHERE id = ?`,
+      [inferred.type, inferred.category, prop.id],
+    );
+    console.log(`  [✓] "${prop.title.substring(0, 60)}"  →  type=${inferred.type}  category=${inferred.category}`);
+    backfilled++;
+  }
+
+  console.log(`\n  Backfilled: ${backfilled}  |  Could not infer: ${skipped}`);
+
+  // ── STEP 4: Auto-create orphan category rows (slugs on properties with no DB row) ──
+  console.log('\n[PropertyConfig Seed] Step 4: Checking for orphan category slugs...');
 
   const orphanCategories: { category: string; count: string }[] = await dataSource.query(`
     SELECT p.category, COUNT(*) AS count
     FROM properties p
     LEFT JOIN prop_categories pc ON pc.slug = p.category
-    WHERE pc.id IS NULL
-      AND p.category IS NOT NULL AND p.category != ''
-    GROUP BY p.category
-    ORDER BY count DESC
+    WHERE pc.id IS NULL AND p.category IS NOT NULL AND p.category != ''
+    GROUP BY p.category ORDER BY count DESC
   `);
+
+  if (orphanCategories.length === 0) {
+    console.log('  No orphan categories. ✅');
+  } else {
+    for (const row of orphanCategories) {
+      const existing = await catRepo.findOne({ where: { slug: row.category } });
+      if (existing) { catMap.set(row.category, existing.id); continue; }
+
+      const cat = await catRepo.save(catRepo.create({
+        name: slugToLabel(row.category),
+        slug: row.category,
+        icon: FALLBACK_CATEGORY_ICONS[row.category] ?? '🏷️',
+        description: `${slugToLabel(row.category)} properties`,
+        sortOrder: allCategories.length + 1,
+        status: true,
+      }));
+      catMap.set(cat.slug, cat.id);
+      console.log(`  [+] Created category: "${cat.slug}" → "${cat.name}" [${row.count} properties]`);
+    }
+  }
+
+  // ── STEP 5: Auto-create orphan type rows ─────────────────────────────────────
+  console.log('\n[PropertyConfig Seed] Step 5: Checking for orphan type slugs...');
 
   const orphanTypes: { type: string; count: string }[] = await dataSource.query(`
     SELECT p.type, COUNT(*) AS count
     FROM properties p
     LEFT JOIN prop_types pt ON pt.slug = p.type
-    WHERE pt.id IS NULL
-      AND p.type IS NOT NULL AND p.type != ''
-    GROUP BY p.type
-    ORDER BY count DESC
+    WHERE pt.id IS NULL AND p.type IS NOT NULL AND p.type != ''
+    GROUP BY p.type ORDER BY count DESC
   `);
 
-  // ── STEP 4: Auto-create any orphan category rows ──────────────────────────────
-  let catsCreated = 0;
-  if (orphanCategories.length > 0) {
-    console.log(`\n[PropertyConfig Seed] Step 4: Auto-creating ${orphanCategories.length} orphan categor${orphanCategories.length === 1 ? 'y' : 'ies'}...`);
-    for (const row of orphanCategories) {
-      const existing = await catRepo.findOne({ where: { slug: row.category } });
-      if (existing) { catMap.set(row.category, existing.id); continue; } // race guard
-
-      const cat = await catRepo.save(
-        catRepo.create({
-          name:        slugToLabel(row.category),
-          slug:        row.category,
-          icon:        FALLBACK_CATEGORY_ICONS[row.category] ?? '🏷️',
-          description: `${slugToLabel(row.category)} properties`,
-          sortOrder:   allCategories.length + catsCreated + 1,
-          status:      true,
-        }),
-      );
-      catMap.set(cat.slug, cat.id);
-      catsCreated++;
-      console.log(`  [+] Created category: "${cat.slug}" → "${cat.name}" (${cat.id})  [${row.count} properties affected]`);
-    }
+  if (orphanTypes.length === 0) {
+    console.log('  No orphan types. ✅');
   } else {
-    console.log('\n[PropertyConfig Seed] Step 4: No orphan categories — all property.category slugs resolve. ✅');
-  }
-
-  // ── STEP 5: Auto-create any orphan type rows ──────────────────────────────────
-  let typesCreated = 0;
-  if (orphanTypes.length > 0) {
-    console.log(`\n[PropertyConfig Seed] Step 5: Auto-creating ${orphanTypes.length} orphan type${orphanTypes.length === 1 ? '' : 's'}...`);
-
-    // Pick a default fallback category id (use 'buy' if available, else first category)
-    const fallbackCatId = catMap.get('buy') ?? (allCategories[0]?.id ?? null);
-
+    const fallbackCatId = catMap.get('buy') ?? allCategories[0]?.id ?? null;
     for (const row of orphanTypes) {
       const existing = await typeRepo.findOne({ where: { slug: row.type } });
-      if (existing) { typeMap.set(row.type, existing.id); continue; } // race guard
+      if (existing) { typeMap.set(row.type, existing.id); continue; }
 
       if (!fallbackCatId) {
-        console.warn(`  [!] No category found to assign type "${row.type}" — skipping. Create at least one category first.`);
+        console.warn(`  [!] No category to assign type "${row.type}" — create a category first.`);
         continue;
       }
-
-      const pt = await typeRepo.save(
-        typeRepo.create({
-          name:       slugToLabel(row.type),
-          slug:       row.type,
-          icon:       FALLBACK_TYPE_ICONS[row.type] ?? '🏠',
-          categoryId: fallbackCatId,
-          sortOrder:  allTypes.length + typesCreated + 1,
-          aliasOf:    null,
-          status:     true,
-        }),
-      );
+      const pt = await typeRepo.save(typeRepo.create({
+        name: slugToLabel(row.type),
+        slug: row.type,
+        icon: FALLBACK_TYPE_ICONS[row.type] ?? '🏠',
+        categoryId: fallbackCatId,
+        sortOrder: allTypes.length + 1,
+        aliasOf: null,
+        status: true,
+      }));
       typeMap.set(pt.slug, pt.id);
-      typesCreated++;
-      console.log(`  [+] Created type: "${pt.slug}" → "${pt.name}" (${pt.id})  [${row.count} properties affected]`);
+      console.log(`  [+] Created type: "${pt.slug}" → "${pt.name}" [${row.count} properties]`);
     }
-  } else {
-    console.log('\n[PropertyConfig Seed] Step 5: No orphan types — all property.type slugs resolve. ✅');
   }
 
   // ── STEP 6: Final verification ────────────────────────────────────────────────
   console.log('\n[PropertyConfig Seed] Step 6: Final verification...');
 
-  const stillMissingCats: { category: string; count: string }[] = await dataSource.query(`
-    SELECT p.category, COUNT(*) AS count
-    FROM properties p
+  const [stats]: any = await dataSource.query(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(type IS NULL OR type = '') AS emptyType,
+      SUM(category IS NULL OR category = '') AS emptyCat
+    FROM properties
+  `);
+
+  const stillMissingCats: any[] = await dataSource.query(`
+    SELECT p.category, COUNT(*) AS count FROM properties p
     LEFT JOIN prop_categories pc ON pc.slug = p.category
     WHERE pc.id IS NULL AND p.category IS NOT NULL AND p.category != ''
     GROUP BY p.category
   `);
 
-  const stillMissingTypes: { type: string; count: string }[] = await dataSource.query(`
-    SELECT p.type, COUNT(*) AS count
-    FROM properties p
+  const stillMissingTypes: any[] = await dataSource.query(`
+    SELECT p.type, COUNT(*) AS count FROM properties p
     LEFT JOIN prop_types pt ON pt.slug = p.type
     WHERE pt.id IS NULL AND p.type IS NOT NULL AND p.type != ''
     GROUP BY p.type
   `);
 
-  if (stillMissingCats.length === 0 && stillMissingTypes.length === 0) {
-    console.log('  ✅ All property category and type slugs resolve correctly.');
+  console.log(`  Total properties : ${stats.total}`);
+  console.log(`  Still empty type : ${stats.emptyType}`);
+  console.log(`  Still empty cat  : ${stats.emptyCat}`);
+
+  if (stillMissingCats.length === 0 && stillMissingTypes.length === 0 && stats.emptyType == 0 && stats.emptyCat == 0) {
+    console.log('  ✅ All properties have type and category resolving correctly.');
   } else {
-    if (stillMissingCats.length > 0) {
-      console.warn('  ⚠️  Still unresolved categories:');
-      stillMissingCats.forEach(r => console.warn(`     category="${r.category}"  count=${r.count}`));
-    }
-    if (stillMissingTypes.length > 0) {
-      console.warn('  ⚠️  Still unresolved types:');
-      stillMissingTypes.forEach(r => console.warn(`     type="${r.type}"  count=${r.count}`));
+    stillMissingCats.forEach((r: any) => console.warn(`  ⚠️  Unresolved category="${r.category}" count=${r.count}`));
+    stillMissingTypes.forEach((r: any) => console.warn(`  ⚠️  Unresolved type="${r.type}" count=${r.count}`));
+    if (cannotInfer.length > 0) {
+      console.warn(`  ⚠️  ${cannotInfer.length} properties could not be inferred from title — update manually.`);
     }
   }
 
   console.log(`
 [PropertyConfig Seed] ✅ Done!
-  Categories in DB   : ${allCategories.length + catsCreated}  (${catsCreated} auto-created)
-  Types in DB        : ${allTypes.length + typesCreated}  (${typesCreated} auto-created)
+  Properties backfilled : ${backfilled}
+  Properties skipped    : ${skipped}
   `);
 
   await dataSource.destroy();
