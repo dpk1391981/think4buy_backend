@@ -34,13 +34,24 @@ export class StorageConfigService {
   }
 
   async upsert(key: string, value: string): Promise<void> {
-    await this.repo.upsert({ key, value }, ['key']);
+    await this.repo
+      .createQueryBuilder()
+      .insert()
+      .into(StorageConfig)
+      .values({ key, value })
+      .orUpdate(['value'], ['key'])
+      .execute();
   }
 
   async bulkUpsert(entries: { key: string; value: string }[]): Promise<void> {
-    for (const e of entries) {
-      await this.repo.upsert({ key: e.key, value: e.value }, ['key']);
-    }
+    if (!entries.length) return;
+    await this.repo
+      .createQueryBuilder()
+      .insert()
+      .into(StorageConfig)
+      .values(entries.map((e) => ({ key: e.key, value: e.value })))
+      .orUpdate(['value'], ['key'])
+      .execute();
   }
 
   async getS3Settings(): Promise<S3Settings> {
