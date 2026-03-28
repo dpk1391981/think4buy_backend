@@ -108,6 +108,10 @@ import { PaymentGateway } from './modules/payment/entities/payment-gateway.entit
 import { PaymentTransaction } from './modules/payment/entities/payment-transaction.entity';
 import { PaymentLog } from './modules/payment/entities/payment-log.entity';
 import { Refund } from './modules/payment/entities/refund.entity';
+import { SystemConfigModule } from './modules/system-config/system-config.module';
+import { SystemConfig } from './modules/system-config/entities/system-config.entity';
+import { MediaProcessingModule } from './modules/media-processing/media-processing.module';
+import { MediaJob } from './modules/media-processing/entities/media-job.entity';
 
 @Module({
   imports: [
@@ -135,91 +139,80 @@ import { Refund } from './modules/payment/entities/refund.entity';
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        type: 'mysql',
-        host: config.get('DB_HOST', 'localhost'),
-        port: config.get<number>('DB_PORT', 3306),
-        username: config.get('DB_USERNAME', 'root'),
-        password: config.get('DB_PASSWORD', 'password'),
-        database: config.get('DB_NAME', 'realestate_db'),
-        entities: [
-          User,
-          Property,
-          PropertyImage,
-          PropertyView,
-          Amenity,
-          Location,
-          State,
-          City,
-          Country,
-          Inquiry,
-          ServiceCatalog,
-          ServiceLead,
-          Wallet,
-          WalletTransaction,
-          SubscriptionPlan,
-          BoostPlan,
-          AgentSubscription,
-          SavedProperty,
-          PropertyAlert,
-          PropCategory,
-          PropType,
-          PropTypeAmenity,
-          PropTypeField,
-          ListingFilterConfig,
-          AnalyticsEvent,
-          TopPropertiesCache,
-          TopAgentsCache,
-          TopProjectsCache,
-          TopLocationsCache,
-          CategoryAnalytics,
-          MarketSnapshot,
-          LocalityCircleRate,
-          ScoringConfig,
-          CityPage,
-          SeoConfig,
-          FooterSeoLink,
-          FooterSeoLinkGroup,
-          LocalitySeo,
-          CategoryCitySeo,
-          CategoryLocalitySeo,
-          Agency,
-          AgentProfile,
-          PropertyAgentMap,
-          AgentLocationMap,
-          PremiumSlot,
-          Lead,
-          LeadAssignment,
-          LeadActivityLog,
-          SiteVisit,
-          Deal,
-          Commission,
-          Article,
-          Menu,
-          RoleMenuPermission,
-          AgentFeedback,
-          Notification,
-          OtpVerification,
-          MsgService,
-          MessageTemplate,
-          EventTemplateMapping,
-          MessageLog,
-          SearchLog,
-          UserBehavior,
-          StorageConfig,
-          CookieConsent,
-          Role,
-          Permission,
-          AuditLog,
-          PaymentGateway,
-          PaymentTransaction,
-          PaymentLog,
-          Refund,
-        ],
-        synchronize: config.get('NODE_ENV') !== 'production',
-        logging: config.get('NODE_ENV') === 'development',
-        charset: 'utf8mb4',
-      }),
+      useFactory: (config: ConfigService) => {
+        const replicaEnabled = config.get<string>('ENABLE_DB_REPLICA') === 'true';
+        const replicaHost    = config.get('DB_REPLICA_HOST', '');
+
+        const entities = [
+          User, Property, PropertyImage, PropertyView, Amenity,
+          Location, State, City, Country, Inquiry,
+          ServiceCatalog, ServiceLead, Wallet, WalletTransaction,
+          SubscriptionPlan, BoostPlan, AgentSubscription, SavedProperty,
+          PropertyAlert, PropCategory, PropType, PropTypeAmenity,
+          PropTypeField, ListingFilterConfig, AnalyticsEvent,
+          TopPropertiesCache, TopAgentsCache, TopProjectsCache,
+          TopLocationsCache, CategoryAnalytics, MarketSnapshot,
+          LocalityCircleRate, ScoringConfig, CityPage, SeoConfig,
+          FooterSeoLink, FooterSeoLinkGroup, LocalitySeo, CategoryCitySeo,
+          CategoryLocalitySeo, Agency, AgentProfile, PropertyAgentMap,
+          AgentLocationMap, PremiumSlot, Lead, LeadAssignment,
+          LeadActivityLog, SiteVisit, Deal, Commission, Article, Menu,
+          RoleMenuPermission, AgentFeedback, Notification, OtpVerification,
+          MsgService, MessageTemplate, EventTemplateMapping, MessageLog,
+          SearchLog, UserBehavior, StorageConfig, CookieConsent,
+          Role, Permission, AuditLog, PaymentGateway, PaymentTransaction,
+          PaymentLog, Refund, SystemConfig, MediaJob,
+        ];
+
+        const base: any = {
+          type:        'mysql',
+          database:    config.get('DB_NAME', 'realestate_db'),
+          entities,
+          synchronize: config.get('NODE_ENV') !== 'production',
+          logging:     config.get('NODE_ENV') === 'development',
+          charset:     'utf8mb4',
+          // Connection pool sized for 1M DAU
+          extra: {
+            connectionLimit: replicaEnabled ? 10 : 25,
+            waitForConnections: true,
+            queueLimit: 0,
+          },
+        };
+
+        if (replicaEnabled && replicaHost) {
+          // Read/Write splitting: writes → master, reads → replica
+          return {
+            ...base,
+            replication: {
+              master: {
+                host:     config.get('DB_HOST', 'localhost'),
+                port:     config.get<number>('DB_PORT', 3306),
+                username: config.get('DB_USERNAME', 'root'),
+                password: config.get('DB_PASSWORD', 'password'),
+                database: config.get('DB_NAME', 'realestate_db'),
+              },
+              slaves: [
+                {
+                  host:     replicaHost,
+                  port:     config.get<number>('DB_REPLICA_PORT', 3306),
+                  username: config.get('DB_REPLICA_USERNAME') || config.get('DB_USERNAME', 'root'),
+                  password: config.get('DB_REPLICA_PASSWORD') || config.get('DB_PASSWORD', ''),
+                  database: config.get('DB_NAME', 'realestate_db'),
+                },
+              ],
+            },
+          };
+        }
+
+        // Single-node mode (no replica)
+        return {
+          ...base,
+          host:     config.get('DB_HOST', 'localhost'),
+          port:     config.get<number>('DB_PORT', 3306),
+          username: config.get('DB_USERNAME', 'root'),
+          password: config.get('DB_PASSWORD', 'password'),
+        };
+      },
       inject: [ConfigService],
     }),
     AuthModule,
@@ -252,6 +245,8 @@ import { Refund } from './modules/payment/entities/refund.entity';
     ConsentModule,
     RbacModule,
     PaymentModule,
+    SystemConfigModule,
+    MediaProcessingModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)

@@ -94,7 +94,12 @@ export class PaymentService {
           amount:   dto.amount,
           currency: dto.currency ?? 'INR',
           receipt:  tx.id,
-          notes:    { userId, type: dto.type },
+          notes:    {
+            userId,
+            type:        dto.type,
+            description: dto.metadata?.description ?? '',
+            referenceId: dto.referenceId ?? '',
+          },
         },
         ctx.config as any,
       );

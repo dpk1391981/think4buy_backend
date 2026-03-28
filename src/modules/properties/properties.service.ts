@@ -857,6 +857,34 @@ export class PropertiesService {
     return this.imageRepo.save(images);
   }
 
+  /** Async upload path — saves original URLs with processingStatus=queued */
+  async addImagesAsync(
+    propertyId: string,
+    originals: { url: string; sizeBytes: number }[],
+    user: User,
+  ) {
+    const { MediaProcessingStatus } = await import('./entities/property-image.entity');
+    const property = await this.findById(propertyId);
+    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException();
+    }
+    const images = originals.map(({ url }, index) =>
+      this.imageRepo.create({
+        url,
+        propertyId,
+        isPrimary:        index === 0 && property.images.length === 0,
+        sortOrder:        property.images.length + index,
+        alt:              property.title,
+        processingStatus: MediaProcessingStatus.QUEUED,
+      }),
+    );
+    return this.imageRepo.save(images);
+  }
+
+  async setMediaJobId(imageId: string, mediaJobId: string): Promise<void> {
+    await this.imageRepo.update(imageId, { mediaJobId });
+  }
+
   async deleteImage(propertyId: string, imageId: string, user: User) {
     const property = await this.findById(propertyId);
     if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {

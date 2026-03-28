@@ -54,6 +54,8 @@ const SEED_MENUS: { name: string; slug: string; icon: string; section: string; s
 
   // ── Admin Panel — System ────────────────────────────────────────────────────
   { name: 'Storage & Watermark', slug: 'admin_storage_settings',     icon: 'database',         section: 'admin_system',     sortOrder: 160 },
+  { name: 'Feature Toggles',     slug: 'admin_system_config',        icon: 'toggle-left',      section: 'admin_system',     sortOrder: 161 },
+  { name: 'Media Queue',         slug: 'admin_media_processing',     icon: 'image-play',       section: 'admin_system',     sortOrder: 162 },
 
   // ── Admin Panel — Security & RBAC ──────────────────────────────────────────
   { name: 'Roles & Permissions', slug: 'admin_roles',                icon: 'shield-check',     section: 'admin_rbac',       sortOrder: 170 },
