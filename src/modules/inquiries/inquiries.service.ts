@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IsString, IsNotEmpty, IsOptional, IsEmail, MaxLength } from 'class-validator';
-import { Inquiry } from './entities/inquiry.entity';
+import { Inquiry, InquiryStatus } from './entities/inquiry.entity';
 import { Property } from '../properties/entities/property.entity';
 import { User, UserRole } from '../users/entities/user.entity';
+import { AgentProfile } from '../agency/entities/agent-profile.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 
@@ -42,6 +43,8 @@ export class InquiriesService {
     private propertyRepo: Repository<Property>,
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    @InjectRepository(AgentProfile)
+    private agentProfileRepo: Repository<AgentProfile>,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -155,5 +158,58 @@ export class InquiriesService {
         totalPages: Math.ceil(total / +limit),
       },
     };
+  }
+
+  /**
+   * Mark an inquiry as responded.
+   * Records respondedAt timestamp (only on first response) and
+   * recalculates the agent's average response time.
+   * Only the property owner / agent for that inquiry may call this.
+   */
+  async markResponded(inquiryId: string, responderId: string): Promise<Inquiry> {
+    const inquiry = await this.inquiryRepo.findOne({
+      where: { id: inquiryId },
+      relations: ['property'],
+    });
+    if (!inquiry) throw new NotFoundException('Inquiry not found');
+
+    // Authorisation: responder must be the property owner or the direct agent
+    const ownerMatch = inquiry.property?.ownerId === responderId;
+    const agentMatch = inquiry.agentId === responderId;
+    if (!ownerMatch && !agentMatch) {
+      throw new ForbiddenException('Not authorised to respond to this inquiry');
+    }
+
+    // Only stamp respondedAt once (preserve first-response time)
+    if (!inquiry.respondedAt) {
+      inquiry.respondedAt = new Date();
+    }
+    inquiry.status = InquiryStatus.RESPONDED;
+    const saved = await this.inquiryRepo.save(inquiry);
+
+    // Recalculate avgResponseHours in the background (non-blocking)
+    this.recalcResponseTime(responderId).catch(() => {});
+
+    return saved;
+  }
+
+  /** Recalculate avgResponseHours from all responded inquiries for this agent */
+  private async recalcResponseTime(agentUserId: string): Promise<void> {
+    const db = this.agentProfileRepo.manager.connection;
+    const rows: any[] = await db.query(
+      `SELECT ROUND(AVG(TIMESTAMPDIFF(SECOND, i.createdAt, i.respondedAt)) / 3600.0, 1) AS avgHours
+       FROM inquiries i
+       LEFT JOIN properties p ON p.id = i.property_id
+       WHERE i.respondedAt IS NOT NULL
+         AND (i.agent_id = ? OR p.ownerId = ?)`,
+      [agentUserId, agentUserId],
+    );
+    const avgHours: number | null =
+      rows[0]?.avgHours != null ? Number(rows[0].avgHours) : null;
+
+    const profile = await this.agentProfileRepo.findOne({ where: { userId: agentUserId } });
+    if (profile) {
+      await this.agentProfileRepo.update(profile.id, { avgResponseHours: avgHours });
+    }
   }
 }

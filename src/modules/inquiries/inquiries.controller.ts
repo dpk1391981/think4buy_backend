@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Body,
   Param,
   Query,
@@ -72,6 +73,14 @@ export class InquiriesController {
   @ApiOperation({ summary: "Get the logged-in buyer's own submitted enquiries" })
   getBuyerEnquiries(@Request() req) {
     return this.inquiriesService.findByBuyer(req.user.id);
+  }
+
+  @Patch(':id/respond')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mark an inquiry as responded — records response time for agent analytics' })
+  markResponded(@Param('id') id: string, @Request() req) {
+    return this.inquiriesService.markResponded(id, req.user.id);
   }
 
   @Get('my')
