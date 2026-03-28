@@ -448,14 +448,11 @@ export class PropertiesService {
       );
     }
 
-    // Quota check is skipped for drafts — only enforce on publish
-    if (owner.role === UserRole.AGENT && !dto.isDraft) {
-      // Quota is consumed on admin approval, not on submission.
-      // Check current approved count against quota to prevent excess submissions.
-      if (owner.agentUsedQuota >= owner.agentFreeQuota) {
-        throw new BadRequestException(
-          `Listing quota exhausted (${owner.agentUsedQuota}/${owner.agentFreeQuota} approved listings used). Please upgrade your subscription.`,
-        );
+    // Subscription limit check — skipped for drafts, enforced on submission
+    if (!dto.isDraft) {
+      const subCheck = await this.walletService.checkSubscriptionLimit(owner.id);
+      if (!subCheck.allowed) {
+        throw new BadRequestException(subCheck.message);
       }
     }
 
@@ -525,13 +522,10 @@ export class PropertiesService {
       throw new BadRequestException('Property is already published');
     }
 
-    // Enforce agent quota on publish
-    if (user.role === UserRole.AGENT) {
-      if (user.agentUsedQuota >= user.agentFreeQuota) {
-        throw new BadRequestException(
-          `Listing quota exhausted (${user.agentUsedQuota}/${user.agentFreeQuota} approved listings used). Please upgrade your subscription.`,
-        );
-      }
+    // Enforce subscription limit on publish
+    const subCheck = await this.walletService.checkSubscriptionLimit(user.id);
+    if (!subCheck.allowed) {
+      throw new BadRequestException(subCheck.message);
     }
 
     property.isDraft = false;
