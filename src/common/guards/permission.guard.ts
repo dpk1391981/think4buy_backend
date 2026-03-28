@@ -38,7 +38,7 @@ export class PermissionGuard implements CanActivate {
     if (!user) throw new ForbiddenException('Authentication required');
 
     // Super admins bypass all permission checks
-    if (user.isSuperAdmin) return true;
+    if (user.isSuperAdmin || user.role === 'super_admin') return true;
 
     const userPerms = await this.rbac.getUserPermissions(user.id, false);
 

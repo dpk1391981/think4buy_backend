@@ -34,6 +34,8 @@ import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { FilterPropertyDto } from './dto/filter-property.dto';
 import { PropertyStatus, ApprovalStatus, PropertyCategory } from './entities/property.entity';
+import { MediaProcessingService } from '../media-processing/media-processing.service';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 @ApiTags('properties')
 @Controller('properties')
@@ -41,6 +43,8 @@ export class PropertiesController {
   constructor(
     private readonly propertiesService: PropertiesService,
     private readonly imageUploadService: ImageUploadService,
+    private readonly mediaProcessingService: MediaProcessingService,
+    private readonly systemConfig: SystemConfigService,
   ) {}
 
   @Get()
@@ -235,6 +239,33 @@ export class PropertiesController {
     @Request() req,
   ) {
     if (!files?.length) throw new BadRequestException('No images uploaded');
+
+    const asyncEnabled = await this.systemConfig.getBoolean('ENABLE_IMAGE_ASYNC_PROCESSING', true);
+
+    if (asyncEnabled) {
+      // Async path: save originals immediately, process variants in background
+      const originals = await this.imageUploadService.saveOriginalFiles(files, 'properties', id);
+      const images = await this.propertiesService.addImagesAsync(id, originals, req.user);
+
+      // Enqueue media jobs for each image
+      await Promise.all(
+        images.map((img, i) =>
+          this.mediaProcessingService
+            .enqueueImage({
+              originalPath:      originals[i].url,
+              entityType:        'property_image',
+              entityId:          img.id,
+              userId:            req.user.id,
+              originalSizeBytes: originals[i].sizeBytes,
+            })
+            .then(job => this.propertiesService.setMediaJobId(img.id, job.id)),
+        ),
+      );
+
+      return images;
+    }
+
+    // Synchronous path (original behaviour)
     const urls = await this.imageUploadService.saveImages(files, 'properties', id);
     return this.propertiesService.addImages(id, urls, req.user);
   }

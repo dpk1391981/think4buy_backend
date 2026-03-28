@@ -65,6 +65,30 @@ export class ImageUploadService {
     );
   }
 
+  /**
+   * Save original files without any Sharp processing.
+   * Used by the async media pipeline — BullMQ will process variants later.
+   * Returns absolute local paths (or S3 URLs) for each file.
+   */
+  async saveOriginalFiles(
+    files: Express.Multer.File[],
+    folder: string,
+    subFolder?: string,
+  ): Promise<{ url: string; sizeBytes: number }[]> {
+    if (files.length > MAX_BATCH) {
+      throw new BadRequestException(`A maximum of ${MAX_BATCH} files can be uploaded at once.`);
+    }
+    return Promise.all(
+      files.map(async (file) => {
+        this.assertMagicBytes(file.buffer, file.mimetype);
+        const ext      = file.originalname.split('.').pop()?.toLowerCase() ?? 'bin';
+        const filename = `${uuidv4()}.${ext}`;
+        const url      = await this.store(file.buffer, folder, subFolder, filename);
+        return { url, sizeBytes: file.buffer.length };
+      }),
+    );
+  }
+
   async savePdf(file: Express.Multer.File, subFolder: string): Promise<string> {
     const pdfMagic = [0x25, 0x50, 0x44, 0x46];
     const valid = pdfMagic.every((byte, i) => file.buffer[i] === byte);

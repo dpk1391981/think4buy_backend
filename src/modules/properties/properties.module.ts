@@ -11,6 +11,7 @@ import { PropertyView } from './entities/property-view.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { UploadModule } from '../upload/upload.module';
 import { PropType } from '../property-config/entities/prop-type.entity';
+import { MediaProcessingModule } from '../media-processing/media-processing.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { PropType } from '../property-config/entities/prop-type.entity';
     WalletModule,
     ScheduleModule.forRoot(),
     UploadModule,
+    MediaProcessingModule,
   ],
   controllers: [PropertiesController],
   providers: [PropertiesService],
