@@ -13,7 +13,10 @@ export class PropertyConfigController {
   constructor(private readonly svc: PropertyConfigService) {}
 
   private assertAdmin(req: any) {
-    if (req.user?.role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
+    const role = req.user?.role;
+    if (role !== UserRole.ADMIN && role !== UserRole.SUPER_ADMIN && !req.user?.isSuperAdmin) {
+      throw new ForbiddenException('Admin only');
+    }
   }
 
   // ── Public endpoints ────────────────────────────────────────────────────────
