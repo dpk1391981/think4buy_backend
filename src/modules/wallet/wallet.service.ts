@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Wallet } from './entities/wallet.entity';
 import {
   WalletTransaction,
@@ -220,6 +220,73 @@ export class WalletService {
     }
 
     // Update agent quota: set new limit and reset used count for the new period
+    await this.userRepository.update(userId, {
+      agentFreeQuota: plan.maxListings,
+      agentUsedQuota: 0,
+    });
+
+    return { subscription: saved, plan };
+  }
+
+  /**
+   * Activate a subscription plan without deducting tokens.
+   * Used by PaymentProcessor after a successful real-money payment.
+   * Mirrors purchaseSubscription() but skips the token debit step.
+   */
+  async activateSubscriptionAfterPayment(
+    userId: string,
+    planId: string,
+    transactionId: string,
+  ): Promise<{ subscription: AgentSubscription; plan: SubscriptionPlan }> {
+    const plan = await this.subscriptionPlanRepository.findOne({
+      where: { id: planId, isActive: true },
+    });
+    if (!plan) throw new NotFoundException('Subscription plan not found or inactive');
+
+    // Expire any existing active subscription
+    await this.agentSubscriptionRepository.update(
+      { agentId: userId, status: SubscriptionStatus.ACTIVE },
+      { status: SubscriptionStatus.EXPIRED },
+    );
+
+    const now = new Date();
+    const expiresAt = new Date(now);
+    expiresAt.setDate(expiresAt.getDate() + plan.durationDays);
+
+    const subscription = this.agentSubscriptionRepository.create({
+      agentId: userId,
+      planId,
+      status: SubscriptionStatus.ACTIVE,
+      startsAt: now,
+      expiresAt,
+      tokensDeducted: 0, // paid via real money, no tokens deducted
+      planSnapshot: {
+        name: plan.name,
+        type: plan.type,
+        price: plan.price,
+        durationDays: plan.durationDays,
+        maxListings: plan.maxListings,
+        tokensIncluded: plan.tokensIncluded,
+        features: plan.features,
+        paidVia: 'real_money',
+        transactionId,
+      },
+    });
+    const saved = await this.agentSubscriptionRepository.save(subscription);
+
+    // Credit included tokens (plan benefit, no cost — money was paid via gateway)
+    if (Number(plan.tokensIncluded) > 0) {
+      await this.credit(
+        userId,
+        Number(plan.tokensIncluded),
+        TransactionReason.SUBSCRIPTION,
+        `${plan.name} plan tokens (real money payment)`,
+        saved.id,
+        'agent_subscription',
+      );
+    }
+
+    // Set listing quota
     await this.userRepository.update(userId, {
       agentFreeQuota: plan.maxListings,
       agentUsedQuota: 0,

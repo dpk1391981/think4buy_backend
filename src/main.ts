@@ -12,6 +12,9 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    // rawBody=true is required for Stripe/Razorpay webhook signature verification
+    // NestJS stores the raw buffer on req.rawBody before body-parser processes it
+    rawBody: true,
     // Suppress internal NestJS logger in production; use our interceptor instead
     logger: process.env.NODE_ENV === 'production'
       ? ['error', 'warn']

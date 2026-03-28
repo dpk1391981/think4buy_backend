@@ -3,7 +3,6 @@ import {
   Get,
   Post,
   Body,
-  Param,
   Query,
   UseGuards,
   Request,
@@ -13,15 +12,31 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { WalletService } from './wallet.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { PaymentGateway, GatewayStatus } from '../payment/entities/payment-gateway.entity';
 
 @ApiTags('wallet')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'))
 @Controller('wallet')
 export class WalletController {
-  constructor(private readonly walletService: WalletService) {}
+  constructor(
+    private readonly walletService: WalletService,
+    private readonly configService: ConfigService,
+    @InjectRepository(PaymentGateway)
+    private readonly gatewayRepo: Repository<PaymentGateway>,
+  ) {}
+
+  /** Check if real-money payments are active (used by frontend before purchase) */
+  private async isRealPaymentEnabled(): Promise<boolean> {
+    if (this.configService.get<string>('PAYMENT_ENABLED') !== 'true') return false;
+    const gw = await this.gatewayRepo.findOne({ where: { status: GatewayStatus.ACTIVE } });
+    return !!gw;
+  }
 
   @Get()
   @ApiOperation({ summary: 'Get current user wallet balance with quota info' })
@@ -69,8 +84,34 @@ export class WalletController {
 
   @Post('subscription/purchase')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Purchase a subscription plan using tokens' })
-  purchaseSubscription(@Request() req, @Body('planId') planId: string) {
+  @ApiOperation({
+    summary: 'Purchase a subscription plan. Returns {requiresPayment: true, ...} when real-money mode is active.',
+  })
+  async purchaseSubscription(@Request() req, @Body('planId') planId: string) {
+    const paymentEnabled = await this.isRealPaymentEnabled();
+
+    if (paymentEnabled) {
+      // Real-money mode: return plan details for the frontend to launch checkout
+      // Actual activation happens in PaymentProcessor after successful payment
+      const plans = await this.walletService.getSubscriptionPlans();
+      const plan = plans.find((p) => p.id === planId);
+      if (!plan) {
+        throw new Error('Subscription plan not found or inactive');
+      }
+      return {
+        requiresPayment: true,
+        plan: {
+          id:             plan.id,
+          name:           plan.name,
+          price:          plan.price,
+          durationDays:   plan.durationDays,
+          tokensIncluded: plan.tokensIncluded,
+          maxListings:    plan.maxListings,
+        },
+      };
+    }
+
+    // Token mode: existing flow unchanged
     return this.walletService.purchaseSubscription(req.user.id, planId);
   }
 }
