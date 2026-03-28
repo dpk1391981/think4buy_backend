@@ -57,6 +57,10 @@ const COMMERCIAL_TYPES = new Set([
 export class PropertiesService {
   private readonly logger = new Logger(PropertiesService.name);
 
+  private isAdmin(user: User): boolean {
+    return user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN || !!user.isSuperAdmin;
+  }
+
   constructor(
     @InjectRepository(Property)
     private propertyRepo: Repository<Property>,
@@ -514,7 +518,7 @@ export class PropertiesService {
   // ─────────────────────────────────────────────────────────────────────────────
   async publishDraft(id: string, user: User): Promise<Property> {
     const property = await this.findById(id);
-    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+    if (property.ownerId !== user.id && !this.isAdmin(user)) {
       throw new ForbiddenException('You can only publish your own properties');
     }
     if (!property.isDraft) {
@@ -811,7 +815,7 @@ export class PropertiesService {
 
   async update(id: string, dto: Partial<CreatePropertyDto>, user: User): Promise<Property> {
     const property = await this.findById(id);
-    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+    if (property.ownerId !== user.id && !this.isAdmin(user)) {
       throw new ForbiddenException('You can only edit your own properties');
     }
     if (dto.amenityIds) {
@@ -820,7 +824,7 @@ export class PropertiesService {
     const wasDraft = property.isDraft;
     Object.assign(property, dto);
     // Non-admin edits of live (non-draft) properties reset approval for re-review
-    if (user.role !== UserRole.ADMIN && !wasDraft) {
+    if (!this.isAdmin(user) && !wasDraft) {
       property.approvalStatus = ApprovalStatus.PENDING;
       property.status = PropertyStatus.INACTIVE;
       property.rejectionReason = null;
@@ -834,7 +838,7 @@ export class PropertiesService {
 
   async remove(id: string, user: User): Promise<void> {
     const property = await this.findById(id);
-    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+    if (property.ownerId !== user.id && !this.isAdmin(user)) {
       throw new ForbiddenException('You can only delete your own properties');
     }
     await this.propertyRepo.remove(property);
@@ -842,7 +846,7 @@ export class PropertiesService {
 
   async addImages(propertyId: string, urls: string[], user: User) {
     const property = await this.findById(propertyId);
-    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+    if (property.ownerId !== user.id && !this.isAdmin(user)) {
       throw new ForbiddenException();
     }
     const images = urls.map((url, index) =>
@@ -865,7 +869,7 @@ export class PropertiesService {
   ) {
     const { MediaProcessingStatus } = await import('./entities/property-image.entity');
     const property = await this.findById(propertyId);
-    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+    if (property.ownerId !== user.id && !this.isAdmin(user)) {
       throw new ForbiddenException();
     }
     const images = originals.map(({ url }, index) =>
@@ -887,7 +891,7 @@ export class PropertiesService {
 
   async deleteImage(propertyId: string, imageId: string, user: User) {
     const property = await this.findById(propertyId);
-    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+    if (property.ownerId !== user.id && !this.isAdmin(user)) {
       throw new ForbiddenException();
     }
     const image = await this.imageRepo.findOne({ where: { id: imageId, propertyId } });
@@ -898,7 +902,7 @@ export class PropertiesService {
 
   async uploadBrochure(propertyId: string, brochureUrl: string, user: User) {
     const property = await this.findById(propertyId);
-    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+    if (property.ownerId !== user.id && !this.isAdmin(user)) {
       throw new ForbiddenException();
     }
     property.brochureUrl = brochureUrl;
@@ -907,7 +911,7 @@ export class PropertiesService {
 
   async removeBrochure(propertyId: string, user: User) {
     const property = await this.findById(propertyId);
-    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+    if (property.ownerId !== user.id && !this.isAdmin(user)) {
       throw new ForbiddenException();
     }
     property.brochureUrl = null;
@@ -1144,7 +1148,7 @@ export class PropertiesService {
 
   async boostProperty(propertyId: string, boostPlanId: string, user: User): Promise<Property> {
     const property = await this.findById(propertyId);
-    if (property.ownerId !== user.id && user.role !== UserRole.ADMIN) {
+    if (property.ownerId !== user.id && !this.isAdmin(user)) {
       throw new ForbiddenException('You can only boost your own properties');
     }
     const boostPlan = await this.walletService.getBoostPlanById(boostPlanId);
@@ -1480,7 +1484,7 @@ export class PropertiesService {
     const property = await this.propertyRepo.findOne({ where: { id: propertyId } });
     if (!property) throw new NotFoundException('Property not found');
 
-    const isAdmin = requestingUser.role === UserRole.ADMIN;
+    const isAdmin = this.isAdmin(requestingUser);
     const isOwner = property.ownerId === requestingUser.id;
     const isAssignedAgent = property.agentId === requestingUser.id;
 
@@ -1533,7 +1537,7 @@ export class PropertiesService {
     const property = await this.propertyRepo.findOne({ where: { id: propertyId } });
     if (!property) throw new NotFoundException('Property not found');
 
-    const isAdmin = requestingUser.role === UserRole.ADMIN;
+    const isAdmin = this.isAdmin(requestingUser);
     const isOwner = property.ownerId === requestingUser.id;
     const isAssignedAgent = property.agentId === requestingUser.id;
 
