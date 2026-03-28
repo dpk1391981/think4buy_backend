@@ -502,7 +502,7 @@ export class PropertiesService {
       amenities,
       isDraft,
       approvalStatus: ApprovalStatus.PENDING,
-      status: isDraft ? PropertyStatus.INACTIVE : PropertyStatus.ACTIVE,
+      status: PropertyStatus.INACTIVE, // always inactive until admin approves
       listedBy: isAgentListing ? ListingUserType.AGENT : ListingUserType.OWNER,
       agentId: isAgentListing ? (dto.agentProfileId ?? null) : null,
       agencyId: isAgentListing ? (dto.agencyId ?? null) : null,
@@ -823,16 +823,30 @@ export class PropertiesService {
     }
     const wasDraft = property.isDraft;
     Object.assign(property, dto);
-    // Non-admin edits of live (non-draft) properties reset approval for re-review
-    if (!this.isAdmin(user) && !wasDraft) {
+
+    if (wasDraft && dto.isDraft === false) {
+      // Draft → Pending: treat same as publishDraft() — explicit publish via update payload
+      if (user.role === UserRole.AGENT) {
+        if (user.agentUsedQuota >= user.agentFreeQuota) {
+          throw new BadRequestException(
+            `Listing quota exhausted (${user.agentUsedQuota}/${user.agentFreeQuota} approved listings used). Please upgrade your subscription.`,
+          );
+        }
+      }
+      property.isDraft = false;
+      property.approvalStatus = ApprovalStatus.PENDING;
+      property.status = PropertyStatus.INACTIVE;
+      property.rejectionReason = null;
+    } else if (wasDraft && dto.isDraft !== false) {
+      // Saving a draft without publishing — keep draft state
+      property.isDraft = true;
+    } else if (!this.isAdmin(user) && !wasDraft) {
+      // Non-admin edit of a live property — reset for re-review
       property.approvalStatus = ApprovalStatus.PENDING;
       property.status = PropertyStatus.INACTIVE;
       property.rejectionReason = null;
     }
-    // Keep draft status unless explicitly publishing
-    if (wasDraft && dto.isDraft !== false) {
-      property.isDraft = true;
-    }
+
     return this.propertyRepo.save(property);
   }
 

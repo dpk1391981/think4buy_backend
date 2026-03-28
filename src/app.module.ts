@@ -30,6 +30,7 @@ import { OtpVerification } from './modules/auth/entities/otp-verification.entity
 import { Property } from './modules/properties/entities/property.entity';
 import { PropertyImage } from './modules/properties/entities/property-image.entity';
 import { PropertyView } from './modules/properties/entities/property-view.entity';
+import { PropertyStatusHistory } from './modules/properties/entities/property-status-history.entity';
 import { Amenity } from './modules/properties/entities/amenity.entity';
 import { Location } from './modules/locations/entities/location.entity';
 import { State } from './modules/locations/entities/state.entity';
@@ -144,7 +145,7 @@ import { MediaJob } from './modules/media-processing/entities/media-job.entity';
         const replicaHost    = config.get('DB_REPLICA_HOST', '');
 
         const entities = [
-          User, Property, PropertyImage, PropertyView, Amenity,
+          User, Property, PropertyImage, PropertyView, PropertyStatusHistory, Amenity,
           Location, State, City, Country, Inquiry,
           ServiceCatalog, ServiceLead, Wallet, WalletTransaction,
           SubscriptionPlan, BoostPlan, AgentSubscription, SavedProperty,

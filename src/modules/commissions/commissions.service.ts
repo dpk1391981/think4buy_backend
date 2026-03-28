@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Commission, CommissionStatus } from './entities/commission.entity';
@@ -11,6 +11,8 @@ import {
 
 @Injectable()
 export class CommissionsService {
+  private readonly logger = new Logger(CommissionsService.name);
+
   constructor(
     @InjectRepository(Commission)
     private commissionRepo: Repository<Commission>,
@@ -50,7 +52,9 @@ export class CommissionsService {
       ...calc,
       status: CommissionStatus.PENDING,
     });
-    return this.commissionRepo.save(commission);
+    const saved = await this.commissionRepo.save(commission);
+    this.logger.log(`Commission created for deal ${dto.dealId}: gross=₹${calc.grossCommission.toFixed(2)}, agent_net=₹${calc.agentNetPayout.toFixed(2)}`);
+    return saved;
   }
 
   async findAll(query: CommissionsQueryDto) {
@@ -82,7 +86,9 @@ export class CommissionsService {
     c.invoiceNumber = `INV-${Date.now()}`;
     c.invoiceDate = new Date();
     c.status = CommissionStatus.INVOICED;
-    return this.commissionRepo.save(c);
+    const saved = await this.commissionRepo.save(c);
+    this.logger.log(`Commission ${id} approved → INVOICED (invoice: ${saved.invoiceNumber})`);
+    return saved;
   }
 
   async markPaid(id: string, dto: MarkPaidDto): Promise<Commission> {
@@ -90,7 +96,9 @@ export class CommissionsService {
     c.status = CommissionStatus.PAID;
     c.paymentReference = dto.paymentReference;
     c.paymentDate = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
-    return this.commissionRepo.save(c);
+    const saved = await this.commissionRepo.save(c);
+    this.logger.log(`Commission ${id} marked PAID (ref: ${dto.paymentReference})`);
+    return saved;
   }
 
   async dispute(id: string, reason: string): Promise<Commission> {
