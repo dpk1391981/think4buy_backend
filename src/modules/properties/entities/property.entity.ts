@@ -364,6 +364,7 @@ export class Property {
   @OneToMany(() => Inquiry, (inquiry) => inquiry.property)
   inquiries: Inquiry[];
 
+  @Index()
   @CreateDateColumn()
   createdAt: Date;
 

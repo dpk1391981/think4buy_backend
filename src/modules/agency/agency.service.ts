@@ -471,10 +471,11 @@ export class AgencyService {
          u.state        AS state,
          ap.tick        AS agentTick,
          ap.rating      AS agentRating,
-         ap.totalDeals  AS totalDeals,
+         u.totalDeals   AS totalDeals,
          ap.experienceYears AS agentExperience,
          ap.licenseNumber   AS agentLicense,
          ap.authorityScore  AS authorityScore,
+         ap.avgResponseHours AS avgResponseHours,
          GROUP_CONCAT(
            DISTINCT COALESCE(alm.localityName, alm.cityName, alm.stateName)
            ORDER BY alm.coverageType
@@ -488,28 +489,29 @@ export class AgencyService {
          AND ap.isActive = 1
          AND (${areaConditions.join(' OR ')})
        GROUP BY u.id, ap.id
-       ORDER BY ap.authorityScore DESC, ap.totalDeals DESC
+       ORDER BY ap.authorityScore DESC, u.totalDeals DESC
        LIMIT ?`,
       [...params, limit],
     );
 
     return rows.map((r) => ({
-      id:              r.id,
-      agentProfileId:  r.agentProfileId,
-      name:            r.name,
-      phone:           r.phone,
-      avatar:          r.avatar,
-      company:         r.company,
-      city:            r.city,
-      state:           r.state,
-      agentTick:       r.agentTick,
-      agentRating:     Number(r.agentRating ?? 0),
-      totalDeals:      r.totalDeals ?? 0,
-      agentExperience: r.agentExperience ?? 0,
-      agentLicense:    r.agentLicense ?? null,
-      authorityScore:  Number(r.authorityScore ?? 0),
-      coverageAreas:   r.coverageAreas ?? '',
-      isDiamondAgent:  true,
+      id:               r.id,
+      agentProfileId:   r.agentProfileId,
+      name:             r.name,
+      phone:            r.phone,
+      avatar:           r.avatar,
+      company:          r.company,
+      city:             r.city,
+      state:            r.state,
+      agentTick:        r.agentTick,
+      agentRating:      Number(r.agentRating ?? 0),
+      totalDeals:       r.totalDeals != null ? Number(r.totalDeals) : 0,
+      agentExperience:  r.agentExperience ?? 0,
+      agentLicense:     r.agentLicense ?? null,
+      authorityScore:   Number(r.authorityScore ?? 0),
+      coverageAreas:    r.coverageAreas ?? '',
+      isDiamondAgent:   true,
+      avgResponseHours: r.avgResponseHours != null ? Number(r.avgResponseHours) : null,
     }));
   }
 
@@ -905,10 +907,24 @@ export class AgencyService {
    */
   async computeAndSaveAuthorityScore(profile: AgentProfile): Promise<number> {
     const tickMap: Record<string, number> = { gold: 100, silver: 75, bronze: 50, verified: 25, none: 0 };
-    const tickScore = tickMap[profile.tick] ?? 0;
+
+    // Fetch authoritative values from users table (single source of truth for tick + totalDeals)
+    const userRows: any[] = await this.agentProfileRepo.manager.query(
+      'SELECT agentTick, totalDeals FROM users WHERE id = ? LIMIT 1',
+      [profile.userId],
+    );
+    const userRow = userRows[0] ?? {};
+    const authoritativeTick  = (userRow.agentTick as string) || 'none';
+    const authoritativeDeals = Number(userRow.totalDeals ?? 0);
+
+    // Keep agent_profiles in sync with users (tick + totalDeals)
+    profile.tick       = authoritativeTick as AgentProfile['tick'];
+    profile.totalDeals = authoritativeDeals;
+
+    const tickScore    = tickMap[authoritativeTick] ?? 0;
     const responseScore = 50; // reserved
-    const dealScore = Math.min((profile.totalDeals / 50) * 100, 100);
-    const reviewScore = profile.rating ? (Number(profile.rating) / 5) * 100 : 0;
+    const dealScore    = Math.min((authoritativeDeals / 50) * 100, 100);
+    const reviewScore  = profile.rating ? (Number(profile.rating) / 5) * 100 : 0;
     const listingScore = Math.min((profile.totalListings / 30) * 100, 100);
 
     const score =
@@ -939,6 +955,7 @@ export class AgencyService {
     const qb = this.premiumSlotRepo.manager
       .createQueryBuilder()
       .from('users', 'u')
+      .leftJoin('agent_profiles', 'ap', 'ap.userId = u.id')
       .where('u.agentTick != :none', { none: 'none' })
       .andWhere('u.isActive = true')
       .orderBy('u.agentRating', 'DESC')
@@ -959,6 +976,7 @@ export class AgencyService {
         'u.agentUsedQuota   AS agentUsedQuota',
         'u.isVerified       AS isVerified',
         'u.agentBio         AS agentBio',
+        'ap.avgResponseHours AS avgResponseHours',
       ]);
 
     if (city) {
@@ -967,20 +985,21 @@ export class AgencyService {
 
     const rows = await qb.getRawMany();
     return rows.map(r => ({
-      id:              r.id,
-      name:            r.name,
-      avatar:          r.avatar || null,
-      phone:           r.phone || null,
-      company:         r.company || null,
-      city:            r.city || null,
-      state:           r.state || null,
-      agentTick:       r.agentTick || 'none',
-      agentRating:     r.agentRating != null ? Number(r.agentRating) : 0,
-      agentExperience: r.agentExperience != null ? Number(r.agentExperience) : 0,
-      totalDeals:      r.totalDeals != null ? Number(r.totalDeals) : 0,
-      agentUsedQuota:  r.agentUsedQuota != null ? Number(r.agentUsedQuota) : 0,
-      isVerified:      r.isVerified === 1 || r.isVerified === true || r.isVerified === '1',
-      agentBio:        r.agentBio || null,
+      id:               r.id,
+      name:             r.name,
+      avatar:           r.avatar || null,
+      phone:            r.phone || null,
+      company:          r.company || null,
+      city:             r.city || null,
+      state:            r.state || null,
+      agentTick:        r.agentTick || 'none',
+      agentRating:      r.agentRating != null ? Number(r.agentRating) : 0,
+      agentExperience:  r.agentExperience != null ? Number(r.agentExperience) : 0,
+      totalDeals:       r.totalDeals != null ? Number(r.totalDeals) : 0,
+      agentUsedQuota:   r.agentUsedQuota != null ? Number(r.agentUsedQuota) : 0,
+      isVerified:       r.isVerified === 1 || r.isVerified === true || r.isVerified === '1',
+      agentBio:         r.agentBio || null,
+      avgResponseHours: r.avgResponseHours != null ? Number(r.avgResponseHours) : null,
     }));
 
   }

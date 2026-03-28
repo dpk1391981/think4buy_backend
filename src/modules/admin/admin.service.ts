@@ -2,12 +2,14 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Property, ApprovalStatus, PropertyStatus } from '../properties/entities/property.entity';
+import { PropertyStatusHistory } from '../properties/entities/property-status-history.entity';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { CreateAgentDto, UpdateAgentDto, UpdateAgentQuotaDto } from './dto/admin.dto';
 import { WalletService } from '../wallet/wallet.service';
@@ -24,9 +26,12 @@ import { AlertsService } from '../alerts/alerts.service';
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Property) private propertyRepo: Repository<Property>,
+    @InjectRepository(PropertyStatusHistory) private statusHistoryRepo: Repository<PropertyStatusHistory>,
     @InjectRepository(Inquiry) private inquiryRepo: Repository<Inquiry>,
     @InjectRepository(Country) private countryRepo: Repository<Country>,
     private walletService: WalletService,
@@ -83,14 +88,15 @@ export class AdminService {
       .leftJoinAndSelect('property.images', 'images')
       .orderBy('property.createdAt', 'DESC');
 
-    if (approvalStatus) {
-      // When filtering by approval status, show all matching properties
-      // regardless of isDraft (e.g. rejected properties may still have isDraft=true)
-      qb.where('property.approvalStatus = :approvalStatus', { approvalStatus });
-    } else if (isDraft === true) {
+    if (isDraft === true) {
+      // Drafts tab: ONLY properties still in draft state
       qb.where('property.isDraft = true');
+    } else if (approvalStatus) {
+      // Pending / Approved / Rejected tabs: never include drafts
+      qb.where('property.approvalStatus = :approvalStatus', { approvalStatus })
+        .andWhere('property.isDraft = false');
     } else {
-      // Default "All" tab: exclude drafts
+      // "All" tab: exclude drafts
       qb.where('property.isDraft = false');
     }
     if (search) {
@@ -106,7 +112,7 @@ export class AdminService {
     return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async approveProperty(id: string): Promise<Property> {
+  async approveProperty(id: string, adminUserId?: string): Promise<Property> {
     const property = await this.propertyRepo.findOne({
       where: { id },
       relations: ['owner'],
@@ -114,11 +120,25 @@ export class AdminService {
     if (!property) throw new NotFoundException('Property not found');
 
     const wasAlreadyApproved = property.approvalStatus === ApprovalStatus.APPROVED;
+    const oldStatus = property.status;
 
     property.approvalStatus = ApprovalStatus.APPROVED;
     property.status = PropertyStatus.ACTIVE;
     property.rejectionReason = null;
     const saved = await this.propertyRepo.save(property);
+
+    // Track status history
+    await this.statusHistoryRepo.save(
+      this.statusHistoryRepo.create({
+        propertyId: id,
+        oldStatus: oldStatus,
+        newStatus: PropertyStatus.ACTIVE,
+        updatedBy: adminUserId ?? null,
+        updatedByRole: 'admin',
+        note: 'Approved by admin',
+      }),
+    );
+    this.logger.log(`Property ${id} approved → active by admin ${adminUserId ?? 'unknown'}`);
 
     // Consume listing quota on first approval (agent role)
     if (!wasAlreadyApproved && property.owner?.role === UserRole.AGENT) {
@@ -152,7 +172,7 @@ export class AdminService {
     return saved;
   }
 
-  async rejectProperty(id: string, reason?: string): Promise<Property> {
+  async rejectProperty(id: string, reason?: string, adminUserId?: string): Promise<Property> {
     const property = await this.propertyRepo.findOne({
       where: { id },
       relations: ['owner'],
@@ -160,11 +180,25 @@ export class AdminService {
     if (!property) throw new NotFoundException('Property not found');
 
     const wasApproved = property.approvalStatus === ApprovalStatus.APPROVED;
+    const oldStatus = property.status;
 
     property.approvalStatus = ApprovalStatus.REJECTED;
     property.status = PropertyStatus.INACTIVE;
     property.rejectionReason = reason || null;
     const saved = await this.propertyRepo.save(property);
+
+    // Track status history
+    await this.statusHistoryRepo.save(
+      this.statusHistoryRepo.create({
+        propertyId: id,
+        oldStatus: oldStatus,
+        newStatus: PropertyStatus.INACTIVE,
+        updatedBy: adminUserId ?? null,
+        updatedByRole: 'admin',
+        note: reason ? `Rejected: ${reason}` : 'Rejected by admin',
+      }),
+    );
+    this.logger.log(`Property ${id} rejected → inactive by admin ${adminUserId ?? 'unknown'}${reason ? ': ' + reason : ''}`);
 
     // Release quota if property was previously approved
     if (wasApproved && property.owner?.role === UserRole.AGENT) {

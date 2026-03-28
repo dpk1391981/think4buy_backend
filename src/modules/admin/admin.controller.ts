@@ -97,7 +97,7 @@ export class AdminController {
   @ApiOperation({ summary: 'Approve a property listing' })
   approveProperty(@Request() req, @Param('id') id: string) {
     this.assertAdmin(req);
-    return this.adminService.approveProperty(id);
+    return this.adminService.approveProperty(id, req.user?.id);
   }
 
   @Patch('properties/:id/reject')
@@ -108,7 +108,7 @@ export class AdminController {
     @Body() dto: RejectPropertyDto,
   ) {
     this.assertAdmin(req);
-    return this.adminService.rejectProperty(id, dto.reason);
+    return this.adminService.rejectProperty(id, dto.reason, req.user?.id);
   }
 
   @Patch('properties/:id/reactivate')

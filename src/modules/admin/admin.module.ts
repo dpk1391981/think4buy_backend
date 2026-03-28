@@ -4,6 +4,7 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { User } from '../users/entities/user.entity';
 import { Property } from '../properties/entities/property.entity';
+import { PropertyStatusHistory } from '../properties/entities/property-status-history.entity';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { Country } from '../locations/entities/country.entity';
 import { WalletModule } from '../wallet/wallet.module';
@@ -16,7 +17,7 @@ import { StorageConfigModule } from '../storage-config/storage-config.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Property, Inquiry, Country]),
+    TypeOrmModule.forFeature([User, Property, PropertyStatusHistory, Inquiry, Country]),
     WalletModule,
     LocationsModule,
     AgencyModule,
