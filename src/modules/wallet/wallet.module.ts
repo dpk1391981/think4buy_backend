@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
 import { WalletService } from './wallet.service';
 import { WalletController } from './wallet.controller';
 import { Wallet } from './entities/wallet.entity';
@@ -8,9 +9,11 @@ import { SubscriptionPlan } from './entities/subscription-plan.entity';
 import { BoostPlan } from './entities/boost-plan.entity';
 import { AgentSubscription } from './entities/agent-subscription.entity';
 import { User } from '../users/entities/user.entity';
+import { PaymentGateway } from '../payment/entities/payment-gateway.entity';
 
 @Module({
   imports: [
+    ConfigModule,
     TypeOrmModule.forFeature([
       Wallet,
       WalletTransaction,
@@ -18,6 +21,7 @@ import { User } from '../users/entities/user.entity';
       BoostPlan,
       AgentSubscription,
       User,
+      PaymentGateway,   // needed to check active gateway for payment mode check
     ]),
   ],
   controllers: [WalletController],

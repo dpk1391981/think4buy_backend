@@ -103,6 +103,11 @@ import { RbacModule } from './modules/rbac/rbac.module';
 import { Role } from './modules/rbac/entities/role.entity';
 import { Permission } from './modules/rbac/entities/permission.entity';
 import { AuditLog } from './modules/rbac/entities/audit-log.entity';
+import { PaymentModule } from './modules/payment/payment.module';
+import { PaymentGateway } from './modules/payment/entities/payment-gateway.entity';
+import { PaymentTransaction } from './modules/payment/entities/payment-transaction.entity';
+import { PaymentLog } from './modules/payment/entities/payment-log.entity';
+import { Refund } from './modules/payment/entities/refund.entity';
 
 @Module({
   imports: [
@@ -206,6 +211,10 @@ import { AuditLog } from './modules/rbac/entities/audit-log.entity';
           Role,
           Permission,
           AuditLog,
+          PaymentGateway,
+          PaymentTransaction,
+          PaymentLog,
+          Refund,
         ],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
@@ -242,6 +251,7 @@ import { AuditLog } from './modules/rbac/entities/audit-log.entity';
     ToolsModule,
     ConsentModule,
     RbacModule,
+    PaymentModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)
