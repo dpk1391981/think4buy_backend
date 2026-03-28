@@ -9,6 +9,7 @@ import { SubscriptionPlan } from './entities/subscription-plan.entity';
 import { BoostPlan } from './entities/boost-plan.entity';
 import { AgentSubscription } from './entities/agent-subscription.entity';
 import { User } from '../users/entities/user.entity';
+import { Property } from '../properties/entities/property.entity';
 import { PaymentGateway } from '../payment/entities/payment-gateway.entity';
 
 @Module({
@@ -21,6 +22,7 @@ import { PaymentGateway } from '../payment/entities/payment-gateway.entity';
       BoostPlan,
       AgentSubscription,
       User,
+      Property,
       PaymentGateway,   // needed to check active gateway for payment mode check
     ]),
   ],
