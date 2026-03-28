@@ -113,6 +113,8 @@ import { SystemConfigModule } from './modules/system-config/system-config.module
 import { SystemConfig } from './modules/system-config/entities/system-config.entity';
 import { MediaProcessingModule } from './modules/media-processing/media-processing.module';
 import { MediaJob } from './modules/media-processing/entities/media-job.entity';
+import { SupportModule } from './modules/support/support.module';
+import { SupportTicket } from './modules/support/entities/support-ticket.entity';
 
 @Module({
   imports: [
@@ -162,7 +164,7 @@ import { MediaJob } from './modules/media-processing/entities/media-job.entity';
           MsgService, MessageTemplate, EventTemplateMapping, MessageLog,
           SearchLog, UserBehavior, StorageConfig, CookieConsent,
           Role, Permission, AuditLog, PaymentGateway, PaymentTransaction,
-          PaymentLog, Refund, SystemConfig, MediaJob,
+          PaymentLog, Refund, SystemConfig, MediaJob, SupportTicket,
         ];
 
         const base: any = {
@@ -248,6 +250,7 @@ import { MediaJob } from './modules/media-processing/entities/media-job.entity';
     PaymentModule,
     SystemConfigModule,
     MediaProcessingModule,
+    SupportModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)
