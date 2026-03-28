@@ -306,6 +306,14 @@ export class AdminService {
     return user;
   }
 
+  /** Badge → subscription plan type mapping */
+  private static readonly BADGE_PLAN_MAP: Record<string, string> = {
+    verified: 'basic',
+    bronze:   'premium',
+    silver:   'featured',
+    gold:     'enterprise',
+  };
+
   async updateAgent(id: string, dto: UpdateAgentDto): Promise<User> {
     const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
     if (!user) throw new NotFoundException('Agent not found');
@@ -315,8 +323,23 @@ export class AdminService {
       if (existing) throw new ConflictException('Email already in use');
     }
 
+    const badgeChanged = dto.agentTick !== undefined && dto.agentTick !== user.agentTick;
+
     Object.assign(user, dto);
-    return this.userRepo.save(user);
+    await this.userRepo.save(user);
+
+    // Auto-assign matching subscription plan when badge is upgraded by admin
+    if (badgeChanged && dto.agentTick && dto.agentTick !== 'none') {
+      const targetPlanType = AdminService.BADGE_PLAN_MAP[dto.agentTick];
+      if (targetPlanType) {
+        const plan = await this.walletService.getPlanByType(targetPlanType);
+        if (plan) {
+          await this.walletService.adminAssignPlan(id, plan.id);
+        }
+      }
+    }
+
+    return this.userRepo.findOne({ where: { id } }) as Promise<User>;
   }
 
   async updateAgentQuota(id: string, dto: UpdateAgentQuotaDto): Promise<User> {

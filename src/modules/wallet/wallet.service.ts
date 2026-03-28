@@ -15,6 +15,7 @@ import { SubscriptionPlan, PlanType } from './entities/subscription-plan.entity'
 import { BoostPlan } from './entities/boost-plan.entity';
 import { AgentSubscription, SubscriptionStatus } from './entities/agent-subscription.entity';
 import { User } from '../users/entities/user.entity';
+import { Property, PropertyStatus, ApprovalStatus } from '../properties/entities/property.entity';
 
 @Injectable()
 export class WalletService {
@@ -31,6 +32,8 @@ export class WalletService {
     private agentSubscriptionRepository: Repository<AgentSubscription>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(Property)
+    private propertyRepository: Repository<Property>,
   ) {}
 
   async createWallet(userId: string): Promise<Wallet> {
@@ -140,6 +143,14 @@ export class WalletService {
     });
   }
 
+  /** Find the first active plan matching a given type (e.g. 'gold' → enterprise) */
+  async getPlanByType(type: string): Promise<SubscriptionPlan | null> {
+    return this.subscriptionPlanRepository.findOne({
+      where: { type: type as PlanType, isActive: true },
+      order: { sortOrder: 'ASC' },
+    });
+  }
+
   /** Returns all plans (active + inactive) for admin panel */
   async getAllSubscriptionPlans() {
     return this.subscriptionPlanRepository.find({
@@ -233,6 +244,9 @@ export class WalletService {
       agentUsedQuota: 0,
     });
 
+    // Apply badge + featured listing benefits
+    await this.applyPlanBenefits(userId, plan);
+
     return { subscription: saved, plan };
   }
 
@@ -301,6 +315,9 @@ export class WalletService {
       agentUsedQuota: 0,
     });
 
+    // Apply badge + featured listing benefits
+    await this.applyPlanBenefits(userId, plan);
+
     return { subscription: saved, plan };
   }
 
@@ -337,6 +354,52 @@ export class WalletService {
     const remainingListings = Math.max(0, maxListings - usedListings);
 
     return { current, history, quota: { maxListings, usedListings, remainingListings } };
+  }
+
+  // ── Plan Benefits ────────────────────────────────────────────────────────
+
+  /**
+   * Applies all non-quota benefits of a plan to the user:
+   *  - Assigns agent badge (agentTick)
+   *  - Marks all the user's approved listings as isFeatured for featured/enterprise plans
+   *  - Removes featured flag when downgrading to basic/premium
+   */
+  private async applyPlanBenefits(userId: string, plan: SubscriptionPlan): Promise<void> {
+    const updates: Partial<User> = {};
+
+    // Badge assignment
+    if (plan.agentBadge && plan.agentBadge !== 'none') {
+      updates.agentTick = plan.agentBadge;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await this.userRepository.update(userId, updates);
+    }
+
+    // Featured flag on listings — only for featured/enterprise plans
+    const isFeaturedPlan = plan.type === PlanType.FEATURED || plan.type === PlanType.ENTERPRISE;
+    if (isFeaturedPlan) {
+      await this.propertyRepository.update(
+        {
+          ownerId: userId,
+          status: PropertyStatus.ACTIVE,
+          approvalStatus: ApprovalStatus.APPROVED,
+        },
+        { isFeatured: true },
+      );
+    } else {
+      // Downgrade: remove subscription-based featured flag from listings
+      // (admin-featured listings are not affected because admin sets them independently)
+      await this.propertyRepository
+        .createQueryBuilder()
+        .update(Property)
+        .set({ isFeatured: false })
+        .where('ownerId = :userId', { userId })
+        .andWhere('isFeatured = true')
+        .andWhere('status = :status', { status: PropertyStatus.ACTIVE })
+        .andWhere('approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+        .execute();
+    }
   }
 
   // ── Default Plan Assignment ───────────────────────────────────────────────
@@ -425,6 +488,9 @@ export class WalletService {
       agentFreeQuota: plan.maxListings,
       agentUsedQuota: 0,
     });
+
+    // Apply badge + featured listing benefits
+    await this.applyPlanBenefits(userId, plan);
 
     return saved;
   }
@@ -596,6 +662,9 @@ export class WalletService {
       agentFreeQuota: plan.maxListings,
       agentUsedQuota: 0,
     });
+
+    // Apply badge + featured listing benefits
+    await this.applyPlanBenefits(userId, plan);
 
     return { subscription: saved, plan };
   }
