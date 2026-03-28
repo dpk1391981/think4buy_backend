@@ -1068,4 +1068,41 @@ export class AgencyService {
     await this.agentProfileRepo.save(profile);
     return { success: true, profileId };
   }
+
+  /**
+   * Recalculates avgResponseHours for an agent from all their responded inquiries.
+   * Uses TIMESTAMPDIFF so the calculation is fully in MySQL — no JS date math.
+   * Called automatically when an inquiry is marked responded or a deal is closed.
+   */
+  async recalculateResponseTime(agentUserId: string): Promise<void> {
+    const db = this.agentProfileRepo.manager.connection;
+
+    // Average hours across all inquiries where the agent (or property owner) responded
+    const rows: any[] = await db.query(
+      `SELECT ROUND(AVG(TIMESTAMPDIFF(SECOND, i.createdAt, i.respondedAt)) / 3600.0, 1) AS avgHours
+       FROM inquiries i
+       LEFT JOIN properties p ON p.id = i.property_id
+       WHERE i.respondedAt IS NOT NULL
+         AND (
+               i.agent_id    = ?
+            OR p.ownerId     = ?
+         )`,
+      [agentUserId, agentUserId],
+    );
+
+    const avgHours: number | null =
+      rows[0]?.avgHours != null ? Number(rows[0].avgHours) : null;
+
+    // Upsert into agent_profiles — create profile row if it doesn't exist yet
+    const profile = await this.agentProfileRepo.findOne({ where: { userId: agentUserId } });
+    if (profile) {
+      profile.avgResponseHours = avgHours;
+      await this.agentProfileRepo.save(profile);
+    } else {
+      // No profile row yet — create a minimal one
+      await this.agentProfileRepo.save(
+        this.agentProfileRepo.create({ userId: agentUserId, avgResponseHours: avgHours }),
+      );
+    }
+  }
 }

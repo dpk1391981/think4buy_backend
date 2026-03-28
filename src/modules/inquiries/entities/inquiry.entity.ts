@@ -6,6 +6,7 @@ import {
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 import { Property } from '../../properties/entities/property.entity';
 import { User } from '../../users/entities/user.entity';
@@ -81,6 +82,14 @@ export class Inquiry {
   @Column({ nullable: true })
   userId: string;
 
+  /**
+   * Set when status first changes to RESPONDED.
+   * Used to calculate avgResponseHours on the agent profile.
+   */
+  @Column({ type: 'datetime', nullable: true })
+  respondedAt: Date | null;
+
+  @Index()
   @CreateDateColumn()
   createdAt: Date;
 

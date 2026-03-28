@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { Deal, DealStage } from './entities/deal.entity';
 import { Commission, CommissionStatus } from '../commissions/entities/commission.entity';
 import { User } from '../users/entities/user.entity';
+import { AgencyService } from '../agency/agency.service';
 import { CreateDealDto, UpdateDealStageDto, DealsQueryDto } from './dto/deals.dto';
 
 @Injectable()
@@ -18,6 +19,7 @@ export class DealsService {
     private commissionRepo: Repository<Commission>,
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    private readonly agencyService: AgencyService,
   ) {}
 
   async create(dto: CreateDealDto): Promise<Deal> {
@@ -73,6 +75,11 @@ export class DealsService {
       await this.createCommissionForDeal(saved);
     }
 
+    // Recalculate agent response time when deal closes (non-blocking)
+    if (dto.stage === DealStage.CLOSED && saved.agentId) {
+      this.agencyService.recalculateResponseTime(saved.agentId).catch(() => {});
+    }
+
     return saved;
   }
 
@@ -117,6 +124,27 @@ export class DealsService {
     this.logger.log(
       `Commission auto-created for deal ${deal.id}: gross=₹${grossCommission.toFixed(2)}, agent_net=₹${agentNetPayout.toFixed(2)}`,
     );
+  }
+
+  /**
+   * Nightly recalculation: refresh avgResponseHours for all agents who have responded inquiries.
+   * Catches any drift from manual DB edits or missed real-time updates.
+   */
+  @Cron('5 0 * * *') // 00:05 daily (offset from deal-count cron)
+  async recalculateAllAgentResponseTimes(): Promise<void> {
+    const agents: { id: string }[] = await this.userRepo.query(
+      `SELECT id FROM users WHERE role = 'agent'`,
+    );
+    let updated = 0;
+    for (const agent of agents) {
+      try {
+        await this.agencyService.recalculateResponseTime(agent.id);
+        updated++;
+      } catch {
+        // skip individual failures — next run will retry
+      }
+    }
+    this.logger.log(`Response time recalculation complete (agents updated: ${updated})`);
   }
 
   /**
