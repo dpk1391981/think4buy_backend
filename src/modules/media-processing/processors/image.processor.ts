@@ -127,9 +127,15 @@ export class ImageProcessor extends WorkerHost {
   }
 
   private async loadFile(filePath: string): Promise<Buffer> {
-    const resolved = path.isAbsolute(filePath)
-      ? filePath
-      : path.resolve(process.cwd(), 'uploads', filePath);
+    let resolved: string;
+    if (filePath.startsWith('/uploads/')) {
+      // URL-style path returned by localUrl — map to real filesystem path
+      resolved = path.resolve(process.cwd(), filePath.slice(1)); // strip leading /
+    } else if (path.isAbsolute(filePath)) {
+      resolved = filePath;
+    } else {
+      resolved = path.resolve(process.cwd(), filePath);
+    }
     return fs.readFile(resolved);
   }
 
