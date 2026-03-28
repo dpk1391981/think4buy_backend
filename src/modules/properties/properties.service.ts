@@ -246,7 +246,7 @@ export class PropertiesService {
   // ─────────────────────────────────────────────────────────────────────────────
   // Search Suggestions (for autocomplete)
   // ─────────────────────────────────────────────────────────────────────────────
-  async getSearchSuggestions(q: string): Promise<{
+  async getSearchSuggestions(q: string, category?: string): Promise<{
     type: string;
     label: string;
     subLabel?: string;
@@ -258,21 +258,27 @@ export class PropertiesService {
     const term = `%${q.trim()}%`;
     const results: any[] = [];
 
+    // Base conditions shared across all sub-queries
+    const baseWhere = (qb: any) => {
+      qb.where('p.status = :status', { status: PropertyStatus.ACTIVE })
+        .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+        .andWhere('p.isDraft = :isDraft', { isDraft: false });
+      if (category) qb.andWhere('p.category = :category', { category });
+    };
+
     // 1. Cities
-    const cities = await this.propertyRepo
+    const citiesQb = this.propertyRepo
       .createQueryBuilder('p')
       .select('p.city', 'city')
       .addSelect('p.state', 'state')
       .addSelect('COUNT(*)', 'count')
-      .where('p.status = :status', { status: PropertyStatus.ACTIVE })
-      .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
-      .andWhere('p.isDraft = :isDraft', { isDraft: false })
       .andWhere('p.city LIKE :term', { term })
       .groupBy('p.city')
       .addGroupBy('p.state')
       .orderBy('count', 'DESC')
-      .limit(4)
-      .getRawMany();
+      .limit(4);
+    baseWhere(citiesQb);
+    const cities = await citiesQb.getRawMany();
 
     for (const c of cities) {
       results.push({
@@ -285,22 +291,20 @@ export class PropertiesService {
     }
 
     // 2. Localities
-    const localities = await this.propertyRepo
+    const localitiesQb = this.propertyRepo
       .createQueryBuilder('p')
       .select('p.locality', 'locality')
       .addSelect('p.city', 'city')
       .addSelect('COUNT(*)', 'count')
-      .where('p.status = :status', { status: PropertyStatus.ACTIVE })
-      .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
-      .andWhere('p.isDraft = :isDraft', { isDraft: false })
       .andWhere('p.locality LIKE :term', { term })
       .andWhere('p.locality IS NOT NULL')
       .andWhere("p.locality != ''")
       .groupBy('p.locality')
       .addGroupBy('p.city')
       .orderBy('count', 'DESC')
-      .limit(4)
-      .getRawMany();
+      .limit(4);
+    baseWhere(localitiesQb);
+    const localities = await localitiesQb.getRawMany();
 
     for (const l of localities) {
       results.push({
@@ -312,8 +316,8 @@ export class PropertiesService {
       });
     }
 
-    // 3. Builders / Developers
-    const builders = await this.propertyRepo
+    // 3. Builders / Developers (not category-filtered — builders span categories)
+    const buildersQb = this.propertyRepo
       .createQueryBuilder('p')
       .select('p.builderName', 'builderName')
       .addSelect('COUNT(*)', 'count')
@@ -325,8 +329,8 @@ export class PropertiesService {
       .andWhere("p.builderName != ''")
       .groupBy('p.builderName')
       .orderBy('count', 'DESC')
-      .limit(3)
-      .getRawMany();
+      .limit(3);
+    const builders = await buildersQb.getRawMany();
 
     for (const b of builders) {
       results.push({
@@ -340,22 +344,20 @@ export class PropertiesService {
     }
 
     // 4. Projects / Society names
-    const projects = await this.propertyRepo
+    const projectsQb = this.propertyRepo
       .createQueryBuilder('p')
       .select('p.society', 'society')
       .addSelect('p.city', 'city')
       .addSelect('COUNT(*)', 'count')
-      .where('p.status = :status', { status: PropertyStatus.ACTIVE })
-      .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
-      .andWhere('p.isDraft = :isDraft', { isDraft: false })
       .andWhere('p.society LIKE :term', { term })
       .andWhere('p.society IS NOT NULL')
       .andWhere("p.society != ''")
       .groupBy('p.society')
       .addGroupBy('p.city')
       .orderBy('count', 'DESC')
-      .limit(3)
-      .getRawMany();
+      .limit(3);
+    baseWhere(projectsQb);
+    const projects = await projectsQb.getRawMany();
 
     for (const pr of projects) {
       results.push({

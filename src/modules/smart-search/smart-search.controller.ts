@@ -118,9 +118,15 @@ export class SmartSearchController {
    */
   @Get('trending')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Get trending search queries' })
-  async getTrending(@Query('limit') limit = '8') {
-    return this.service.getTrendingSearches(Math.min(parseInt(limit) || 8, 20));
+  @ApiOperation({ summary: 'Get trending search queries, optionally filtered by category' })
+  async getTrending(
+    @Query('limit') limit = '8',
+    @Query('category') category?: string,
+  ) {
+    return this.service.getTrendingSearches(
+      Math.min(parseInt(limit) || 8, 20),
+      category || undefined,
+    );
   }
 
   /**
@@ -129,8 +135,16 @@ export class SmartSearchController {
   @Get('history')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get current user search history' })
-  async getHistory(@Req() req: any, @Query('limit') limit = '5') {
-    return this.service.getUserSearchHistory(req.user.id, Math.min(parseInt(limit) || 5, 10));
+  @ApiOperation({ summary: 'Get current user search history, optionally filtered by category' })
+  async getHistory(
+    @Req() req: any,
+    @Query('limit') limit = '5',
+    @Query('category') category?: string,
+  ) {
+    return this.service.getUserSearchHistory(
+      req.user.id,
+      Math.min(parseInt(limit) || 5, 10),
+      category || undefined,
+    );
   }
 }

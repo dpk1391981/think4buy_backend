@@ -51,8 +51,8 @@ export class PropertiesController {
 
   @Get('search/suggestions')
   @ApiOperation({ summary: 'Get search suggestions (cities, localities, builders, projects)' })
-  getSearchSuggestions(@Query('q') q: string) {
-    return this.propertiesService.getSearchSuggestions(q);
+  getSearchSuggestions(@Query('q') q: string, @Query('category') category?: string) {
+    return this.propertiesService.getSearchSuggestions(q, category || undefined);
   }
 
   @Get('search/popular-keywords')
