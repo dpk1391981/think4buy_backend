@@ -96,6 +96,13 @@ class TrackEventDto {
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
+  private assertAdmin(req: any) {
+    const role = req.user?.role;
+    if (role !== 'admin' && role !== 'super_admin' && !req.user?.isSuperAdmin) {
+      throw new ForbiddenException('Admin only');
+    }
+  }
+
   // ─── POST /api/analytics/track ──────────────────────────────────────────────
   @Post('analytics/track')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -297,7 +304,7 @@ export class AnalyticsController {
     @Body() body: { city?: string; state?: string; all?: boolean },
     @Request() req: any,
   ) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     if (body.all) {
       const result = await this.analyticsService.refreshAllMarketSnapshots();
       return { success: true, ...result };
@@ -312,7 +319,7 @@ export class AnalyticsController {
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'Admin: force-refresh property rankings and hot scores cache' })
   async refreshPropertyCache(@Request() req: any) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     await this.analyticsService.aggregateProperties();
     await this.analyticsService.refreshPropertyHotScores();
     return { success: true, message: 'Property cache refreshed' };
@@ -324,7 +331,7 @@ export class AnalyticsController {
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'Admin: force-refresh ALL caches — properties, agents, projects, locations, market snapshots' })
   async refreshAllCaches(@Request() req: any) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     const started = Date.now();
     await this.analyticsService.aggregateProperties();
     await this.analyticsService.refreshPropertyHotScores();
@@ -342,7 +349,7 @@ export class AnalyticsController {
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'Admin: list all market snapshots' })
   async listSnapshots(@Request() req: any) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     const data = await this.analyticsService.listMarketSnapshots();
     return { success: true, data };
   }
@@ -356,7 +363,7 @@ export class AnalyticsController {
     @Body() dto: UpdateSnapshotDto,
     @Request() req: any,
   ) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     const data = await this.analyticsService.updateSnapshotMeta(id, dto);
     return { success: true, data };
   }
@@ -366,7 +373,7 @@ export class AnalyticsController {
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'Admin: list all scoring weight configs' })
   async getScoringConfig(@Request() req: any) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     const data = await this.analyticsService.getScoringConfig();
     return { success: true, data };
   }
@@ -380,7 +387,7 @@ export class AnalyticsController {
     @Body() dto: SetScoringConfigDto,
     @Request() req: any,
   ) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     const data = await this.analyticsService.setScoringConfig(key, dto.value, dto.description);
     return { success: true, data };
   }
@@ -393,7 +400,7 @@ export class AnalyticsController {
     @Param('key') key: string,
     @Request() req: any,
   ) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     await this.analyticsService.resetScoringConfig(key);
     return { success: true, message: `${key} reset to default` };
   }
@@ -407,7 +414,7 @@ export class AnalyticsController {
     @Query('city') city?: string,
     @Request() req?: any,
   ) {
-    if (req?.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     const data = await this.analyticsService.listCircleRates(city);
     return { success: true, data };
   }
@@ -420,7 +427,7 @@ export class AnalyticsController {
     @Body() dto: UpsertCircleRateDto,
     @Request() req: any,
   ) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     const data = await this.analyticsService.upsertCircleRate(dto);
     return { success: true, data };
   }
@@ -434,7 +441,7 @@ export class AnalyticsController {
     @Body() dto: UpdateCircleRateDto,
     @Request() req: any,
   ) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     const data = await this.analyticsService.updateCircleRate(id, dto);
     return { success: true, data };
   }
@@ -447,7 +454,7 @@ export class AnalyticsController {
     @Param('id') id: string,
     @Request() req: any,
   ) {
-    if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
+    this.assertAdmin(req);
     await this.analyticsService.deleteCircleRate(id);
     return { success: true, message: 'Deleted' };
   }
