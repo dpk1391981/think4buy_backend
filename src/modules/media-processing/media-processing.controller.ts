@@ -6,12 +6,12 @@ import {
   Param,
   Query,
   UseGuards,
+  Request,
+  ForbiddenException,
   HttpCode,
   HttpStatus,
-  ParseEnumPipe,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { AuthGuard } from '@nestjs/passport';
 import { UserRole } from '../users/entities/user.entity';
 import { MediaProcessingService } from './media-processing.service';
 import { MediaJobStatus, MediaJobType } from './entities/media-job.entity';
@@ -25,24 +25,33 @@ import { MediaJobStatus, MediaJobType } from './entities/media-job.entity';
  * POST /admin/media/jobs/:id/retry     — re-enqueue a failed job
  * DELETE /admin/media/jobs/:id         — delete job record
  */
-@UseGuards(JwtAuthGuard)
-@Roles(UserRole.ADMIN)
+@UseGuards(AuthGuard('jwt'))
 @Controller('admin/media')
 export class MediaProcessingController {
   constructor(private readonly svc: MediaProcessingService) {}
 
+  private assertAdmin(req: any) {
+    const role = req.user?.role;
+    if (role !== UserRole.ADMIN && role !== UserRole.SUPER_ADMIN && !req.user?.isSuperAdmin) {
+      throw new ForbiddenException('Admin access required');
+    }
+  }
+
   @Get('stats')
-  async getStats() {
+  async getStats(@Request() req: any) {
+    this.assertAdmin(req);
     return this.svc.getStats();
   }
 
   @Get('jobs')
   async list(
+    @Request() req: any,
     @Query('status') status?: MediaJobStatus,
     @Query('type')   type?: MediaJobType,
     @Query('page')   page = '1',
     @Query('limit')  limit = '50',
   ) {
+    this.assertAdmin(req);
     return this.svc.findAll({
       status,
       type,
@@ -52,19 +61,22 @@ export class MediaProcessingController {
   }
 
   @Get('jobs/:id')
-  async getOne(@Param('id') id: string) {
+  async getOne(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
     return this.svc.findById(id);
   }
 
   @Post('jobs/:id/retry')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async retry(@Param('id') id: string) {
+  async retry(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
     await this.svc.retry(id);
   }
 
   @Delete('jobs/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@Param('id') id: string) {
+  async remove(@Request() req: any, @Param('id') id: string) {
+    this.assertAdmin(req);
     await this.svc.remove(id);
   }
 }
