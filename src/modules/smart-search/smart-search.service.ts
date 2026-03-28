@@ -664,13 +664,23 @@ export class SmartSearchService {
 
   // ─── Trending searches ────────────────────────────────────────────────────────
 
-  async getTrendingSearches(limit = 8): Promise<{ query: string; count: number }[]> {
-    const rows = await this.searchLogRepo
+  async getTrendingSearches(limit = 8, category?: string): Promise<{ query: string; count: number }[]> {
+    const qb = this.searchLogRepo
       .createQueryBuilder('sl')
       .select('sl.searchQuery', 'query')
       .addSelect('COUNT(*)', 'cnt')
       .where('sl.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)')
-      .andWhere('LENGTH(sl.searchQuery) > 2')
+      .andWhere('LENGTH(sl.searchQuery) > 2');
+
+    // Filter by category stored in parsedFilters JSON when provided
+    if (category) {
+      qb.andWhere(
+        `JSON_UNQUOTE(JSON_EXTRACT(sl.parsedFilters, '$.category')) = :category`,
+        { category },
+      );
+    }
+
+    const rows = await qb
       .groupBy('sl.searchQuery')
       .orderBy('cnt', 'DESC')
       .limit(limit)
@@ -681,11 +691,20 @@ export class SmartSearchService {
 
   // ─── User search history ─────────────────────────────────────────────────────
 
-  async getUserSearchHistory(userId: string, limit = 5): Promise<SearchLog[]> {
-    return this.searchLogRepo.find({
-      where: { userId },
-      order: { createdAt: 'DESC' },
-      take: limit,
-    });
+  async getUserSearchHistory(userId: string, limit = 5, category?: string): Promise<SearchLog[]> {
+    const qb = this.searchLogRepo
+      .createQueryBuilder('sl')
+      .where('sl.userId = :userId', { userId })
+      .orderBy('sl.createdAt', 'DESC')
+      .take(limit);
+
+    if (category) {
+      qb.andWhere(
+        `JSON_UNQUOTE(JSON_EXTRACT(sl.parsedFilters, '$.category')) = :category`,
+        { category },
+      );
+    }
+
+    return qb.getMany();
   }
 }
