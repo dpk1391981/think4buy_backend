@@ -319,6 +319,32 @@ export class AdminController {
     return this.adminService.deleteSubscriptionPlan(id);
   }
 
+  // ── User Subscriptions ───────────────────────────────────────────────────────
+  @Get('subscriptions')
+  @ApiOperation({ summary: 'List all user subscriptions (admin)' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  getAllUserSubscriptions(
+    @Request() req,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+    @Query('search') search?: string,
+  ) {
+    this.assertAdmin(req);
+    return this.adminService.getAllUserSubscriptions(+page, +limit, search);
+  }
+
+  @Post('subscriptions/assign')
+  @ApiOperation({ summary: 'Admin assigns a subscription plan to a user (no payment)' })
+  adminAssignPlan(
+    @Request() req,
+    @Body() body: { userId: string; planId: string },
+  ) {
+    this.assertAdmin(req);
+    return this.adminService.adminAssignPlan(body.userId, body.planId);
+  }
+
   // ── Boost Plans ─────────────────────────────────────────────────────────────
   @Get('boost-plans')
   @ApiOperation({ summary: 'List all boost plans (admin)' })

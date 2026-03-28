@@ -140,9 +140,9 @@ export class AdminService {
     );
     this.logger.log(`Property ${id} approved → active by admin ${adminUserId ?? 'unknown'}`);
 
-    // Consume listing quota on first approval (agent role)
-    if (!wasAlreadyApproved && property.owner?.role === UserRole.AGENT) {
-      await this.userRepo.increment({ id: property.owner.id }, 'agentUsedQuota', 1);
+    // Consume subscription listing quota on first approval (all listing roles)
+    if (!wasAlreadyApproved && property.owner?.id) {
+      await this.walletService.incrementSubscriptionUsage(property.owner.id);
     }
 
     if (saved.owner?.id) {
@@ -428,8 +428,9 @@ export class AdminService {
 
   // ── Subscription Plans ──────────────────────────────────────────────────────
 
+  /** Admin view — includes inactive plans */
   async getSubscriptionPlans() {
-    return this.walletService.getSubscriptionPlans();
+    return this.walletService.getAllSubscriptionPlans();
   }
 
   async createSubscriptionPlan(data: Partial<SubscriptionPlan>) {
@@ -442,6 +443,16 @@ export class AdminService {
 
   async deleteSubscriptionPlan(id: string) {
     return this.walletService.deleteSubscriptionPlan(id);
+  }
+
+  async getAllUserSubscriptions(page = 1, limit = 20, search?: string) {
+    return this.walletService.getAllSubscriptions(page, limit, search);
+  }
+
+  async adminAssignPlan(userId: string, planId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    return this.walletService.adminAssignPlan(userId, planId);
   }
 
   // ── Boost Plans ─────────────────────────────────────────────────────────────

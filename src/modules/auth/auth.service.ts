@@ -59,6 +59,7 @@ export class AuthService {
     });
     await this.userRepository.save(user);
     await this.walletService.createWallet(user.id);
+    await this.walletService.assignDefaultPlan(user.id);
 
     return this.buildAuthResponse(user);
   }
@@ -317,6 +318,7 @@ export class AuthService {
       });
       await this.userRepository.save(user);
       await this.walletService.createWallet(user.id);
+      await this.walletService.assignDefaultPlan(user.id);
     }
 
     if (!user.isActive) throw new ForbiddenException('Account is deactivated.');

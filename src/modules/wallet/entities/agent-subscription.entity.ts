@@ -41,14 +41,18 @@ export class AgentSubscription {
   })
   status: SubscriptionStatus;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'datetime' })
   startsAt: Date;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'datetime' })
   expiresAt: Date;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   tokensDeducted: number;
+
+  /** Number of property listings consumed in this subscription period */
+  @Column({ type: 'int', default: 0 })
+  usedListings: number;
 
   @Column({ type: 'json', nullable: true })
   planSnapshot: object; // copy of plan features at purchase time

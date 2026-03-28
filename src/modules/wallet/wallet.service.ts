@@ -11,7 +11,7 @@ import {
   TransactionType,
   TransactionReason,
 } from './entities/wallet-transaction.entity';
-import { SubscriptionPlan } from './entities/subscription-plan.entity';
+import { SubscriptionPlan, PlanType } from './entities/subscription-plan.entity';
 import { BoostPlan } from './entities/boost-plan.entity';
 import { AgentSubscription, SubscriptionStatus } from './entities/agent-subscription.entity';
 import { User } from '../users/entities/user.entity';
@@ -140,6 +140,13 @@ export class WalletService {
     });
   }
 
+  /** Returns all plans (active + inactive) for admin panel */
+  async getAllSubscriptionPlans() {
+    return this.subscriptionPlanRepository.find({
+      order: { sortOrder: 'ASC', createdAt: 'ASC' },
+    });
+  }
+
   async getBoostPlans() {
     return this.boostPlanRepository.find({
       where: { isActive: true },
@@ -195,6 +202,7 @@ export class WalletService {
       startsAt: now,
       expiresAt,
       tokensDeducted: plan.price,
+      usedListings: 0,
       planSnapshot: {
         name: plan.name,
         type: plan.type,
@@ -260,6 +268,7 @@ export class WalletService {
       startsAt: now,
       expiresAt,
       tokensDeducted: 0, // paid via real money, no tokens deducted
+      usedListings: 0,
       planSnapshot: {
         name: plan.name,
         type: plan.type,
@@ -320,7 +329,275 @@ export class WalletService {
       take: 10,
     });
 
-    return { current, history };
+    const maxListings =
+      (current?.planSnapshot as any)?.maxListings ??
+      current?.plan?.maxListings ??
+      0;
+    const usedListings = current?.usedListings ?? 0;
+    const remainingListings = Math.max(0, maxListings - usedListings);
+
+    return { current, history, quota: { maxListings, usedListings, remainingListings } };
+  }
+
+  // ── Default Plan Assignment ───────────────────────────────────────────────
+
+  /**
+   * Ensures a Basic Plan exists in the database.
+   * Creates one with 2000 listings / 2000 tokens if missing.
+   */
+  private async ensureBasicPlanExists(): Promise<SubscriptionPlan> {
+    let plan = await this.subscriptionPlanRepository.findOne({
+      where: { type: PlanType.BASIC, isActive: true },
+    });
+    if (!plan) {
+      plan = await this.subscriptionPlanRepository.save(
+        this.subscriptionPlanRepository.create({
+          name: 'Basic Plan',
+          type: PlanType.BASIC,
+          price: 0,
+          durationDays: 36500, // ~100 years — effectively permanent
+          tokensIncluded: 2000,
+          maxListings: 2000,
+          features: [
+            '2000 property listings',
+            'Basic visibility',
+            'Email support',
+          ],
+          isActive: true,
+          sortOrder: 0,
+          agentBadge: 'verified',
+        }),
+      );
+    }
+    return plan;
+  }
+
+  /**
+   * Assigns the Basic Plan to a newly registered user.
+   * Safe to call multiple times — skips if an active subscription already exists.
+   */
+  async assignDefaultPlan(userId: string): Promise<AgentSubscription> {
+    const existing = await this.agentSubscriptionRepository.findOne({
+      where: { agentId: userId, status: SubscriptionStatus.ACTIVE },
+    });
+    if (existing) return existing;
+
+    const plan = await this.ensureBasicPlanExists();
+
+    const now = new Date();
+    const expiresAt = new Date(now);
+    expiresAt.setDate(expiresAt.getDate() + plan.durationDays);
+
+    const subscription = this.agentSubscriptionRepository.create({
+      agentId: userId,
+      planId: plan.id,
+      status: SubscriptionStatus.ACTIVE,
+      startsAt: now,
+      expiresAt,
+      tokensDeducted: 0,
+      usedListings: 0,
+      planSnapshot: {
+        name: plan.name,
+        type: plan.type,
+        price: plan.price,
+        durationDays: plan.durationDays,
+        maxListings: plan.maxListings,
+        tokensIncluded: plan.tokensIncluded,
+        features: plan.features,
+      },
+    });
+    const saved = await this.agentSubscriptionRepository.save(subscription);
+
+    // Credit the default tokens to the wallet
+    if (Number(plan.tokensIncluded) > 0) {
+      await this.credit(
+        userId,
+        Number(plan.tokensIncluded),
+        TransactionReason.SUBSCRIPTION,
+        `${plan.name} tokens (default)`,
+        saved.id,
+        'agent_subscription',
+      );
+    }
+
+    // Sync quota fields on user for backward compatibility
+    await this.userRepository.update(userId, {
+      agentFreeQuota: plan.maxListings,
+      agentUsedQuota: 0,
+    });
+
+    return saved;
+  }
+
+  // ── Subscription Enforcement ─────────────────────────────────────────────
+
+  /**
+   * Checks whether a user is allowed to post a new property.
+   * Returns { allowed: true } or { allowed: false, reason, message }.
+   */
+  async checkSubscriptionLimit(userId: string): Promise<{
+    allowed: boolean;
+    reason?: 'no_subscription' | 'subscription_expired' | 'limit_reached';
+    message?: string;
+    subscription?: AgentSubscription;
+  }> {
+    // Expire any overdue subscriptions
+    await this.agentSubscriptionRepository
+      .createQueryBuilder()
+      .update(AgentSubscription)
+      .set({ status: SubscriptionStatus.EXPIRED })
+      .where('agentId = :userId AND status = :status AND expiresAt < NOW()', {
+        userId,
+        status: SubscriptionStatus.ACTIVE,
+      })
+      .execute();
+
+    const subscription = await this.agentSubscriptionRepository.findOne({
+      where: { agentId: userId, status: SubscriptionStatus.ACTIVE },
+      relations: ['plan'],
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!subscription) {
+      return {
+        allowed: false,
+        reason: 'no_subscription',
+        message:
+          'Your subscription limit has been reached. Please upgrade to continue.',
+      };
+    }
+
+    const maxListings =
+      (subscription.planSnapshot as any)?.maxListings ??
+      subscription.plan?.maxListings ??
+      0;
+
+    if (subscription.usedListings >= maxListings) {
+      return {
+        allowed: false,
+        reason: 'limit_reached',
+        message:
+          'Your subscription listing limit has been reached. Please upgrade to continue.',
+        subscription,
+      };
+    }
+
+    return { allowed: true, subscription };
+  }
+
+  /**
+   * Increments usedListings on the user's active subscription.
+   * Called by AdminService when a property is approved for the first time.
+   */
+  async incrementSubscriptionUsage(userId: string): Promise<void> {
+    const subscription = await this.agentSubscriptionRepository.findOne({
+      where: { agentId: userId, status: SubscriptionStatus.ACTIVE },
+      order: { createdAt: 'DESC' },
+    });
+    if (subscription) {
+      await this.agentSubscriptionRepository.increment(
+        { id: subscription.id },
+        'usedListings',
+        1,
+      );
+    }
+    // Keep legacy quota field in sync
+    await this.userRepository.increment({ id: userId }, 'agentUsedQuota', 1);
+  }
+
+  // ── Admin Subscription Management ────────────────────────────────────────
+
+  /** All subscriptions with user info (admin panel) */
+  async getAllSubscriptions(page = 1, limit = 20, search?: string) {
+    const qb = this.agentSubscriptionRepository
+      .createQueryBuilder('sub')
+      .leftJoinAndSelect('sub.agent', 'user')
+      .leftJoinAndSelect('sub.plan', 'plan')
+      .select([
+        'sub',
+        'plan.id', 'plan.name', 'plan.type', 'plan.maxListings', 'plan.durationDays',
+        'user.id', 'user.name', 'user.email', 'user.role', 'user.phone',
+      ])
+      .orderBy('sub.createdAt', 'DESC');
+
+    if (search) {
+      qb.andWhere(
+        '(user.name LIKE :search OR user.email LIKE :search OR user.phone LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    const [subscriptions, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return { subscriptions, total, page, limit };
+  }
+
+  /**
+   * Admin assigns a plan to a user directly (no payment required).
+   * Expires current active subscription, creates new one.
+   */
+  async adminAssignPlan(
+    userId: string,
+    planId: string,
+  ): Promise<{ subscription: AgentSubscription; plan: SubscriptionPlan }> {
+    const plan = await this.subscriptionPlanRepository.findOne({
+      where: { id: planId },
+    });
+    if (!plan) throw new NotFoundException('Subscription plan not found');
+
+    // Expire existing active subscriptions
+    await this.agentSubscriptionRepository.update(
+      { agentId: userId, status: SubscriptionStatus.ACTIVE },
+      { status: SubscriptionStatus.EXPIRED },
+    );
+
+    const now = new Date();
+    const expiresAt = new Date(now);
+    expiresAt.setDate(expiresAt.getDate() + plan.durationDays);
+
+    const subscription = this.agentSubscriptionRepository.create({
+      agentId: userId,
+      planId: plan.id,
+      status: SubscriptionStatus.ACTIVE,
+      startsAt: now,
+      expiresAt,
+      tokensDeducted: 0,
+      usedListings: 0,
+      planSnapshot: {
+        name: plan.name,
+        type: plan.type,
+        price: plan.price,
+        durationDays: plan.durationDays,
+        maxListings: plan.maxListings,
+        tokensIncluded: plan.tokensIncluded,
+        features: plan.features,
+        assignedBy: 'admin',
+      },
+    });
+    const saved = await this.agentSubscriptionRepository.save(subscription);
+
+    // Credit included tokens
+    if (Number(plan.tokensIncluded) > 0) {
+      await this.credit(
+        userId,
+        Number(plan.tokensIncluded),
+        TransactionReason.SUBSCRIPTION,
+        `${plan.name} plan tokens (admin assigned)`,
+        saved.id,
+        'agent_subscription',
+      );
+    }
+
+    // Sync quota
+    await this.userRepository.update(userId, {
+      agentFreeQuota: plan.maxListings,
+      agentUsedQuota: 0,
+    });
+
+    return { subscription: saved, plan };
   }
 
   // Admin methods
