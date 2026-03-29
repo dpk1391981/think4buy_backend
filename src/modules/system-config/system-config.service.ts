@@ -237,6 +237,34 @@ export class SystemConfigService implements OnModuleInit {
         description: 'Plan type assigned to new users on registration (free | basic | premium | featured | enterprise). Tokens credited = plan.tokensIncluded.',
         group: 'billing',
       },
+      {
+        key: 'SHOW_SOCIETY_FIELD',
+        value: true,
+        valueType: ConfigValueType.BOOLEAN,
+        description: 'Show the Society / Building field in the post-property form',
+        group: 'forms',
+      },
+      {
+        key: 'SHOW_BUILDER_FIELD',
+        value: true,
+        valueType: ConfigValueType.BOOLEAN,
+        description: 'Show the Builder / Developer Name field in the post-property form',
+        group: 'forms',
+      },
+      {
+        key: 'SHOW_RERA_FIELD',
+        value: true,
+        valueType: ConfigValueType.BOOLEAN,
+        description: 'Show the RERA Number field in the post-property form',
+        group: 'forms',
+      },
+      {
+        key: 'SHOW_MAP_PICKER',
+        value: false,
+        valueType: ConfigValueType.BOOLEAN,
+        description: 'Show the "Pin Location on Map" Leaflet map picker in the post-property form (owners only)',
+        group: 'forms',
+      },
     ];
 
     for (const d of defaults) {
