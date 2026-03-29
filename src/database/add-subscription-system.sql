@@ -4,9 +4,10 @@
 -- Description:
 --   1. Convert startsAt/expiresAt from TIMESTAMP to DATETIME
 --   2. Add usedListings column to agent_subscriptions
---   3. Seed Basic Plan (2000 listings / 2000 tokens)
+--   3. Seed Basic Plan (499 listings / 499 tokens — 1 token = ₹1)
 --   4. Backfill existing users without an active subscription
 --   5. Sync agentFreeQuota and wallet tokens
+--   6. Seed DEFAULT_REGISTRATION_TOKENS system config (499)
 -- ============================================================
 
 -- ── Step 1: Convert TIMESTAMP columns to DATETIME ────────────────────────────
@@ -42,6 +43,7 @@ DROP PROCEDURE IF EXISTS _add_used_listings_col;
 
 -- ── Step 3: Seed Basic Plan ───────────────────────────────────────────────────
 -- INSERT IGNORE is safe to re-run (skips on duplicate unique key).
+-- Token amount = 499 (1 token = ₹1). Controlled via DEFAULT_REGISTRATION_TOKENS system config.
 
 INSERT IGNORE INTO subscription_plans
   (id, name, type, price, durationDays, tokensIncluded, maxListings, features,
@@ -52,9 +54,9 @@ VALUES (
   'basic',
   0.00,
   36500,
-  2000,
-  2000,
-  JSON_ARRAY('2000 property listings', 'Basic visibility', 'Email support'),
+  499,
+  499,
+  JSON_ARRAY('499 property listings', 'Basic visibility', 'Email support'),
   1,
   0,
   'verified',
@@ -85,9 +87,9 @@ SELECT
     'type',           'basic',
     'price',          0,
     'durationDays',   36500,
-    'maxListings',    2000,
-    'tokensIncluded', 2000,
-    'features',       JSON_ARRAY('2000 property listings', 'Basic visibility', 'Email support'),
+    'maxListings',    499,
+    'tokensIncluded', 499,
+    'features',       JSON_ARRAY('499 property listings', 'Basic visibility', 'Email support'),
     'assignedBy',     'migration'
   ),
   NOW()
@@ -102,12 +104,12 @@ WHERE u.role IN ('owner', 'agent', 'buyer', 'broker')
 -- ── Step 5: Sync agentFreeQuota ───────────────────────────────────────────────
 
 UPDATE users
-SET agentFreeQuota = 2000
-WHERE agentFreeQuota < 2000
+SET agentFreeQuota = 499
+WHERE agentFreeQuota < 499
   AND role IN ('owner', 'agent', 'buyer', 'broker');
 
--- ── Step 6: Credit 1900 tokens to wallets that only have the welcome bonus ────
--- Brings balance from 100 → 2000 to match the Basic Plan allocation.
+-- ── Step 6: Credit 399 tokens to wallets that only have the welcome bonus ────
+-- Brings balance from 100 → 499 to match the Basic Plan allocation (1 token = ₹1).
 
 INSERT INTO wallet_transactions
   (id, wallet_id, type, reason, amount, balanceBefore, balanceAfter,
@@ -117,9 +119,9 @@ SELECT
   w.id,
   'bonus',
   'subscription',
-  1900,
+  399,
   w.balance,
-  w.balance + 1900,
+  w.balance + 399,
   'Basic Plan tokens (migration backfill)',
   'migration',
   NOW()
@@ -133,11 +135,28 @@ WHERE w.balance <= 100
 
 UPDATE wallets w
 SET
-  balance     = balance + 1900,
-  totalEarned = totalEarned + 1900
+  balance     = balance + 399,
+  totalEarned = totalEarned + 399
 WHERE w.balance <= 100
   AND EXISTS (
     SELECT 1 FROM users u
     WHERE u.id = w.user_id
       AND u.role IN ('owner', 'agent', 'buyer', 'broker')
   );
+
+-- ── Step 7: Seed DEFAULT_REGISTRATION_TOKENS system config ────────────────────
+-- INSERT IGNORE is safe to re-run (unique key on `key` column).
+
+INSERT IGNORE INTO system_configs
+  (id, `key`, value, valueType, description, `group`, isSecret, createdAt, updatedAt)
+VALUES (
+  UUID(),
+  'DEFAULT_REGISTRATION_TOKENS',
+  '499',
+  'number',
+  'Tokens credited to Basic Plan on new user registration (1 token = ₹1)',
+  'billing',
+  0,
+  NOW(),
+  NOW()
+);

@@ -5,16 +5,17 @@
 -- ============================================================
 
 -- ── Basic Plan — update all existing basic rows ───────────────────────────────
+-- 499 tokens = ₹499 value (1 token = ₹1). Controlled via DEFAULT_REGISTRATION_TOKENS system config.
 UPDATE subscription_plans
 SET
   name           = 'Basic Plan',
   price          = 0,
   durationDays   = 36500,
-  tokensIncluded = 2000,
-  maxListings    = 2000,
+  tokensIncluded = 499,
+  maxListings    = 499,
   features       = JSON_ARRAY(
-                     '2000 property listings',
-                     '2000 tokens included',
+                     '499 property listings',
+                     '499 tokens included',
                      'Standard visibility',
                      'Email support'
                    ),
@@ -23,6 +24,21 @@ SET
   agentBadge     = 'verified',
   updatedAt      = NOW()
 WHERE type = 'basic';
+
+-- ── Seed DEFAULT_REGISTRATION_TOKENS system config ────────────────────────────
+INSERT IGNORE INTO system_configs
+  (id, `key`, value, valueType, description, `group`, isSecret, createdAt, updatedAt)
+VALUES (
+  UUID(),
+  'DEFAULT_REGISTRATION_TOKENS',
+  '499',
+  'number',
+  'Tokens credited to Basic Plan on new user registration (1 token = ₹1)',
+  'billing',
+  0,
+  NOW(),
+  NOW()
+);
 
 -- ── Premium Plan ──────────────────────────────────────────────────────────────
 UPDATE subscription_plans
