@@ -756,6 +756,14 @@ export class WalletService {
   }
 
   async deleteSubscriptionPlan(id: string) {
+    const subCount = await this.agentSubscriptionRepository.count({
+      where: { planId: id },
+    });
+    if (subCount > 0) {
+      throw new BadRequestException(
+        `Cannot delete: ${subCount} subscription(s) are assigned to this plan. Deactivate it instead, or contact support to reassign users.`,
+      );
+    }
     return this.subscriptionPlanRepository.delete(id);
   }
 
