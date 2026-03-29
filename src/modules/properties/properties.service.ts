@@ -448,8 +448,8 @@ export class PropertiesService {
       );
     }
 
-    // Subscription limit check — skipped for drafts, enforced on submission
-    if (!dto.isDraft) {
+    // Subscription limit check — skipped for drafts and admins, enforced on submission
+    if (!dto.isDraft && !this.isAdmin(owner)) {
       const subCheck = await this.walletService.checkSubscriptionLimit(owner.id);
       if (!subCheck.allowed) {
         throw new BadRequestException(subCheck.message);
@@ -522,10 +522,12 @@ export class PropertiesService {
       throw new BadRequestException('Property is already published');
     }
 
-    // Enforce subscription limit on publish
-    const subCheck = await this.walletService.checkSubscriptionLimit(user.id);
-    if (!subCheck.allowed) {
-      throw new BadRequestException(subCheck.message);
+    // Enforce subscription limit on publish — admins are exempt
+    if (!this.isAdmin(user)) {
+      const subCheck = await this.walletService.checkSubscriptionLimit(user.id);
+      if (!subCheck.allowed) {
+        throw new BadRequestException(subCheck.message);
+      }
     }
 
     property.isDraft = false;

@@ -11,6 +11,7 @@ import {
 import { Lead, LeadSource, LeadStatus, LeadTemperature } from '../leads/entities/lead.entity';
 import { City } from '../locations/entities/city.entity';
 import { PropType } from '../property-config/entities/prop-type.entity';
+import { SearchKeywordMapping } from '../property-config/entities/search-keyword-mapping.entity';
 
 // ─── Types for centralized smart search ──────────────────────────────────────
 
@@ -137,6 +138,11 @@ export class TrackBehaviorDto {
 export class SmartSearchService {
   private readonly logger = new Logger(SmartSearchService.name);
 
+  /** In-memory cache for keyword mappings — refreshed every 5 minutes */
+  private kwCache: SearchKeywordMapping[] | null = null;
+  private kwCacheAt = 0;
+  private readonly KW_CACHE_TTL_MS = 5 * 60 * 1000;
+
   constructor(
     @InjectRepository(SearchLog)
     private searchLogRepo: Repository<SearchLog>,
@@ -148,7 +154,33 @@ export class SmartSearchService {
     private cityRepo: Repository<City>,
     @InjectRepository(PropType)
     private propTypeRepo: Repository<PropType>,
+    @InjectRepository(SearchKeywordMapping)
+    private kwRepo: Repository<SearchKeywordMapping>,
   ) {}
+
+  /** Load active keyword mappings from DB (cached). */
+  private async getKeywordMappings(): Promise<SearchKeywordMapping[]> {
+    const now = Date.now();
+    if (this.kwCache && now - this.kwCacheAt < this.KW_CACHE_TTL_MS) {
+      return this.kwCache;
+    }
+    try {
+      this.kwCache = await this.kwRepo.find({
+        where: { isActive: true },
+        order: { sortOrder: 'ASC' },
+      });
+      this.kwCacheAt = now;
+    } catch {
+      // DB unavailable — return stale cache or empty
+      this.kwCache = this.kwCache ?? [];
+    }
+    return this.kwCache;
+  }
+
+  /** Invalidate keyword cache (call after admin save). */
+  invalidateKeywordCache() {
+    this.kwCache = null;
+  }
 
   // ─── Log a search ────────────────────────────────────────────────────────────
 
@@ -307,6 +339,7 @@ export class SmartSearchService {
     geoCoords?: { lat: number; lng: number; radius?: number },
   ): Promise<SmartSearchResult> {
     const parsed: ParsedSearchQuery = { nearbySearch: false };
+    let matchedTypeLabel: string | undefined;
     // Normalise SEO slug-style input: "flat-in-noida" → "flat in noida"
     let text = rawQuery.replace(/-/g, ' ').toLowerCase().trim();
 
@@ -384,53 +417,27 @@ export class SmartSearchService {
       }
     }
 
-    // 3. Property type — STRICT matching, multi-word phrases FIRST
-    const typeMap: [string, string][] = [
-      // Multi-word first (order matters — more specific before generic)
-      ['service[\\s\\-]apartment',   'apartment'],
-      ['commercial[\\s\\-]warehouse','commercial_warehouse'],
-      ['commercial[\\s\\-]office',   'commercial_office'],
-      ['commercial[\\s\\-]shop',     'commercial_shop'],
-      ['industrial[\\s\\-]shed',     'industrial_shed'],
-      ['builder[\\s\\-]floor',       'builder_floor'],
-      ['independent[\\s\\-]floor',   'builder_floor'],
-      ['office[\\s\\-]space',        'commercial_office'],
-      ['farm[\\s\\-]house',          'farm_house'],
-      ['paying[\\s\\-]guest',        'pg'],
-      ['co[\\s\\-]?living',          'co_living'],
-      // Single-word
-      ['apartment',     'apartment'],
-      ['flat(?:s)?',    'flat'],
-      ['unit',          'apartment'],
-      ['villa(?:s)?',   'villa'],
-      ['bungalow',      'villa'],
-      ['penthouse',     'penthouse'],
-      ['studio',        'studio'],
-      ['1\\s*rk',       'studio'],
-      ['farmhouse',     'farm_house'],
-      ['warehouse',     'commercial_warehouse'],
-      ['showroom',      'showroom'],
-      ['factory',       'factory'],
-      ['plot(?:s)?',    'plot'],
-      ['land',          'plot'],
-      ['independent',   'house'],
-      ['house(?:s)?',   'house'],
-      ['home',          'house'],
-      ['pg',            'pg'],
-      ['hostel',        'pg'],
-      ['office',        'commercial_office'],
-      ['shop(?:s)?',    'commercial_shop'],
-      ['industrial',    'factory'],
-    ];
-    for (const [key, val] of typeMap) {
-      const re = new RegExp(`\\b${key}\\b`, 'i');
-      if (re.test(text)) {
-        parsed.type = val;
-        parsed.typeGroup = RESIDENTIAL_TYPES.has(val) ? 'residential'
-          : COMMERCIAL_TYPES.has(val) ? 'commercial'
-          : undefined;
-        text = text.replace(re, '').trim();
-        break;
+    // 3. Property type — load mappings from DB (cached), multi-word phrases FIRST by sortOrder
+    const kwMappings = await this.getKeywordMappings();
+    for (const kw of kwMappings) {
+      if (!kw.mapsToType) continue; // category-only mappings handled in step 5
+      try {
+        const re = new RegExp(`\\b${kw.keyword}\\b`, 'i');
+        if (re.test(text)) {
+          parsed.type = kw.mapsToType;
+          matchedTypeLabel = kw.label;
+          parsed.typeGroup = RESIDENTIAL_TYPES.has(kw.mapsToType) ? 'residential'
+            : COMMERCIAL_TYPES.has(kw.mapsToType) ? 'commercial'
+            : undefined;
+          // Apply explicit category override from the mapping
+          if (kw.mapsToCategory && !parsed.category) {
+            parsed.category = kw.mapsToCategory;
+          }
+          text = text.replace(re, '').trim();
+          break;
+        }
+      } catch {
+        // Skip malformed regex
       }
     }
 
@@ -639,7 +646,7 @@ export class SmartSearchService {
     // 9. Build user-friendly chips
     const chips: { key: string; label: string; value: string }[] = [];
     if (parsed.bedrooms)   chips.push({ key: 'bedrooms',  label: `${parsed.bedrooms} BHK`, value: String(parsed.bedrooms) });
-    if (parsed.type)       chips.push({ key: 'type',      label: TYPE_LABELS[parsed.type] || parsed.type, value: parsed.type });
+    if (parsed.type)       chips.push({ key: 'type',      label: matchedTypeLabel || TYPE_LABELS[parsed.type] || parsed.type, value: parsed.type });
     if (parsed.nearbySearch && geoCoords?.lat !== undefined) {
       chips.push({ key: 'nearMe', label: 'Near Me', value: `${geoCoords.lat},${geoCoords.lng}` });
     } else {

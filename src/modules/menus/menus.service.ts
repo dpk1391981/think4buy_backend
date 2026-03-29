@@ -50,7 +50,8 @@ const SEED_MENUS: { name: string; slug: string; icon: string; section: string; s
 
   // ── Admin Panel — SEO ───────────────────────────────────────────────────────
   { name: 'Footer SEO Links',    slug: 'admin_seo_footer_links',     icon: 'link-2',           section: 'admin_seo',        sortOrder: 150 },
-  { name: 'SEO Config',          slug: 'admin_seo_config',           icon: 'settings',         section: 'admin_seo',        sortOrder: 151 },
+  { name: 'Agent Listing SEO',   slug: 'admin_seo_agent_listing',    icon: 'map-pin',          section: 'admin_seo',        sortOrder: 151 },
+  { name: 'SEO Config',          slug: 'admin_seo_config',           icon: 'settings',         section: 'admin_seo',        sortOrder: 152 },
 
   // ── Admin Panel — System ────────────────────────────────────────────────────
   { name: 'Storage & Watermark', slug: 'admin_storage_settings',     icon: 'database',         section: 'admin_system',     sortOrder: 160 },

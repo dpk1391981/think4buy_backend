@@ -7,6 +7,7 @@ import { FooterSeoLink, FooterSeoLinkGroup } from './entities/footer-seo-link.en
 import { LocalitySeo } from './entities/locality-seo.entity';
 import { CategoryCitySeo } from './entities/category-city-seo.entity';
 import { CategoryLocalitySeo } from './entities/category-locality-seo.entity';
+import { AgentCitySeo } from './entities/agent-city-seo.entity';
 import { PropCategory } from '../property-config/entities/prop-category.entity';
 import { City } from '../locations/entities/city.entity';
 
@@ -102,6 +103,7 @@ export class SeoService {
     @InjectRepository(LocalitySeo) private localitySeoRepo: Repository<LocalitySeo>,
     @InjectRepository(CategoryCitySeo) private categoryCitySeoRepo: Repository<CategoryCitySeo>,
     @InjectRepository(CategoryLocalitySeo) private categoryLocalitySeoRepo: Repository<CategoryLocalitySeo>,
+    @InjectRepository(AgentCitySeo) private agentCitySeoRepo: Repository<AgentCitySeo>,
   ) {}
 
   // ── SEO Listing Page Resolver ─────────────────────────────────────────────
@@ -582,5 +584,50 @@ export class SeoService {
     if (!link) throw new NotFoundException('Link not found');
     await this.footerLinkRepo.remove(link);
     return { message: 'Link deleted' };
+  }
+
+  // ── Agent City SEO CRUD ───────────────────────────────────────────────────
+
+  async getAgentCitySeoPages(page = 1, limit = 20, search?: string) {
+    const qb = this.agentCitySeoRepo.createQueryBuilder('a').orderBy('a.citySlug');
+    if (search) {
+      qb.where('(a.citySlug LIKE :s OR a.cityName LIKE :s OR a.slug LIKE :s)', { s: `%${search}%` });
+    }
+    const total = await qb.getCount();
+    const items = await qb.skip((page - 1) * limit).take(limit).getMany();
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async getAgentCitySeoBySlug(slug: string): Promise<AgentCitySeo | null> {
+    return this.agentCitySeoRepo.findOne({ where: { slug, isActive: true } });
+  }
+
+  async createAgentCitySeo(data: Partial<AgentCitySeo>): Promise<AgentCitySeo> {
+    const existing = await this.agentCitySeoRepo.findOne({ where: { slug: data.slug } });
+    if (existing) throw new ConflictException('Slug already exists');
+    return this.agentCitySeoRepo.save(this.agentCitySeoRepo.create(data));
+  }
+
+  async updateAgentCitySeo(id: string, data: Partial<AgentCitySeo>): Promise<AgentCitySeo> {
+    const row = await this.agentCitySeoRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Agent City SEO not found');
+    if (data.slug && data.slug !== row.slug) {
+      const exists = await this.agentCitySeoRepo.findOne({ where: { slug: data.slug } });
+      if (exists) throw new ConflictException('Slug already exists');
+    }
+    Object.assign(row, data);
+    return this.agentCitySeoRepo.save(row);
+  }
+
+  async deleteAgentCitySeo(id: string): Promise<{ message: string }> {
+    const row = await this.agentCitySeoRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Agent City SEO not found');
+    await this.agentCitySeoRepo.remove(row);
+    return { message: 'Agent City SEO deleted' };
+  }
+
+  async getAllActiveAgentCitySlugs(): Promise<string[]> {
+    const rows = await this.agentCitySeoRepo.find({ where: { isActive: true }, select: ['citySlug'] });
+    return rows.map(r => r.citySlug);
   }
 }
