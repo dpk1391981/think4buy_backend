@@ -1,12 +1,23 @@
 /**
  * Seed: Locations from XLSX files  (upsert + auto-detect edition)
  *
+ * Supports two XLSX formats automatically:
+ *
+ *   FORMAT A — Multi-sheet (tab-per-city):  all_city_locality.xlsx
+ *     Each sheet tab = one city. Columns: [S.N, City, Locality/Location/Locations/Location Name/loCation]
+ *     City name is read from the "City" column of data rows (first non-empty value),
+ *     falling back to the tab name (trimmed). Sub-header rows like "Area Name" / "Location Name"
+ *     are automatically skipped.
+ *
+ *   FORMAT B — Single-sheet (classic):  any *.xlsx with columns [City, Locality]
+ *     Original format. Each row has City + Locality columns.
+ *
  * AUTO-DETECT: Scans backend/locations/*.xlsx automatically.
- *   Any new file dropped in that folder with columns [City, Locality] is picked up.
+ *   Multi-sheet workbooks → FORMAT A. Single-sheet workbooks → FORMAT B.
  *
  * SINGLE FILE: Process only one file:
- *   FILE=mumbai_localities_list.xlsx npm run seed:locations-xlsx
- *   FILE=mumbai                      npm run seed:locations-xlsx   (partial match)
+ *   FILE=all_city_locality npm run seed:locations-xlsx
+ *   FILE=mumbai             npm run seed:locations-xlsx   (partial match)
  *
  * State mapping for unknown cities comes from backend/locations/city-config.json.
  * If a new city is found with no mapping, the seed prints clear instructions
@@ -22,7 +33,7 @@
  *   npm run seed:locations-xlsx:dry               preview, no DB writes
  *   npm run seed:locations-xlsx:geocode           upsert + geocode missing pincode/coords
  *   npm run seed:locations-xlsx:geocode-force     upsert + re-geocode every row
- *   FILE=mumbai npm run seed:locations-xlsx       process only file(s) matching "mumbai"
+ *   FILE=all_city_locality npm run seed:locations-xlsx   process only the multi-tab file
  */
 
 import * as dotenv from 'dotenv';
@@ -99,6 +110,18 @@ const BUILTIN_CITY_META: Record<string, { slug: string; imageUrl?: string; isFea
   'Jaipur':        { slug: 'jaipur',        isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1477587458883-47145ed94245?w=600&q=80' },
   'Lucknow':       { slug: 'lucknow',       isFeatured: false },
   'Kochi':         { slug: 'kochi',         isFeatured: false },
+  'Gurugram':      { slug: 'gurugram',      isFeatured: true,  imageUrl: 'https://images.unsplash.com/photo-1615853481284-a29fefdbc57f?w=600&q=80' },
+  'Indore':        { slug: 'indore',        isFeatured: false },
+  'Nagpur':        { slug: 'nagpur',        isFeatured: false },
+  'Surat':         { slug: 'surat',         isFeatured: false },
+  'Faridabad':     { slug: 'faridabad',     isFeatured: false },
+  'Chandigarh':    { slug: 'chandigarh',    isFeatured: false },
+  'Bhopal':        { slug: 'bhopal',        isFeatured: false },
+  'Mysore':        { slug: 'mysore',        isFeatured: false },
+  'Mysuru':        { slug: 'mysuru',        isFeatured: false },
+  'Coimbatore':    { slug: 'coimbatore',    isFeatured: false },
+  'Agra':          { slug: 'agra',          isFeatured: false },
+  'Varanasi':      { slug: 'varanasi',      isFeatured: false },
 };
 
 // ─── city-config.json loader/writer ──────────────────────────────────────────
@@ -249,6 +272,13 @@ async function geocodeWithFallback(
 
 interface LocalityRow { city: string; locality: string; file: string; }
 
+// Locality sub-header strings that appear as the first data row in some sheets
+// and must be skipped (they are column labels, not real locality names).
+const SKIP_LOCALITY_HEADERS = new Set([
+  'area name', 'location name', 'location names',
+  'locality name', 'localities', 'locations',
+]);
+
 function discoverFiles(): string[] {
   const all = fs.readdirSync(LOCATIONS_DIR).filter((f) => f.endsWith('.xlsx'));
   if (!FILE_FILTER) return all;
@@ -262,30 +292,98 @@ function discoverFiles(): string[] {
   return matched;
 }
 
-function readXlsxFiles(files: string[]): LocalityRow[] {
+/**
+ * FORMAT A — Multi-sheet workbook where each tab = one city.
+ * Columns: [S.N, City, Locality/Location/Locations/Location Name/loCation]
+ * City name is taken from the "City" data column (first non-empty value),
+ * falling back to the sheet/tab name (trimmed).
+ */
+function readTabBasedXlsx(file: string, wb: XLSX.WorkBook): LocalityRow[] {
   const rows: LocalityRow[] = [];
-  for (const file of files) {
-    const wb   = XLSX.readFile(path.join(LOCATIONS_DIR, file));
-    const ws   = wb.Sheets[wb.SheetNames[0]];
+
+  for (const sheetName of wb.SheetNames) {
+    const ws   = wb.Sheets[sheetName];
     const data = XLSX.utils.sheet_to_json<Record<string, string>>(ws);
-
-    // Detect column names case-insensitively
-    const sample    = data[0] ?? {};
-    const cityCol   = Object.keys(sample).find((k) => k.toLowerCase() === 'city');
-    const localCol  = Object.keys(sample).find((k) => k.toLowerCase() === 'locality');
-
-    if (!cityCol || !localCol) {
-      console.warn(`  ⚠️  Skipping ${file} — missing "City" or "Locality" columns (found: ${Object.keys(sample).join(', ')})`);
+    if (data.length === 0) {
+      console.warn(`  ⚠️  Sheet "${sheetName}" in ${file} is empty — skipping`);
       continue;
+    }
+
+    const sample = data[0] ?? {};
+
+    // Locality column: match any of the known header variants case-insensitively
+    const localCol = Object.keys(sample).find((k) =>
+      /^(locality|location|locations|location\s*name|locat?ion)$/i.test(k.trim()),
+    );
+    if (!localCol) {
+      console.warn(`  ⚠️  Sheet "${sheetName}" in ${file} — no locality column found (cols: ${Object.keys(sample).join(', ')}) — skipping`);
+      continue;
+    }
+
+    // City column (optional — used to get the canonical city name from data)
+    const cityCol = Object.keys(sample).find((k) => k.toLowerCase().trim() === 'city');
+
+    // Derive city name: first non-empty value from City column, or trimmed tab name
+    let cityName = sheetName.trim();
+    if (cityCol) {
+      for (const row of data) {
+        const val = String(row[cityCol] ?? '').trim();
+        if (val) { cityName = val; break; }
+      }
     }
 
     let count = 0;
     for (const row of data) {
-      const city     = String(row[cityCol]  ?? '').trim();
       const locality = String(row[localCol] ?? '').trim();
-      if (city && locality) { rows.push({ city, locality, file }); count++; }
+      if (!locality || SKIP_LOCALITY_HEADERS.has(locality.toLowerCase())) continue;
+      rows.push({ city: cityName, locality, file });
+      count++;
     }
-    console.log(`  ✅ ${file}  →  ${count} rows  (City="${cityCol}", Locality="${localCol}")`);
+    console.log(`  ✅ Sheet "${sheetName}" → city "${cityName}" → ${count} localities  (col="${localCol}")`);
+  }
+  return rows;
+}
+
+/**
+ * FORMAT B — Single-sheet workbook with City + Locality columns (classic format).
+ */
+function readSingleSheetXlsx(file: string, wb: XLSX.WorkBook): LocalityRow[] {
+  const rows: LocalityRow[] = [];
+  const ws   = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json<Record<string, string>>(ws);
+
+  const sample   = data[0] ?? {};
+  const cityCol  = Object.keys(sample).find((k) => k.toLowerCase().trim() === 'city');
+  const localCol = Object.keys(sample).find((k) => k.toLowerCase().trim() === 'locality');
+
+  if (!cityCol || !localCol) {
+    console.warn(`  ⚠️  Skipping ${file} — missing "City" or "Locality" columns (found: ${Object.keys(sample).join(', ')})`);
+    return rows;
+  }
+
+  let count = 0;
+  for (const row of data) {
+    const city     = String(row[cityCol]  ?? '').trim();
+    const locality = String(row[localCol] ?? '').trim();
+    if (city && locality) { rows.push({ city, locality, file }); count++; }
+  }
+  console.log(`  ✅ ${file}  →  ${count} rows  (City="${cityCol}", Locality="${localCol}")`);
+  return rows;
+}
+
+function readXlsxFiles(files: string[]): LocalityRow[] {
+  const rows: LocalityRow[] = [];
+  for (const file of files) {
+    const wb = XLSX.readFile(path.join(LOCATIONS_DIR, file));
+
+    if (wb.SheetNames.length > 1) {
+      // FORMAT A: multi-sheet — each tab is a city
+      console.log(`  📑 ${file}  →  multi-sheet (${wb.SheetNames.length} tabs) — tab-per-city format`);
+      rows.push(...readTabBasedXlsx(file, wb));
+    } else {
+      // FORMAT B: single-sheet — classic City/Locality columns
+      rows.push(...readSingleSheetXlsx(file, wb));
+    }
   }
   return rows;
 }
