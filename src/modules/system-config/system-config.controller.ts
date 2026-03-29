@@ -51,7 +51,7 @@ export class SystemConfigController {
     const flags: Record<string, any> = {};
     for (const c of all) {
       if (c.isSecret) continue;
-      if (!['feature', 'media', 'general'].includes(c.group)) continue;
+      if (!['feature', 'media', 'general', 'forms'].includes(c.group)) continue;
       flags[c.key] = this.parseValue(c.value, c.valueType);
     }
     return flags;

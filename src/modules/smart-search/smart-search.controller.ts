@@ -25,7 +25,7 @@ export class SmartSearchController {
   @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: 'Parse natural language search query and get structured filters + redirect URL' })
   async smartSearch(
-    @Body() body: { query: string; category?: string },
+    @Body() body: { query: string; category?: string; lat?: number; lng?: number; radius?: number },
     @Req() req: any,
   ) {
     const query = (body.query || '').trim();
@@ -39,7 +39,11 @@ export class SmartSearchController {
       };
     }
 
-    const result = await this.service.parseQuery(query, body.category);
+    const geoCoords = (body.lat !== undefined && body.lng !== undefined)
+      ? { lat: Number(body.lat), lng: Number(body.lng), radius: body.radius ? Number(body.radius) : 5 }
+      : undefined;
+
+    const result = await this.service.parseQuery(query, body.category, geoCoords);
 
     // Log the search (fire-and-forget — don't await)
     const userId = req.user?.id ?? null;

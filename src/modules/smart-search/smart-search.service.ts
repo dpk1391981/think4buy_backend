@@ -298,8 +298,14 @@ export class SmartSearchService {
   /**
    * Parse a natural language query into structured filters + redirect URL.
    * This is the core of the Global Smart Search system.
+   * @param geoCoords  Optional GPS coords from the client — injected into the URL when
+   *                   the query contains "near me" / "nearby" intent.
    */
-  async parseQuery(rawQuery: string, categoryOverride?: string): Promise<SmartSearchResult> {
+  async parseQuery(
+    rawQuery: string,
+    categoryOverride?: string,
+    geoCoords?: { lat: number; lng: number; radius?: number },
+  ): Promise<SmartSearchResult> {
     const parsed: ParsedSearchQuery = { nearbySearch: false };
     // Normalise SEO slug-style input: "flat-in-noida" → "flat in noida"
     let text = rawQuery.replace(/-/g, ' ').toLowerCase().trim();
@@ -449,8 +455,13 @@ export class SmartSearchService {
       text = text.replace(/\bunder[\s\-]?construction\b|\bnew[\s\-]?launch\b|\bpre[\s\-]?launch\b|\buc\b/i, '').trim();
     }
 
-    // 4. Nearby intent
-    parsed.nearbySearch = /\b(?:near\s+me|nearby|close\s+to)\b/i.test(text);
+    // 4. Nearby intent — strip phrase so it doesn't pollute location extraction
+    if (/\b(?:near\s+me|nearby|close\s+to)\b/i.test(text)) {
+      parsed.nearbySearch = true;
+      text = text.replace(/\b(?:near\s+me|nearby|close\s+to)\b/gi, '').replace(/\s{2,}/g, ' ').trim();
+    } else {
+      parsed.nearbySearch = false;
+    }
 
     // 5. Category from context — evaluated BEFORE location stripping so keywords are present
     if (!categoryOverride) {
@@ -600,8 +611,6 @@ export class SmartSearchService {
     const filters: Record<string, string> = {};
     if (parsed.bedrooms)          filters.bedrooms          = String(parsed.bedrooms);
     if (parsed.type)              filters.type              = parsed.type;
-    if (parsed.city)              filters.city              = parsed.city;
-    if (parsed.locality)          filters.locality          = parsed.locality;
     if (parsed.maxPrice)          filters.maxPrice          = String(parsed.maxPrice);
     if (parsed.minPrice)          filters.minPrice          = String(parsed.minPrice);
     if (parsed.minArea)           filters.minArea           = String(parsed.minArea);
@@ -613,16 +622,30 @@ export class SmartSearchService {
     if (parsed.lifestyleTags?.length) {
       filters.keyword = parsed.lifestyleTags.join(' ');
     }
+    // Geo: when nearbySearch AND coords provided, use radius search instead of city/locality
+    if (parsed.nearbySearch && geoCoords?.lat !== undefined && geoCoords?.lng !== undefined) {
+      filters.lat    = String(geoCoords.lat);
+      filters.lng    = String(geoCoords.lng);
+      filters.radius = String(geoCoords.radius ?? 5);
+    } else {
+      // Standard city/locality only when not a geo search
+      if (parsed.city)     filters.city     = parsed.city;
+      if (parsed.locality) filters.locality = parsed.locality;
+    }
 
     const qs = new URLSearchParams(filters).toString();
     const redirectUrl = `/properties${qs ? `?${qs}` : ''}`;
 
     // 9. Build user-friendly chips
     const chips: { key: string; label: string; value: string }[] = [];
-    if (parsed.bedrooms)  chips.push({ key: 'bedrooms',  label: `${parsed.bedrooms} BHK`, value: String(parsed.bedrooms) });
-    if (parsed.type)      chips.push({ key: 'type',      label: TYPE_LABELS[parsed.type] || parsed.type, value: parsed.type });
-    if (parsed.city)      chips.push({ key: 'city',      label: parsed.city, value: parsed.city });
-    if (parsed.locality)  chips.push({ key: 'locality',  label: parsed.locality, value: parsed.locality });
+    if (parsed.bedrooms)   chips.push({ key: 'bedrooms',  label: `${parsed.bedrooms} BHK`, value: String(parsed.bedrooms) });
+    if (parsed.type)       chips.push({ key: 'type',      label: TYPE_LABELS[parsed.type] || parsed.type, value: parsed.type });
+    if (parsed.nearbySearch && geoCoords?.lat !== undefined) {
+      chips.push({ key: 'nearMe', label: 'Near Me', value: `${geoCoords.lat},${geoCoords.lng}` });
+    } else {
+      if (parsed.city)     chips.push({ key: 'city',     label: parsed.city,     value: parsed.city });
+      if (parsed.locality) chips.push({ key: 'locality', label: parsed.locality, value: parsed.locality });
+    }
     if (parsed.category)  chips.push({ key: 'category',  label: parsed.category, value: parsed.category });
     if (parsed.maxPrice) {
       const label = parsed.maxPrice >= 10_000_000
