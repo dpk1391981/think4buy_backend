@@ -230,6 +230,13 @@ export class SystemConfigService implements OnModuleInit {
         description: 'Put site in maintenance mode (returns 503 for all non-admin requests)',
         group: 'general',
       },
+      {
+        key: 'DEFAULT_REGISTRATION_TOKENS',
+        value: 499,
+        valueType: ConfigValueType.NUMBER,
+        description: 'Tokens credited to Basic Plan on new user registration (1 token = ₹1)',
+        group: 'billing',
+      },
     ];
 
     for (const d of defaults) {

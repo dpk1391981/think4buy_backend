@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { SystemConfigService } from '../system-config/system-config.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Wallet } from './entities/wallet.entity';
@@ -34,6 +35,7 @@ export class WalletService {
     private userRepository: Repository<User>,
     @InjectRepository(Property)
     private propertyRepository: Repository<Property>,
+    private readonly systemConfig: SystemConfigService,
   ) {}
 
   async createWallet(userId: string): Promise<Wallet> {
@@ -406,23 +408,24 @@ export class WalletService {
 
   /**
    * Ensures a Basic Plan exists in the database.
-   * Creates one with 2000 listings / 2000 tokens if missing.
+   * Token amount is driven by DEFAULT_REGISTRATION_TOKENS system config (default 499).
    */
   private async ensureBasicPlanExists(): Promise<SubscriptionPlan> {
     let plan = await this.subscriptionPlanRepository.findOne({
       where: { type: PlanType.BASIC, isActive: true },
     });
     if (!plan) {
+      const defaultTokens = await this.systemConfig.getNumber('DEFAULT_REGISTRATION_TOKENS', 499);
       plan = await this.subscriptionPlanRepository.save(
         this.subscriptionPlanRepository.create({
           name: 'Basic Plan',
           type: PlanType.BASIC,
           price: 0,
           durationDays: 36500, // ~100 years — effectively permanent
-          tokensIncluded: 2000,
-          maxListings: 2000,
+          tokensIncluded: defaultTokens,
+          maxListings: defaultTokens,
           features: [
-            '2000 property listings',
+            `${defaultTokens} property listings`,
             'Basic visibility',
             'Email support',
           ],
@@ -438,6 +441,8 @@ export class WalletService {
   /**
    * Assigns the Basic Plan to a newly registered user.
    * Safe to call multiple times — skips if an active subscription already exists.
+   * Token amount is always read from DEFAULT_REGISTRATION_TOKENS config so admin
+   * can change it without touching code.
    */
   async assignDefaultPlan(userId: string): Promise<AgentSubscription> {
     const existing = await this.agentSubscriptionRepository.findOne({
@@ -446,6 +451,9 @@ export class WalletService {
     if (existing) return existing;
 
     const plan = await this.ensureBasicPlanExists();
+
+    // Always read live config so admin changes take effect immediately for new registrations
+    const defaultTokens = await this.systemConfig.getNumber('DEFAULT_REGISTRATION_TOKENS', 499);
 
     const now = new Date();
     const expiresAt = new Date(now);
@@ -464,18 +472,18 @@ export class WalletService {
         type: plan.type,
         price: plan.price,
         durationDays: plan.durationDays,
-        maxListings: plan.maxListings,
-        tokensIncluded: plan.tokensIncluded,
+        maxListings: defaultTokens,
+        tokensIncluded: defaultTokens,
         features: plan.features,
       },
     });
     const saved = await this.agentSubscriptionRepository.save(subscription);
 
-    // Credit the default tokens to the wallet
-    if (Number(plan.tokensIncluded) > 0) {
+    // Credit the configured token amount (not plan.tokensIncluded which may be stale)
+    if (defaultTokens > 0) {
       await this.credit(
         userId,
-        Number(plan.tokensIncluded),
+        defaultTokens,
         TransactionReason.SUBSCRIPTION,
         `${plan.name} tokens (default)`,
         saved.id,
@@ -485,7 +493,7 @@ export class WalletService {
 
     // Sync quota fields on user for backward compatibility
     await this.userRepository.update(userId, {
-      agentFreeQuota: plan.maxListings,
+      agentFreeQuota: defaultTokens,
       agentUsedQuota: 0,
     });
 
