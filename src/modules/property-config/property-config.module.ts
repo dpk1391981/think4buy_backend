@@ -8,6 +8,7 @@ import { PropTypeAmenity } from './entities/prop-type-amenity.entity';
 import { PropTypeField } from './entities/prop-type-field.entity';
 import { Amenity } from '../properties/entities/amenity.entity';
 import { ListingFilterConfig } from './entities/listing-filter-config.entity';
+import { SearchKeywordMapping } from './entities/search-keyword-mapping.entity';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ListingFilterConfig } from './entities/listing-filter-config.entity';
       PropTypeField,
       Amenity,
       ListingFilterConfig,
+      SearchKeywordMapping,
     ]),
   ],
   controllers: [PropertyConfigController],

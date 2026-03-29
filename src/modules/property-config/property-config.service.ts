@@ -9,6 +9,7 @@ import { PropTypeAmenity } from './entities/prop-type-amenity.entity';
 import { PropTypeField } from './entities/prop-type-field.entity';
 import { Amenity } from '../properties/entities/amenity.entity';
 import { ListingFilterConfig, FilterWidgetType } from './entities/listing-filter-config.entity';
+import { SearchKeywordMapping } from './entities/search-keyword-mapping.entity';
 
 const DEFAULT_FILTERS = [
   {
@@ -82,6 +83,48 @@ const DEFAULT_FILTERS = [
   },
 ];
 
+// ─── Default search keyword mappings (seeded once on first API call) ─────────
+// sortOrder < 50 = multi-word (must be evaluated before single-word fallbacks)
+const DEFAULT_KEYWORD_MAPPINGS: Array<Omit<SearchKeywordMapping, 'id' | 'createdAt' | 'updatedAt'>> = [
+  // ── Multi-word patterns first (order matters) ────────────────────────────
+  { keyword: 'service[\\s\\-]apartment',    mapsToType: 'apartment',           mapsToCategory: null,         label: 'Service Apartment', sortOrder: 1,  isActive: true },
+  { keyword: 'commercial[\\s\\-]warehouse', mapsToType: 'commercial_warehouse', mapsToCategory: 'commercial', label: 'Warehouse',          sortOrder: 2,  isActive: true },
+  { keyword: 'commercial[\\s\\-]office',    mapsToType: 'commercial_office',    mapsToCategory: 'commercial', label: 'Commercial Office',  sortOrder: 3,  isActive: true },
+  { keyword: 'commercial[\\s\\-]shop',      mapsToType: 'commercial_shop',      mapsToCategory: 'commercial', label: 'Commercial Shop',    sortOrder: 4,  isActive: true },
+  { keyword: 'industrial[\\s\\-]shed',      mapsToType: 'industrial_shed',      mapsToCategory: 'industrial', label: 'Industrial Shed',    sortOrder: 5,  isActive: true },
+  { keyword: 'builder[\\s\\-]floor',        mapsToType: 'builder_floor',        mapsToCategory: null,         label: 'Builder Floor',      sortOrder: 6,  isActive: true },
+  { keyword: 'independent[\\s\\-]floor',    mapsToType: 'builder_floor',        mapsToCategory: null,         label: 'Builder Floor',      sortOrder: 7,  isActive: true },
+  { keyword: 'office[\\s\\-]space',         mapsToType: 'commercial_office',    mapsToCategory: 'commercial', label: 'Office Space',       sortOrder: 8,  isActive: true },
+  { keyword: 'farm[\\s\\-]house',           mapsToType: 'farm_house',           mapsToCategory: null,         label: 'Farmhouse',          sortOrder: 9,  isActive: true },
+  { keyword: 'paying[\\s\\-]guest',         mapsToType: 'pg',                   mapsToCategory: 'pg',         label: 'PG',                 sortOrder: 10, isActive: true },
+  { keyword: 'co[\\s\\-]?living',           mapsToType: 'co_living',            mapsToCategory: 'pg',         label: 'Co-Living',          sortOrder: 11, isActive: true },
+  // ── Single-word patterns ─────────────────────────────────────────────────
+  { keyword: 'apartment',      mapsToType: 'apartment',           mapsToCategory: null,         label: 'Apartment',          sortOrder: 20, isActive: true },
+  { keyword: 'flat(?:s)?',     mapsToType: 'flat',                mapsToCategory: null,         label: 'Flat',               sortOrder: 21, isActive: true },
+  { keyword: 'unit',           mapsToType: 'apartment',           mapsToCategory: null,         label: 'Apartment',          sortOrder: 22, isActive: true },
+  { keyword: 'villa(?:s)?',    mapsToType: 'villa',               mapsToCategory: null,         label: 'Villa',              sortOrder: 23, isActive: true },
+  { keyword: 'bungalow',       mapsToType: 'villa',               mapsToCategory: null,         label: 'Bungalow/Villa',     sortOrder: 24, isActive: true },
+  { keyword: 'penthouse',      mapsToType: 'penthouse',           mapsToCategory: null,         label: 'Penthouse',          sortOrder: 25, isActive: true },
+  { keyword: 'studio',         mapsToType: 'studio',              mapsToCategory: null,         label: 'Studio',             sortOrder: 26, isActive: true },
+  { keyword: '1\\s*rk',        mapsToType: 'studio',              mapsToCategory: null,         label: '1 RK / Studio',      sortOrder: 27, isActive: true },
+  { keyword: 'farmhouse',      mapsToType: 'farm_house',          mapsToCategory: null,         label: 'Farmhouse',          sortOrder: 28, isActive: true },
+  { keyword: 'warehouse',      mapsToType: 'commercial_warehouse', mapsToCategory: 'commercial', label: 'Warehouse',          sortOrder: 29, isActive: true },
+  { keyword: 'showroom',       mapsToType: 'showroom',            mapsToCategory: 'commercial', label: 'Showroom',           sortOrder: 30, isActive: true },
+  { keyword: 'factory',        mapsToType: 'factory',             mapsToCategory: 'industrial', label: 'Factory',            sortOrder: 31, isActive: true },
+  { keyword: 'plot(?:s)?',     mapsToType: 'plot',                mapsToCategory: null,         label: 'Plot',               sortOrder: 32, isActive: true },
+  { keyword: 'land',           mapsToType: 'plot',                mapsToCategory: null,         label: 'Land/Plot',          sortOrder: 33, isActive: true },
+  { keyword: 'independent',    mapsToType: 'house',               mapsToCategory: null,         label: 'Independent House',  sortOrder: 34, isActive: true },
+  { keyword: 'house(?:s)?',    mapsToType: 'house',               mapsToCategory: null,         label: 'House',              sortOrder: 35, isActive: true },
+  { keyword: 'home',           mapsToType: 'house',               mapsToCategory: null,         label: 'House/Home',         sortOrder: 36, isActive: true },
+  { keyword: 'pg',             mapsToType: 'pg',                  mapsToCategory: 'pg',         label: 'PG',                 sortOrder: 37, isActive: true },
+  { keyword: 'hostel',         mapsToType: 'pg',                  mapsToCategory: 'pg',         label: 'Hostel/PG',          sortOrder: 38, isActive: true },
+  { keyword: 'office',         mapsToType: 'commercial_office',   mapsToCategory: 'commercial', label: 'Office',             sortOrder: 39, isActive: true },
+  { keyword: 'shop(?:s)?',     mapsToType: 'commercial_shop',     mapsToCategory: 'commercial', label: 'Shop',               sortOrder: 40, isActive: true },
+  { keyword: 'industrial',     mapsToType: 'factory',             mapsToCategory: 'industrial', label: 'Industrial',         sortOrder: 41, isActive: true },
+  // ── New: Hotel ───────────────────────────────────────────────────────────
+  { keyword: 'hotel(?:s)?',    mapsToType: 'hotel',               mapsToCategory: 'commercial', label: 'Hotel',              sortOrder: 42, isActive: true },
+];
+
 @Injectable()
 export class PropertyConfigService {
   constructor(
@@ -91,6 +134,7 @@ export class PropertyConfigService {
     @InjectRepository(PropTypeField) private fieldRepo: Repository<PropTypeField>,
     @InjectRepository(Amenity)       private amenityRepo: Repository<Amenity>,
     @InjectRepository(ListingFilterConfig) private lfcRepo: Repository<ListingFilterConfig>,
+    @InjectRepository(SearchKeywordMapping) private skwRepo: Repository<SearchKeywordMapping>,
   ) {}
 
   // ─── Public read endpoints ──────────────────────────────────────────────────
@@ -358,5 +402,63 @@ export class PropertyConfigService {
 
   async reorderListingFilters(orderedIds: string[]): Promise<void> {
     await Promise.all(orderedIds.map((id, idx) => this.lfcRepo.update(id, { sortOrder: idx })));
+  }
+
+  // ─── Search Keyword Mappings ─────────────────────────────────────────────────
+
+  /** Returns all active mappings sorted by evaluation order. Seeds defaults on first use. */
+  async getSearchKeywordMappings(): Promise<SearchKeywordMapping[]> {
+    const count = await this.skwRepo.count();
+    if (count === 0) {
+      const rows = DEFAULT_KEYWORD_MAPPINGS.map(d => this.skwRepo.create(d));
+      await this.skwRepo.save(rows);
+    }
+    return this.skwRepo.find({
+      where: { isActive: true },
+      order: { sortOrder: 'ASC' },
+    });
+  }
+
+  getAdminSearchKeywordMappings(): Promise<SearchKeywordMapping[]> {
+    return this.skwRepo.find({ order: { sortOrder: 'ASC' } });
+  }
+
+  async createSearchKeywordMapping(dto: {
+    keyword: string; mapsToType?: string; mapsToCategory?: string;
+    label: string; sortOrder?: number; isActive?: boolean;
+  }): Promise<SearchKeywordMapping> {
+    const row = this.skwRepo.create({
+      ...dto,
+      mapsToType: dto.mapsToType || null,
+      mapsToCategory: dto.mapsToCategory || null,
+      sortOrder: dto.sortOrder ?? 100,
+      isActive: dto.isActive ?? true,
+    });
+    return this.skwRepo.save(row);
+  }
+
+  async updateSearchKeywordMapping(id: string, dto: Partial<{
+    keyword: string; mapsToType: string | null; mapsToCategory: string | null;
+    label: string; sortOrder: number; isActive: boolean;
+  }>): Promise<SearchKeywordMapping> {
+    const row = await this.skwRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Search keyword mapping not found');
+    Object.assign(row, dto);
+    return this.skwRepo.save(row);
+  }
+
+  async deleteSearchKeywordMapping(id: string): Promise<{ success: boolean }> {
+    const row = await this.skwRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Search keyword mapping not found');
+    await this.skwRepo.remove(row);
+    return { success: true };
+  }
+
+  async seedDefaultKeywordMappings(): Promise<{ seeded: number }> {
+    const count = await this.skwRepo.count();
+    if (count > 0) return { seeded: 0 };
+    const rows = DEFAULT_KEYWORD_MAPPINGS.map(d => this.skwRepo.create(d));
+    await this.skwRepo.save(rows);
+    return { seeded: rows.length };
   }
 }

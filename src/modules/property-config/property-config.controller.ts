@@ -268,4 +268,54 @@ export class PropertyConfigController {
     this.assertAdmin(req);
     return this.svc.reorderListingFilters(body.orderedIds);
   }
+
+  // ── Public: Search Keyword Mappings ─────────────────────────────────────────
+
+  @Get('search-keywords')
+  @ApiOperation({ summary: 'Get active search keyword→type mappings (public, used by FE parser)' })
+  getSearchKeywordMappings() {
+    return this.svc.getSearchKeywordMappings();
+  }
+
+  // ── Admin: Search Keyword Mappings ──────────────────────────────────────────
+
+  @Get('admin/search-keywords')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  adminGetSearchKeywords(@Request() req) {
+    this.assertAdmin(req);
+    return this.svc.getAdminSearchKeywordMappings();
+  }
+
+  @Post('admin/search-keywords')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  adminCreateSearchKeyword(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.svc.createSearchKeywordMapping(body);
+  }
+
+  @Patch('admin/search-keywords/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  adminUpdateSearchKeyword(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.svc.updateSearchKeywordMapping(id, body);
+  }
+
+  @Delete('admin/search-keywords/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  adminDeleteSearchKeyword(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.svc.deleteSearchKeywordMapping(id);
+  }
+
+  @Post('admin/search-keywords/seed-defaults')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  adminSeedDefaultKeywords(@Request() req) {
+    this.assertAdmin(req);
+    return this.svc.seedDefaultKeywordMappings();
+  }
 }

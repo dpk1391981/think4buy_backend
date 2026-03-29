@@ -25,6 +25,7 @@ import { PropType } from './modules/property-config/entities/prop-type.entity';
 import { PropTypeAmenity } from './modules/property-config/entities/prop-type-amenity.entity';
 import { PropTypeField } from './modules/property-config/entities/prop-type-field.entity';
 import { ListingFilterConfig } from './modules/property-config/entities/listing-filter-config.entity';
+import { SearchKeywordMapping } from './modules/property-config/entities/search-keyword-mapping.entity';
 import { User } from './modules/users/entities/user.entity';
 import { OtpVerification } from './modules/auth/entities/otp-verification.entity';
 import { Property } from './modules/properties/entities/property.entity';
@@ -63,6 +64,7 @@ import { FooterSeoLink, FooterSeoLinkGroup } from './modules/seo/entities/footer
 import { LocalitySeo } from './modules/seo/entities/locality-seo.entity';
 import { CategoryCitySeo } from './modules/seo/entities/category-city-seo.entity';
 import { CategoryLocalitySeo } from './modules/seo/entities/category-locality-seo.entity';
+import { AgentCitySeo } from './modules/seo/entities/agent-city-seo.entity';
 import { AgencyModule } from './modules/agency/agency.module';
 import { Agency } from './modules/agency/entities/agency.entity';
 import { AgentProfile } from './modules/agency/entities/agent-profile.entity';
@@ -152,12 +154,12 @@ import { SupportTicket } from './modules/support/entities/support-ticket.entity'
           ServiceCatalog, ServiceLead, Wallet, WalletTransaction,
           SubscriptionPlan, BoostPlan, AgentSubscription, SavedProperty,
           PropertyAlert, PropCategory, PropType, PropTypeAmenity,
-          PropTypeField, ListingFilterConfig, AnalyticsEvent,
+          PropTypeField, ListingFilterConfig, SearchKeywordMapping, AnalyticsEvent,
           TopPropertiesCache, TopAgentsCache, TopProjectsCache,
           TopLocationsCache, CategoryAnalytics, MarketSnapshot,
           LocalityCircleRate, ScoringConfig, CityPage, SeoConfig,
           FooterSeoLink, FooterSeoLinkGroup, LocalitySeo, CategoryCitySeo,
-          CategoryLocalitySeo, Agency, AgentProfile, PropertyAgentMap,
+          CategoryLocalitySeo, AgentCitySeo, Agency, AgentProfile, PropertyAgentMap,
           AgentLocationMap, PremiumSlot, Lead, LeadAssignment,
           LeadActivityLog, SiteVisit, Deal, Commission, Article, Menu,
           RoleMenuPermission, AgentFeedback, Notification, OtpVerification,

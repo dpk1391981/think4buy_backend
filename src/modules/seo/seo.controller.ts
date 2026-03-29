@@ -325,6 +325,60 @@ export class SeoController {
     return this.seoService.deleteSeoConfig(id);
   }
 
+  // ── Public: Agent City SEO ────────────────────────────────────────────────
+
+  @Get('agent-city-pages/:slug')
+  @ApiOperation({ summary: 'Get agent city SEO by slug (public)' })
+  getAgentCitySeoBySlug(@Param('slug') slug: string) {
+    return this.seoService.getAgentCitySeoBySlug(slug);
+  }
+
+  // ── Admin: Agent City SEO ─────────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('admin/agent-city-pages')
+  @ApiOperation({ summary: 'List all agent city SEO pages (admin)' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  getAgentCitySeoPages(
+    @Request() req,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+  ) {
+    this.assertAdmin(req);
+    return this.seoService.getAgentCitySeoPages(page, limit, search);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('admin/agent-city-pages')
+  @ApiOperation({ summary: 'Create agent city SEO page (admin)' })
+  createAgentCitySeo(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.createAgentCitySeo(body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Patch('admin/agent-city-pages/:id')
+  @ApiOperation({ summary: 'Update agent city SEO page (admin)' })
+  updateAgentCitySeo(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.updateAgentCitySeo(id, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Delete('admin/agent-city-pages/:id')
+  @ApiOperation({ summary: 'Delete agent city SEO page (admin)' })
+  deleteAgentCitySeo(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.seoService.deleteAgentCitySeo(id);
+  }
+
   // ── Admin: Footer Groups ──────────────────────────────────────────────────
 
   @UseGuards(AuthGuard('jwt'))

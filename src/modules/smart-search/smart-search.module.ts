@@ -7,9 +7,10 @@ import { UserBehavior } from './entities/user-behavior.entity';
 import { Lead } from '../leads/entities/lead.entity';
 import { City } from '../locations/entities/city.entity';
 import { PropType } from '../property-config/entities/prop-type.entity';
+import { SearchKeywordMapping } from '../property-config/entities/search-keyword-mapping.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([SearchLog, UserBehavior, Lead, City, PropType])],
+  imports: [TypeOrmModule.forFeature([SearchLog, UserBehavior, Lead, City, PropType, SearchKeywordMapping])],
   controllers: [SmartSearchController],
   providers: [SmartSearchService],
   exports: [SmartSearchService],
