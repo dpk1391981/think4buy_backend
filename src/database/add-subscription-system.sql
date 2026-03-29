@@ -41,32 +41,30 @@ DELIMITER ;
 CALL _add_used_listings_col();
 DROP PROCEDURE IF EXISTS _add_used_listings_col;
 
--- ── Step 3: Seed Basic Plan ───────────────────────────────────────────────────
+-- ── Step 3: Seed Free Plan (default registration plan) ───────────────────────
 -- INSERT IGNORE is safe to re-run (skips on duplicate unique key).
--- Token amount = 499 (1 token = ₹1). Controlled via DEFAULT_REGISTRATION_TOKENS system config.
 
 INSERT IGNORE INTO subscription_plans
   (id, name, type, price, durationDays, tokensIncluded, maxListings, features,
    isActive, sortOrder, agentBadge, createdAt, updatedAt)
 VALUES (
   UUID(),
-  'Basic Plan',
-  'basic',
+  'Free Plan',
+  'free',
   0.00,
-  36500,
-  499,
-  499,
-  JSON_ARRAY('499 property listings', 'Basic visibility', 'Email support'),
+  30,
+  0,
+  2000,
+  JSON_ARRAY('2000 property listings', 'Basic visibility', 'Email support'),
   1,
   0,
-  'verified',
+  'none',
   NOW(),
   NOW()
 );
 
--- ── Step 4: Backfill — give every existing user a Basic Plan subscription ────
+-- ── Step 4: Backfill — give every existing user a Free Plan subscription ──────
 -- Only inserts for users with NO active subscription.
--- Uses '2099-12-31' as a safe far-future DATETIME value.
 
 INSERT INTO agent_subscriptions
   (id, agentId, planId, status, startsAt, expiresAt, tokensDeducted, usedListings,
@@ -75,21 +73,21 @@ SELECT
   UUID(),
   u.id,
   (SELECT id FROM subscription_plans
-     WHERE type = 'basic' AND isActive = 1
+     WHERE type = 'free' AND isActive = 1
      ORDER BY createdAt ASC LIMIT 1),
   'active',
   NOW(),
-  '2099-12-31 23:59:59',
+  DATE_ADD(NOW(), INTERVAL 30 DAY),
   0,
   COALESCE(u.agentUsedQuota, 0),
   JSON_OBJECT(
-    'name',           'Basic Plan',
-    'type',           'basic',
+    'name',           'Free Plan',
+    'type',           'free',
     'price',          0,
-    'durationDays',   36500,
-    'maxListings',    499,
-    'tokensIncluded', 499,
-    'features',       JSON_ARRAY('499 property listings', 'Basic visibility', 'Email support'),
+    'durationDays',   30,
+    'maxListings',    2000,
+    'tokensIncluded', 0,
+    'features',       JSON_ARRAY('2000 property listings', 'Basic visibility', 'Email support'),
     'assignedBy',     'migration'
   ),
   NOW()
@@ -104,59 +102,32 @@ WHERE u.role IN ('owner', 'agent', 'buyer', 'broker')
 -- ── Step 5: Sync agentFreeQuota ───────────────────────────────────────────────
 
 UPDATE users
-SET agentFreeQuota = 499
-WHERE agentFreeQuota < 499
+SET agentFreeQuota = 2000
+WHERE agentFreeQuota < 2000
   AND role IN ('owner', 'agent', 'buyer', 'broker');
 
--- ── Step 6: Credit 399 tokens to wallets that only have the welcome bonus ────
--- Brings balance from 100 → 499 to match the Basic Plan allocation (1 token = ₹1).
+-- ── Step 6: No wallet top-up needed ──────────────────────────────────────────
+-- Free Plan has 0 tokens. Users keep their 100-token welcome bonus.
+-- No wallet_transactions insert required for migration backfill.
 
-INSERT INTO wallet_transactions
-  (id, wallet_id, type, reason, amount, balanceBefore, balanceAfter,
-   description, referenceType, createdAt)
-SELECT
-  UUID(),
-  w.id,
-  'bonus',
-  'subscription',
-  399,
-  w.balance,
-  w.balance + 399,
-  'Basic Plan tokens (migration backfill)',
-  'migration',
-  NOW()
-FROM wallets w
-WHERE w.balance <= 100
-  AND EXISTS (
-    SELECT 1 FROM users u
-    WHERE u.id = w.user_id
-      AND u.role IN ('owner', 'agent', 'buyer', 'broker')
-  );
-
-UPDATE wallets w
-SET
-  balance     = balance + 399,
-  totalEarned = totalEarned + 399
-WHERE w.balance <= 100
-  AND EXISTS (
-    SELECT 1 FROM users u
-    WHERE u.id = w.user_id
-      AND u.role IN ('owner', 'agent', 'buyer', 'broker')
-  );
-
--- ── Step 7: Seed DEFAULT_REGISTRATION_TOKENS system config ────────────────────
--- INSERT IGNORE is safe to re-run (unique key on `key` column).
+-- ── Step 7: Seed DEFAULT_REGISTER_PLAN system config ─────────────────────────
+-- Controls which plan type is assigned to new registrations.
+-- Tokens credited = plan.tokensIncluded (no separate token config needed).
+-- Admin can change to 'basic', 'premium', etc. from Admin → System Config.
 
 INSERT IGNORE INTO system_configs
   (id, `key`, value, valueType, description, `group`, isSecret, createdAt, updatedAt)
 VALUES (
   UUID(),
-  'DEFAULT_REGISTRATION_TOKENS',
-  '499',
-  'number',
-  'Tokens credited to Basic Plan on new user registration (1 token = ₹1)',
+  'DEFAULT_REGISTER_PLAN',
+  'free',
+  'string',
+  'Plan type assigned on new user registration (free|basic|premium|featured|enterprise). Tokens credited = plan.tokensIncluded.',
   'billing',
   0,
   NOW(),
   NOW()
 );
+
+-- Clean up old DEFAULT_REGISTRATION_TOKENS if it exists (superseded by DEFAULT_REGISTER_PLAN)
+DELETE FROM system_configs WHERE `key` = 'DEFAULT_REGISTRATION_TOKENS';

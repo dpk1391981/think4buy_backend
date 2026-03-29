@@ -231,10 +231,10 @@ export class SystemConfigService implements OnModuleInit {
         group: 'general',
       },
       {
-        key: 'DEFAULT_REGISTRATION_TOKENS',
-        value: 499,
-        valueType: ConfigValueType.NUMBER,
-        description: 'Tokens credited to Basic Plan on new user registration (1 token = ₹1)',
+        key: 'DEFAULT_REGISTER_PLAN',
+        value: 'free',
+        valueType: ConfigValueType.STRING,
+        description: 'Plan type assigned to new users on registration (free | basic | premium | featured | enterprise). Tokens credited = plan.tokensIncluded.',
         group: 'billing',
       },
     ];
