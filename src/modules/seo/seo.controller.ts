@@ -379,6 +379,55 @@ export class SeoController {
     return this.seoService.deleteAgentCitySeo(id);
   }
 
+  // ── Public: Property City SEO ──────────────────────────────────────────────
+
+  @Get('property-city-pages/:slug')
+  @ApiOperation({ summary: 'Get property city SEO by slug (public)' })
+  getPropertyCitySeoBySlug(@Param('slug') slug: string) {
+    return this.seoService.getPropertyCitySeoBySlug(slug);
+  }
+
+  // ── Admin: Property City SEO ───────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('admin/property-city-pages')
+  @ApiOperation({ summary: 'List all property city SEO pages (admin)' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  getPropertyCitySeoPages(@Request() req, @Query('page') page = 1, @Query('limit') limit = 20, @Query('search') search?: string) {
+    this.assertAdmin(req);
+    return this.seoService.getPropertyCitySeoPages(Number(page), Number(limit), search);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('admin/property-city-pages')
+  @ApiOperation({ summary: 'Create property city SEO page (admin)' })
+  createPropertyCitySeo(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.createPropertyCitySeo(body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Patch('admin/property-city-pages/:id')
+  @ApiOperation({ summary: 'Update property city SEO page (admin)' })
+  updatePropertyCitySeo(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.updatePropertyCitySeo(id, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Delete('admin/property-city-pages/:id')
+  @ApiOperation({ summary: 'Delete property city SEO page (admin)' })
+  deletePropertyCitySeo(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.seoService.deletePropertyCitySeo(id);
+  }
+
   // ── Admin: Footer Groups ──────────────────────────────────────────────────
 
   @UseGuards(AuthGuard('jwt'))

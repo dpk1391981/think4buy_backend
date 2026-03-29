@@ -65,6 +65,7 @@ import { LocalitySeo } from './modules/seo/entities/locality-seo.entity';
 import { CategoryCitySeo } from './modules/seo/entities/category-city-seo.entity';
 import { CategoryLocalitySeo } from './modules/seo/entities/category-locality-seo.entity';
 import { AgentCitySeo } from './modules/seo/entities/agent-city-seo.entity';
+import { PropertyCitySeo } from './modules/seo/entities/property-city-seo.entity';
 import { AgencyModule } from './modules/agency/agency.module';
 import { Agency } from './modules/agency/entities/agency.entity';
 import { AgentProfile } from './modules/agency/entities/agent-profile.entity';
@@ -159,7 +160,7 @@ import { SupportTicket } from './modules/support/entities/support-ticket.entity'
           TopLocationsCache, CategoryAnalytics, MarketSnapshot,
           LocalityCircleRate, ScoringConfig, CityPage, SeoConfig,
           FooterSeoLink, FooterSeoLinkGroup, LocalitySeo, CategoryCitySeo,
-          CategoryLocalitySeo, AgentCitySeo, Agency, AgentProfile, PropertyAgentMap,
+          CategoryLocalitySeo, AgentCitySeo, PropertyCitySeo, Agency, AgentProfile, PropertyAgentMap,
           AgentLocationMap, PremiumSlot, Lead, LeadAssignment,
           LeadActivityLog, SiteVisit, Deal, Commission, Article, Menu,
           RoleMenuPermission, AgentFeedback, Notification, OtpVerification,
