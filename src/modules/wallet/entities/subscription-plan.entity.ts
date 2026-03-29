@@ -7,6 +7,7 @@ import {
 } from 'typeorm';
 
 export enum PlanType {
+  FREE = 'free',
   BASIC = 'basic',
   PREMIUM = 'premium',
   FEATURED = 'featured',

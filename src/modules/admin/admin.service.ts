@@ -308,6 +308,7 @@ export class AdminService {
 
   /** Badge → subscription plan type mapping */
   private static readonly BADGE_PLAN_MAP: Record<string, string> = {
+    none:     'free',
     verified: 'basic',
     bronze:   'premium',
     silver:   'featured',
@@ -328,8 +329,8 @@ export class AdminService {
     Object.assign(user, dto);
     await this.userRepo.save(user);
 
-    // Auto-assign matching subscription plan when badge is upgraded by admin
-    if (badgeChanged && dto.agentTick && dto.agentTick !== 'none') {
+    // Auto-assign matching subscription plan when badge changes (including downgrade to none → free)
+    if (badgeChanged && dto.agentTick !== undefined) {
       const targetPlanType = AdminService.BADGE_PLAN_MAP[dto.agentTick];
       if (targetPlanType) {
         const plan = await this.walletService.getPlanByType(targetPlanType);

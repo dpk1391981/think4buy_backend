@@ -187,15 +187,17 @@ export class WalletService {
     });
     if (!plan) throw new NotFoundException('Subscription plan not found or inactive');
 
-    // Deduct tokens equal to plan price (tokens are used as currency)
-    await this.debit(
-      userId,
-      Number(plan.price),
-      TransactionReason.SUBSCRIPTION,
-      `Subscribed to ${plan.name} plan`,
-      planId,
-      'subscription_plan',
-    );
+    // Deduct tokens equal to plan price — skip for free plans (price = 0)
+    if (Number(plan.price) > 0) {
+      await this.debit(
+        userId,
+        Number(plan.price),
+        TransactionReason.SUBSCRIPTION,
+        `Subscribed to ${plan.name} plan`,
+        planId,
+        'subscription_plan',
+      );
+    }
 
     // Expire any existing active subscription
     await this.agentSubscriptionRepository.update(
@@ -335,11 +337,21 @@ export class WalletService {
       })
       .execute();
 
-    const current = await this.agentSubscriptionRepository.findOne({
+    let current = await this.agentSubscriptionRepository.findOne({
       where: { agentId, status: SubscriptionStatus.ACTIVE },
       relations: ['plan'],
       order: { createdAt: 'DESC' },
     });
+
+    // Auto-assign free plan if no active subscription (handles expiry of free/paid plans)
+    if (!current) {
+      await this.assignDefaultPlan(agentId);
+      current = await this.agentSubscriptionRepository.findOne({
+        where: { agentId, status: SubscriptionStatus.ACTIVE },
+        relations: ['plan'],
+        order: { createdAt: 'DESC' },
+      });
+    }
 
     const history = await this.agentSubscriptionRepository.find({
       where: { agentId },
@@ -369,14 +381,10 @@ export class WalletService {
   private async applyPlanBenefits(userId: string, plan: SubscriptionPlan): Promise<void> {
     const updates: Partial<User> = {};
 
-    // Badge assignment
-    if (plan.agentBadge && plan.agentBadge !== 'none') {
-      updates.agentTick = plan.agentBadge;
-    }
+    // Badge assignment — set badge from plan; reset to 'none' on free/downgrade
+    updates.agentTick = plan.agentBadge ?? 'none';
 
-    if (Object.keys(updates).length > 0) {
-      await this.userRepository.update(userId, updates);
-    }
+    await this.userRepository.update(userId, updates);
 
     // Featured flag on listings — only for featured/enterprise plans
     const isFeaturedPlan = plan.type === PlanType.FEATURED || plan.type === PlanType.ENTERPRISE;
@@ -407,31 +415,25 @@ export class WalletService {
   // ── Default Plan Assignment ───────────────────────────────────────────────
 
   /**
-   * Ensures a Basic Plan exists in the database.
-   * Token amount is driven by DEFAULT_REGISTRATION_TOKENS system config (default 499).
+   * Ensures the Free Plan exists in the database (ultimate fallback).
    */
-  private async ensureBasicPlanExists(): Promise<SubscriptionPlan> {
+  private async ensureFreePlanExists(): Promise<SubscriptionPlan> {
     let plan = await this.subscriptionPlanRepository.findOne({
-      where: { type: PlanType.BASIC, isActive: true },
+      where: { type: PlanType.FREE, isActive: true },
     });
     if (!plan) {
-      const defaultTokens = await this.systemConfig.getNumber('DEFAULT_REGISTRATION_TOKENS', 499);
       plan = await this.subscriptionPlanRepository.save(
         this.subscriptionPlanRepository.create({
-          name: 'Basic Plan',
-          type: PlanType.BASIC,
+          name: 'Free Plan',
+          type: PlanType.FREE,
           price: 0,
-          durationDays: 36500, // ~100 years — effectively permanent
-          tokensIncluded: defaultTokens,
-          maxListings: defaultTokens,
-          features: [
-            `${defaultTokens} property listings`,
-            'Basic visibility',
-            'Email support',
-          ],
+          durationDays: 30,
+          tokensIncluded: 0,
+          maxListings: 2000,
+          features: ['2000 property listings', 'Basic visibility', 'Email support'],
           isActive: true,
           sortOrder: 0,
-          agentBadge: 'verified',
+          agentBadge: 'none',
         }),
       );
     }
@@ -439,10 +441,14 @@ export class WalletService {
   }
 
   /**
-   * Assigns the Basic Plan to a newly registered user.
+   * Assigns the default registration plan to a newly registered user.
+   *
+   * Which plan is assigned is controlled by the DEFAULT_REGISTER_PLAN system config
+   * (default: 'free'). Admin can change this to 'basic', 'premium', etc. at runtime.
+   * Tokens credited = plan.tokensIncluded (so changing the plan automatically
+   * changes the token grant — no separate token config needed).
+   *
    * Safe to call multiple times — skips if an active subscription already exists.
-   * Token amount is always read from DEFAULT_REGISTRATION_TOKENS config so admin
-   * can change it without touching code.
    */
   async assignDefaultPlan(userId: string): Promise<AgentSubscription> {
     const existing = await this.agentSubscriptionRepository.findOne({
@@ -450,10 +456,17 @@ export class WalletService {
     });
     if (existing) return existing;
 
-    const plan = await this.ensureBasicPlanExists();
+    // Resolve which plan type to assign from config
+    const planType = await this.systemConfig.getString('DEFAULT_REGISTER_PLAN', 'free');
 
-    // Always read live config so admin changes take effect immediately for new registrations
-    const defaultTokens = await this.systemConfig.getNumber('DEFAULT_REGISTRATION_TOKENS', 499);
+    // Look up the configured plan; fall back to Free if not found
+    let plan = await this.subscriptionPlanRepository.findOne({
+      where: { type: planType as PlanType, isActive: true },
+      order: { sortOrder: 'ASC' },
+    });
+    if (!plan) {
+      plan = await this.ensureFreePlanExists();
+    }
 
     const now = new Date();
     const expiresAt = new Date(now);
@@ -472,20 +485,20 @@ export class WalletService {
         type: plan.type,
         price: plan.price,
         durationDays: plan.durationDays,
-        maxListings: defaultTokens,
-        tokensIncluded: defaultTokens,
+        maxListings: plan.maxListings,
+        tokensIncluded: plan.tokensIncluded,
         features: plan.features,
       },
     });
     const saved = await this.agentSubscriptionRepository.save(subscription);
 
-    // Credit the configured token amount (not plan.tokensIncluded which may be stale)
-    if (defaultTokens > 0) {
+    // Credit the plan's included tokens (0 for free, >0 for paid default plans)
+    if (Number(plan.tokensIncluded) > 0) {
       await this.credit(
         userId,
-        defaultTokens,
+        Number(plan.tokensIncluded),
         TransactionReason.SUBSCRIPTION,
-        `${plan.name} tokens (default)`,
+        `${plan.name} tokens (registration default)`,
         saved.id,
         'agent_subscription',
       );
@@ -493,7 +506,7 @@ export class WalletService {
 
     // Sync quota fields on user for backward compatibility
     await this.userRepository.update(userId, {
-      agentFreeQuota: defaultTokens,
+      agentFreeQuota: plan.maxListings,
       agentUsedQuota: 0,
     });
 
