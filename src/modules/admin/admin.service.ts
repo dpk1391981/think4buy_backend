@@ -626,7 +626,7 @@ export class AdminService {
     return this.propertyRepo.save(property);
   }
 
-  async updatePropertySeo(id: string, data: { slug?: string; metaTitle?: string; metaDescription?: string }): Promise<Property> {
+  async updatePropertySeo(id: string, data: { slug?: string; metaTitle?: string; metaDescription?: string; allowIndexing?: boolean }): Promise<Property> {
     const property = await this.propertyRepo.findOne({ where: { id } });
     if (!property) throw new NotFoundException('Property not found');
 
@@ -635,9 +635,9 @@ export class AdminService {
       if (existing) throw new ConflictException('Slug already in use by another property');
       property.slug = data.slug;
     }
-    if (data.metaTitle !== undefined) (property as any).metaTitle = data.metaTitle;
-    if (data.metaDescription !== undefined) (property as any).metaDescription = data.metaDescription;
-    if ((data as any).allowIndexing !== undefined) property.allowIndexing = (data as any).allowIndexing;
+    if (data.metaTitle !== undefined) property.metaTitle = data.metaTitle;
+    if (data.metaDescription !== undefined) property.metaDescription = data.metaDescription;
+    if (data.allowIndexing !== undefined) property.allowIndexing = data.allowIndexing;
 
     return this.propertyRepo.save(property);
   }
