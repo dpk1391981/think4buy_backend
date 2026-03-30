@@ -84,6 +84,10 @@ const SEED_MENUS: { name: string; slug: string; icon: string; section: string; s
 
   // ── Admin Panel — Messaging ─────────────────────────────────────────────────
   { name: 'Messaging Centre',    slug: 'admin_messaging',            icon: 'message-square',   section: 'admin_messaging',  sortOrder: 210 },
+
+  // ── Admin Panel — Support ───────────────────────────────────────────────────
+  { name: 'Feedback & Reviews',  slug: 'admin_support_feedback',     icon: 'thumbs-up',        section: 'admin_support',    sortOrder: 220 },
+  { name: 'Complaints',          slug: 'admin_support_complaints',   icon: 'alert-triangle',   section: 'admin_support',    sortOrder: 221 },
 ];
 
 // All admin slugs
@@ -115,7 +119,7 @@ const ROLE_MENUS: Record<UserRole, string[]> = {
     ...SEED_MENUS.filter(m => m.slug.startsWith('admin_') && !['admin_roles','admin_role_menus','admin_audit_logs'].includes(m.slug)).map(m => m.slug),
   ],
   // Super admin gets everything
-  [UserRole.SUPER_ADMIN]: ALL_ADMIN_SLUGS,
+  [UserRole.SUPER_ADMIN]: SEED_MENUS.filter(m => m.slug.startsWith('admin_')).map(m => m.slug),
 };
 
 // ── Service ───────────────────────────────────────────────────────────────────
