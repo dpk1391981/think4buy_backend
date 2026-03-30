@@ -12,15 +12,29 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { IsOptional, IsString } from 'class-validator';
 import { AuthGuard } from '@nestjs/passport';
 import { UserRole } from '../users/entities/user.entity';
 import { SystemConfigService } from './system-config.service';
 import { ConfigValueType } from './entities/system-config.entity';
 
+// @IsOptional() on every field tells the global whitelist pipe to keep them.
+// Without this, whitelist:true in the global ValidationPipe strips all
+// properties from DTOs that have no class-validator decorators.
 class UpsertConfigDto {
+  @IsOptional()
   value: any;
+
+  @IsOptional()
+  @IsString()
   valueType?: ConfigValueType;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
   group?: string;
 }
 

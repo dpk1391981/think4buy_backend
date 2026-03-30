@@ -278,6 +278,63 @@ export class MessagingService {
     };
   }
 
+  // ── OTP SMS ───────────────────────────────────────────────────────────────
+
+  /**
+   * Sends an OTP via the first active SMS service.
+   * Looks for a template named "otp_verification_sms" on that service.
+   * Falls back to a built-in default body if no such template exists.
+   * Never throws — failures are logged silently so the auth flow is never blocked.
+   */
+  async sendOtpSms(phone: string, otp: string): Promise<void> {
+    try {
+      const service = await this.serviceRepo.findOne({
+        where: { channel: MessageChannel.SMS, isActive: true },
+        order: { createdAt: 'ASC' },
+      });
+
+      if (!service) {
+        this.logger.warn('[OTP SMS] No active SMS service configured — skipping SMS send');
+        return;
+      }
+
+      // Optional: custom template named "otp_verification_sms" on that service
+      const template = await this.templateRepo.findOne({
+        where: { name: 'otp_verification_sms', serviceId: service.id, isActive: true },
+      });
+
+      const body = template
+        ? this.renderTemplate(template.body, { otp, phone })
+        : `Your Think4BuySale OTP is ${otp}. Valid for 10 minutes. Do not share with anyone.`;
+
+      const provider = this.resolveProvider(service.channel, service.provider);
+      const result   = await provider.send({ to: phone, body }, service.config ?? {});
+
+      // Persist audit log
+      await this.logRepo.save(
+        this.logRepo.create({
+          event:         'otp_requested',
+          recipientType: 'phone',
+          recipient:     phone,
+          renderedBody:  body,
+          status:        result.success ? MessageStatus.SENT : MessageStatus.FAILED,
+          errorMessage:  result.error ?? null,
+          sentAt:        result.success ? new Date() : null,
+          attempts:      1,
+          serviceId:     service.id,
+          templateId:    template?.id ?? null,
+        }),
+      );
+
+      if (!result.success) {
+        this.logger.warn(`[OTP SMS] Send failed for ${phone}: ${result.error}`);
+      }
+    } catch (err: any) {
+      // Never let an SMS failure block the OTP flow
+      this.logger.error(`[OTP SMS] Unexpected error for ${phone}: ${err.message}`, err.stack);
+    }
+  }
+
   // ── Provider Resolution ───────────────────────────────────────────────────
 
   resolveProvider(channel: MessageChannel, provider: MessageProvider): IMessagingProvider {

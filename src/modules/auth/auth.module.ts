@@ -12,6 +12,7 @@ import { WalletModule } from '../wallet/wallet.module';
 import { MenusModule } from '../menus/menus.module';
 import { AgencyModule } from '../agency/agency.module';
 import { UploadModule } from '../upload/upload.module';
+import { MessagingModule } from '../messaging/messaging.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { UploadModule } from '../upload/upload.module';
     MenusModule,
     AgencyModule,
     UploadModule,
+    MessagingModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
