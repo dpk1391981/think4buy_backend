@@ -16,6 +16,8 @@ import { RegisterDto, LoginDto, SendOtpDto, VerifyOtpDto, OnboardingDto } from '
 import { WalletService } from '../wallet/wallet.service';
 import { MenusService } from '../menus/menus.service';
 import { AgencyService } from '../agency/agency.service';
+import { MessagingService } from '../messaging/messaging.service';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 /** Max OTP verify attempts before entry is locked */
 const OTP_MAX_ATTEMPTS = 5;
@@ -38,6 +40,8 @@ export class AuthService {
     private walletService: WalletService,
     private menusService: MenusService,
     private agencyService: AgencyService,
+    private messagingService: MessagingService,
+    private systemConfig: SystemConfigService,
   ) {}
 
   // ── Registration ──────────────────────────────────────────────────────────
@@ -262,8 +266,14 @@ export class AuthService {
       this.otpRepo.create({ phone: dto.phone, otpHash, purpose: 'login', expiresAt }),
     );
 
-    // TODO production: send SMS via MSG91 / Twilio
-    console.log(`[OTP] Phone: ${dto.phone}  OTP: ${plainOtp}`);
+    // Send OTP via SMS if ENABLE_OTP_SMS is toggled on in system config
+    const smsEnabled = await this.systemConfig.getBoolean('ENABLE_OTP_SMS', false);
+    if (smsEnabled) {
+      await this.messagingService.sendOtpSms(dto.phone, plainOtp);
+    } else {
+      // Dev/fallback: log to console only (OTP visible in server logs + devOtp in response below)
+      console.log(`[OTP] Phone: ${dto.phone}  OTP: ${plainOtp}`);
+    }
 
     const isNew = !(await this.userRepository.findOne({ where: { phone: dto.phone } }));
     return {

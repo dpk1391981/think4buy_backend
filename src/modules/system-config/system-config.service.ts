@@ -265,6 +265,14 @@ export class SystemConfigService implements OnModuleInit {
         description: 'Show the "Pin Location on Map" Leaflet map picker in the post-property form (owners only)',
         group: 'forms',
       },
+      // ── Auth ──────────────────────────────────────────────────────────────
+      {
+        key: 'ENABLE_OTP_SMS',
+        value: false,
+        valueType: ConfigValueType.BOOLEAN,
+        description: 'Send OTP via SMS for login and registration. Requires an active SMS message service configured in Messaging Centre. Optionally create a template named "otp_verification_sms" with {{otp}} placeholder for a custom message body.',
+        group: 'auth',
+      },
     ];
 
     for (const d of defaults) {
