@@ -18,6 +18,7 @@ export enum SupportTicketStatus {
 @Entity('support_tickets')
 @Index(['status', 'createdAt'])
 @Index(['userId'])
+@Index(['type', 'showAsTestimonial'])
 export class SupportTicket {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -62,6 +63,35 @@ export class SupportTicket {
   /** Admin notes / resolution details */
   @Column({ type: 'text', nullable: true })
   adminNotes: string | null;
+
+  /**
+   * Feedback only — when true this review is published on the homepage testimonials section.
+   * Admin toggles this via the Feedback management page.
+   */
+  @Column({ type: 'boolean', default: false })
+  showAsTestimonial: boolean;
+
+  /**
+   * Complaint/help tickets — the admin or staff member this ticket is assigned to.
+   * Stores a users.id (UUID).
+   */
+  @Column({ length: 36, nullable: true })
+  assignedToId: string | null;
+
+  /** Display name of the assigned member (denormalised for quick display) */
+  @Column({ length: 100, nullable: true })
+  assignedToName: string | null;
+
+  /**
+   * Human-readable ticket number auto-generated on creation: TKT-YYYYMMDD-NNNN
+   * e.g. TKT-20260330-0042
+   */
+  @Column({ length: 30, nullable: true, unique: true })
+  ticketNumber: string | null;
+
+  /** Timestamp when status was set to resolved/closed */
+  @Column({ type: 'datetime', nullable: true })
+  resolvedAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;
