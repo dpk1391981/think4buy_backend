@@ -719,6 +719,11 @@ export class AnalyticsService {
     const period = filters.period || '7d';
     const limit  = Math.min(filters.limit || 8, 20);
 
+    // just_listed must always be live — cache latency would hide newly added properties
+    if (tab === 'just_listed') {
+      return this.getLiveProperties(filters, tab, limit);
+    }
+
     const qb = this.topPropsRepo
       .createQueryBuilder('tp')
       .leftJoinAndSelect('tp.property', 'p')
