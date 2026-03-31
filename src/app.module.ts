@@ -6,6 +6,8 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { BotDetectionMiddleware } from './common/middleware/bot-detection.middleware';
+import { BffOnlyMiddleware } from './common/middleware/bff-only.middleware';
+import { AnomalyDetectionInterceptor } from './common/interceptors/anomaly-detection.interceptor';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -83,6 +85,7 @@ import { Deal } from './modules/deals/entities/deal.entity';
 import { CommissionsModule } from './modules/commissions/commissions.module';
 import { Commission } from './modules/commissions/entities/commission.entity';
 import { ArticlesModule } from './modules/articles/articles.module';
+import { HealthModule } from './modules/health/health.module';
 import { Article } from './modules/articles/entities/article.entity';
 import { MenusModule } from './modules/menus/menus.module';
 import { Menu } from './modules/menus/entities/menu.entity';
@@ -258,12 +261,15 @@ import { LocationImportJob } from './modules/location-import/entities/location-i
     MediaProcessingModule,
     SupportModule,
     LocationImportModule,
+    HealthModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Global role-based access control guard
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Global anomaly detection (scraping, high error rates, large payloads)
+    { provide: APP_INTERCEPTOR, useClass: AnomalyDetectionInterceptor },
   ],
 })
 export class AppModule implements NestModule {
@@ -274,6 +280,12 @@ export class AppModule implements NestModule {
 
     consumer
       .apply(BotDetectionMiddleware)
+      .forRoutes('*');
+
+    // BFF-only guard: blocks direct browser → backend requests in production
+    // when ENABLE_BFF_GUARD=true and BFF_INTERNAL_SECRET is set.
+    consumer
+      .apply(BffOnlyMiddleware)
       .forRoutes('*');
   }
 }
