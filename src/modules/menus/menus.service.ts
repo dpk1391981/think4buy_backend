@@ -69,7 +69,8 @@ const SEED_MENUS: { name: string; slug: string; icon: string; section: string; s
   { name: 'States & Cities',     slug: 'admin_locations',            icon: 'map-pin',          section: 'admin_locations',  sortOrder: 181 },
   { name: 'Market Intelligence', slug: 'admin_market_intelligence',  icon: 'bar-chart-2',      section: 'admin_locations',  sortOrder: 182 },
   { name: 'Tools & Insights',    slug: 'admin_tools_insights',       icon: 'wrench',           section: 'admin_locations',  sortOrder: 183 },
-  { name: 'Scoring Config',      slug: 'admin_scoring_config',       icon: 'sliders-horizontal',section: 'admin_locations', sortOrder: 184 },
+  { name: 'Scoring Config',      slug: 'admin_scoring_config',       icon: 'sliders-horizontal', section: 'admin_locations', sortOrder: 184 },
+  { name: 'Import Locations',   slug: 'admin_locations_import',     icon: 'database',           section: 'admin_locations', sortOrder: 185 },
 
   // ── Admin Panel — CRM ───────────────────────────────────────────────────────
   { name: 'Leads',               slug: 'admin_leads',                icon: 'target',           section: 'admin_crm',        sortOrder: 190 },

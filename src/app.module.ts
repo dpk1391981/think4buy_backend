@@ -118,6 +118,8 @@ import { MediaProcessingModule } from './modules/media-processing/media-processi
 import { MediaJob } from './modules/media-processing/entities/media-job.entity';
 import { SupportModule } from './modules/support/support.module';
 import { SupportTicket } from './modules/support/entities/support-ticket.entity';
+import { LocationImportModule } from './modules/location-import/location-import.module';
+import { LocationImportJob } from './modules/location-import/entities/location-import-job.entity';
 
 @Module({
   imports: [
@@ -168,6 +170,7 @@ import { SupportTicket } from './modules/support/entities/support-ticket.entity'
           SearchLog, UserBehavior, StorageConfig, CookieConsent,
           Role, Permission, AuditLog, PaymentGateway, PaymentTransaction,
           PaymentLog, Refund, SystemConfig, MediaJob, SupportTicket,
+          LocationImportJob,
         ];
 
         const base: any = {
@@ -254,6 +257,7 @@ import { SupportTicket } from './modules/support/entities/support-ticket.entity'
     SystemConfigModule,
     MediaProcessingModule,
     SupportModule,
+    LocationImportModule,
   ],
   providers: [
     // Global rate limiting guard (full DI, required for @nestjs/throttler)
