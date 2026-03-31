@@ -154,10 +154,14 @@ async function bootstrap() {
   }
 
   const port = process.env.PORT || 3001;
-  await app.listen(port);
-  console.log(`🚀 Backend running on: http://localhost:${port}`);
+  // In production, bind to loopback or VPC internal IP only.
+  // Set BIND_HOST=0.0.0.0 only for local dev / docker networking.
+  // On VPS: set BIND_HOST=127.0.0.1 so backend is unreachable from public internet.
+  const bindHost = process.env.BIND_HOST ?? (process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0');
+  await app.listen(port, bindHost);
+  console.log(`Backend running on: http://${bindHost}:${port}`);
   if (process.env.NODE_ENV !== 'production') {
-    console.log(`📚 API Docs: http://localhost:${port}/api/docs`);
+    console.log(`API Docs: http://${bindHost}:${port}/api/docs`);
   }
 }
 
