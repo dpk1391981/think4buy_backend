@@ -9,6 +9,8 @@ dotenv.config();
 import { DataSource } from 'typeorm';
 import { Article, ArticleStatus, ArticleCategory } from '../../modules/articles/entities/article.entity';
 import { User, UserRole } from '../../modules/users/entities/user.entity';
+import { Role } from '../../modules/rbac/entities/role.entity';
+import { Permission } from '../../modules/rbac/entities/permission.entity';
 import { Property } from '../../modules/properties/entities/property.entity';
 import { PropertyImage } from '../../modules/properties/entities/property-image.entity';
 import { Amenity } from '../../modules/properties/entities/amenity.entity';
@@ -22,7 +24,7 @@ const dataSource = new DataSource({
   username: process.env.DB_USERNAME || 'dpk1391981',
   password: process.env.DB_PASSWORD || 'Dpk1391981!',
   database: process.env.DB_NAME || 'realestate_db',
-  entities: [Article, User, Property, PropertyImage, Amenity, Location, Inquiry],
+  entities: [Article, User, Role, Permission, Property, PropertyImage, Amenity, Location, Inquiry],
   synchronize: true,
 });
 
