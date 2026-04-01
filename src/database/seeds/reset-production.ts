@@ -109,8 +109,8 @@ const TRUNCATE_TABLES = [
 // ─── Admin accounts to (re-)create ────────────────────────────────────────────
 
 const ADMINS = [
-  { name: 'Admin',  email: 'admin@think4buysale.com',  phone: '9958023001', password: 'Admin@123' },
-  { name: 'Admin2', email: 'admin2@think4buysale.com', phone: '8285257636', password: 'Admin@123' },
+  { name: 'Satish Pandit (Admin)',  email: 'info@think4buysale.in',  phone: '9958023001', password: 'Admin@123' },
+  { name: 'Deepak Kumar (SA)', email: 'dpk1391981@gmail.com', phone: '8285257636', password: '1391981' },
 ];
 
 // ─── Prompt helper ─────────────────────────────────────────────────────────────
@@ -171,8 +171,8 @@ async function main() {
 
     await dataSource.query(
       `INSERT INTO users
-         (id, name, email, phone, password, role, isVerified, isActive, needsOnboarding)
-       VALUES (?, ?, ?, ?, ?, 'admin', 1, 1, 0)`,
+         (id, name, email, phone, password, role, isVerified, isActive, needsOnboarding, isSuperAdmin, systemRoleId)
+       VALUES (?, ?, ?, ?, ?, 'admin', 1, 1, 0, 1, '8e208aca-2a00-11f1-b1b4-80e8d4b68b3f')`,
       [id, a.name, a.email, a.phone, hashed],
     );
 
