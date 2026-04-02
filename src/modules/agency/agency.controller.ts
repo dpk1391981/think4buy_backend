@@ -437,6 +437,86 @@ export class AgencyController {
     return this.agencyService.removeAgentLocation(id);
   }
 
+  // ─── Agent: Agency Member Management (Premium) ───────────────────────────────
+
+  @Get('me/members')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List members of my agency' })
+  getMyMembers(@Request() req) {
+    return this.agencyService.getAgencyMembers(req.user.id);
+  }
+
+  @Post('me/members/invite')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Invite an agent to join my agency (premium)' })
+  inviteMember(
+    @Request() req,
+    @Body() body: { targetUserId: string; role?: 'owner' | 'manager' | 'member' },
+  ) {
+    const { AgencyMemberRole } = require('./entities/agency-member.entity');
+    const role = body.role ? AgencyMemberRole[body.role.toUpperCase()] : AgencyMemberRole.MEMBER;
+    return this.agencyService.inviteAgencyMember(req.user.id, body.targetUserId, role);
+  }
+
+  @Patch('me/members/:targetUserId/role')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update member role (owner only)' })
+  updateMemberRole(
+    @Request() req,
+    @Param('targetUserId') targetUserId: string,
+    @Body() body: { role: 'owner' | 'manager' | 'member' },
+  ) {
+    const { AgencyMemberRole } = require('./entities/agency-member.entity');
+    const role = AgencyMemberRole[body.role.toUpperCase()] ?? AgencyMemberRole.MEMBER;
+    return this.agencyService.updateMemberRole(req.user.id, targetUserId, role);
+  }
+
+  @Delete('me/members/:targetUserId')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove a member from my agency' })
+  removeMember(
+    @Request() req,
+    @Param('targetUserId') targetUserId: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.agencyService.removeAgencyMember(req.user.id, targetUserId, body?.reason);
+  }
+
+  @Patch('me/members/invite/accept/:token')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Accept an agency invite via token' })
+  acceptInvite(@Request() req, @Param('token') token: string) {
+    return this.agencyService.acceptAgencyInvite(token, req.user.id);
+  }
+
+  @Patch('me/members/invite/decline/:token')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Decline an agency invite via token' })
+  declineInvite(@Request() req, @Param('token') token: string) {
+    return this.agencyService.declineAgencyInvite(token, req.user.id);
+  }
+
+  // ─── Admin: Agency Premium Management ────────────────────────────────────────
+
+  @Patch('admin/agencies/:id/premium')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Set agency premium status and member limit' })
+  setAgencyPremium(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { isPremium: boolean; maxMembers: number },
+  ) {
+    this.assertAdmin(req);
+    return this.agencyService.adminSetAgencyPremium(id, body.isPremium, body.maxMembers);
+  }
+
   // ─── Admin: Premium Slot Management ──────────────────────────────────────────
 
   @Get('admin/premium-slots')
@@ -547,6 +627,18 @@ export class AgencyController {
   @ApiOperation({ summary: 'Get Broker Transparency Profile for an agent (public)' })
   async getTransparencyProfile(@Param('userId') userId: string) {
     return this.agencyService.getTransparencyProfile(userId, this.transparencyService);
+  }
+
+  /**
+   * Admin — get members of an agency by agencyId.
+   */
+  @Get('admin/agencies/:agencyId/members')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: List members of an agency' })
+  async adminGetAgencyMembers(@Request() req, @Param('agencyId') agencyId: string) {
+    this.assertAdmin(req);
+    return this.agencyService.adminGetAgencyMembers(agencyId);
   }
 
   /**

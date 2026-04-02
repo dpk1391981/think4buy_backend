@@ -8,6 +8,7 @@ import {
   Index,
 } from 'typeorm';
 import { AgentProfile } from './agent-profile.entity';
+import { AgencyMember } from './agency-member.entity';
 
 export enum AgencyStatus {
   PENDING = 'pending',
@@ -79,8 +80,30 @@ export class Agency {
   @Column({ type: 'int', default: 0 })
   totalListings: number;
 
+  /**
+   * Premium agencies can add multiple members.
+   * Free agencies are limited to 1 (just the owner).
+   * Set by admin when upgrading an agency's subscription tier.
+   */
+  @Column({ default: false })
+  isPremium: boolean;
+
+  /**
+   * Hard ceiling on member count enforced in service layer.
+   * Default 1 (owner only). Premium agencies: set to 10, 25, 50, etc.
+   */
+  @Column({ type: 'int', default: 1 })
+  maxMembers: number;
+
+  /** Denormalised count kept in sync by member service — avoids expensive COUNT() queries */
+  @Column({ type: 'int', default: 0 })
+  memberCount: number;
+
   @OneToMany(() => AgentProfile, (agent) => agent.agency)
   agents: AgentProfile[];
+
+  @OneToMany(() => AgencyMember, (m) => m.agency)
+  members: AgencyMember[];
 
   @CreateDateColumn()
   createdAt: Date;

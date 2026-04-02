@@ -15,7 +15,10 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  NotFoundException,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
@@ -154,17 +157,25 @@ export class AdminController {
   }
 
   @Patch('agents/:id/approve-professional')
-  @ApiOperation({ summary: 'Approve professional details of an agent' })
-  approveProfessionalDetails(@Request() req, @Param('id') id: string) {
+  @ApiOperation({ summary: 'Approve professional details of an agent, optionally assigning a badge' })
+  approveProfessionalDetails(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { badge?: 'none' | 'verified' | 'bronze' | 'silver' | 'gold' },
+  ) {
     this.assertAdmin(req);
-    return this.adminService.approveProfessionalDetails(id);
+    return this.adminService.approveProfessionalDetails(id, body?.badge);
   }
 
   @Patch('agents/:id/reject-professional')
-  @ApiOperation({ summary: 'Reject professional details of an agent' })
-  rejectProfessionalDetails(@Request() req, @Param('id') id: string) {
+  @ApiOperation({ summary: 'Reject professional details of an agent with optional reason' })
+  rejectProfessionalDetails(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
     this.assertAdmin(req);
-    return this.adminService.rejectProfessionalDetails(id);
+    return this.adminService.rejectProfessionalDetails(id, body?.reason);
   }
 
   @Patch('agents/:id/set-profile-inactive')
@@ -630,6 +641,50 @@ export class AdminController {
   ) {
     this.assertAdmin(req);
     return this.agencyService.rejectAgency(id, body.reason ?? 'Rejected by admin');
+  }
+
+  // ── Agent KYC Document Upload (admin) ─────────────────────────────────────────
+  @Post('agents/:id/documents/:docType')
+  @ApiOperation({ summary: 'Admin: Upload KYC document for an agent (rera/gst/pan)' })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseInterceptors(FileInterceptor('file', imageMulterOptions(1)))
+  async uploadAgentDocument(
+    @Request() req,
+    @Param('id') id: string,
+    @Param('docType') docType: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    this.assertAdmin(req);
+    const allowed = new Set(['rera', 'gst', 'pan']);
+    if (!allowed.has(docType)) throw new BadRequestException('docType must be rera, gst, or pan');
+    if (!file) throw new BadRequestException('No file uploaded');
+    const url = await this.imageUploadService.saveImage(file, 'agent-docs');
+    return this.adminService.adminSaveAgentDocument(id, docType, url);
+  }
+
+  @Get('agents/:id/documents/:docType')
+  @ApiOperation({ summary: 'Admin: Serve agent KYC document proxied through the backend' })
+  async serveAgentDocument(
+    @Request() req,
+    @Param('id') id: string,
+    @Param('docType') docType: string,
+    @Res() res: Response,
+  ) {
+    this.assertAdmin(req);
+    const allowed = new Set(['rera', 'gst', 'pan']);
+    if (!allowed.has(docType)) throw new BadRequestException('docType must be rera, gst, or pan');
+    const agent = await this.adminService.getAgentById(id);
+    let meta: Record<string, string> = {};
+    if (agent?.agentBio?.startsWith('__meta__:')) {
+      try { meta = JSON.parse(agent.agentBio.slice(9)); } catch {}
+    }
+    const key = `doc${docType.charAt(0).toUpperCase()}${docType.slice(1)}`;
+    const docUrl = meta[key];
+    if (!docUrl) throw new NotFoundException('Document not uploaded');
+    const { buffer, contentType } = await this.imageUploadService.fetchDocumentBuffer(docUrl);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.end(buffer);
   }
 
   // ── Location Image Upload ────────────────────────────────────────────────────

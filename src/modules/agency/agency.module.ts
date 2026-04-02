@@ -8,6 +8,7 @@ import { AgentProfile } from './entities/agent-profile.entity';
 import { PropertyAgentMap } from './entities/property-agent-map.entity';
 import { AgentLocationMap } from './entities/agent-location-map.entity';
 import { PremiumSlot } from './entities/premium-slot.entity';
+import { AgencyMember } from './entities/agency-member.entity';
 import { AgentFeedback } from '../agent-feedback/entities/agent-feedback.entity';
 
 @Module({
@@ -18,6 +19,7 @@ import { AgentFeedback } from '../agent-feedback/entities/agent-feedback.entity'
       PropertyAgentMap,
       AgentLocationMap,
       PremiumSlot,
+      AgencyMember,
       AgentFeedback,
     ]),
   ],

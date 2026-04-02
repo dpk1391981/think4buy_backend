@@ -18,6 +18,7 @@ export enum LeadSource {
   PORTAL_IMPORT = 'portal_import',
   WALKIN = 'walkin',
   MANUAL = 'manual',
+  ONBOARDING = 'onboarding',
 }
 
 export enum LeadTemperature {
