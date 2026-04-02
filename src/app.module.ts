@@ -74,6 +74,7 @@ import { AgentProfile } from './modules/agency/entities/agent-profile.entity';
 import { PropertyAgentMap } from './modules/agency/entities/property-agent-map.entity';
 import { AgentLocationMap } from './modules/agency/entities/agent-location-map.entity';
 import { PremiumSlot } from './modules/agency/entities/premium-slot.entity';
+import { AgencyMember } from './modules/agency/entities/agency-member.entity';
 import { LeadsModule } from './modules/leads/leads.module';
 import { Lead } from './modules/leads/entities/lead.entity';
 import { LeadAssignment } from './modules/leads/entities/lead-assignment.entity';
@@ -166,7 +167,7 @@ import { LocationImportJob } from './modules/location-import/entities/location-i
           LocalityCircleRate, ScoringConfig, CityPage, SeoConfig,
           FooterSeoLink, FooterSeoLinkGroup, LocalitySeo, CategoryCitySeo,
           CategoryLocalitySeo, AgentCitySeo, PropertyCitySeo, Agency, AgentProfile, PropertyAgentMap,
-          AgentLocationMap, PremiumSlot, Lead, LeadAssignment,
+          AgentLocationMap, PremiumSlot, AgencyMember, Lead, LeadAssignment,
           LeadActivityLog, SiteVisit, Deal, Commission, Article, Menu,
           RoleMenuPermission, AgentFeedback, Notification, OtpVerification,
           MsgService, MessageTemplate, EventTemplateMapping, MessageLog,

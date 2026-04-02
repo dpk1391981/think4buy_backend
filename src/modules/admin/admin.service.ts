@@ -306,6 +306,19 @@ export class AdminService {
     return user;
   }
 
+  async adminSaveAgentDocument(agentId: string, docType: string, fileUrl: string): Promise<User> {
+    const user = await this.userRepo.findOne({ where: { id: agentId } });
+    if (!user) throw new NotFoundException('Agent not found');
+    let meta: Record<string, string> = {};
+    if (user.agentBio?.startsWith('__meta__:')) {
+      try { meta = JSON.parse(user.agentBio.slice(9)); } catch {}
+    }
+    const key = `doc${docType.charAt(0).toUpperCase()}${docType.slice(1)}`;
+    meta[key] = fileUrl;
+    await this.userRepo.update(agentId, { agentBio: `__meta__:${JSON.stringify(meta)}` });
+    return this.userRepo.findOne({ where: { id: agentId } }) as Promise<User>;
+  }
+
   /** Badge → subscription plan type mapping */
   private static readonly BADGE_PLAN_MAP: Record<string, string> = {
     none:     'free',
@@ -359,26 +372,26 @@ export class AdminService {
     return this.userRepo.save(user);
   }
 
-  // ── Agent Avatar Approval ────────────────────────────────────────────────────
+  // ── Avatar Approval (all roles) ──────────────────────────────────────────────
 
   async getPendingAvatarAgents(page = 1, limit = 20) {
+    // Returns ALL users with a pending avatar — not just agents
     const qb = this.userRepo
       .createQueryBuilder('user')
-      .where('user.role = :role', { role: UserRole.AGENT })
-      .andWhere('user.pendingAvatar IS NOT NULL')
+      .where('user.pendingAvatar IS NOT NULL')
       .andWhere("user.pendingAvatar != ''")
       .orderBy('user.updatedAt', 'DESC');
 
     const total = await qb.getCount();
     const items = await qb.skip((page - 1) * limit).take(limit)
-      .select(['user.id', 'user.name', 'user.email', 'user.phone', 'user.city', 'user.avatar', 'user.pendingAvatar', 'user.agentLicense', 'user.agentBio', 'user.agentExperience', 'user.agentProfileStatus', 'user.updatedAt'])
+      .select(['user.id', 'user.name', 'user.role', 'user.email', 'user.phone', 'user.city', 'user.avatar', 'user.pendingAvatar', 'user.agentProfileStatus', 'user.updatedAt'])
       .getMany();
     return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async approveAgentAvatar(id: string): Promise<{ message: string }> {
-    const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
-    if (!user) throw new NotFoundException('Agent not found');
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
     if (!user.pendingAvatar) throw new NotFoundException('No pending avatar to approve');
 
     await this.userRepo.update(id, { avatar: user.pendingAvatar, pendingAvatar: null });
@@ -386,8 +399,8 @@ export class AdminService {
   }
 
   async rejectAgentAvatar(id: string): Promise<{ message: string }> {
-    const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
-    if (!user) throw new NotFoundException('Agent not found');
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
 
     await this.userRepo.update(id, { pendingAvatar: null });
     return { message: 'Pending avatar rejected and removed' };
@@ -402,22 +415,61 @@ export class AdminService {
 
     const total = await qb.getCount();
     const items = await qb.skip((page - 1) * limit).take(limit)
-      .select(['user.id', 'user.name', 'user.email', 'user.phone', 'user.city', 'user.avatar', 'user.agentLicense', 'user.agentBio', 'user.agentExperience', 'user.agentProfileStatus', 'user.updatedAt'])
+      .select([
+        'user.id', 'user.name', 'user.email', 'user.phone', 'user.city',
+        'user.company', 'user.avatar', 'user.agentLicense', 'user.agentGstNumber',
+        'user.agentBio', 'user.agentExperience', 'user.agentProfileStatus',
+        'user.agentTick', 'user.updatedAt',
+      ])
       .getMany();
     return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async approveProfessionalDetails(id: string): Promise<{ message: string }> {
+  /**
+   * Approve an agent's professional details, optionally setting a badge tier.
+   * When badge is provided, the subscription plan is auto-assigned (BADGE_PLAN_MAP).
+   */
+  async approveProfessionalDetails(
+    id: string,
+    badge?: 'none' | 'verified' | 'bronze' | 'silver' | 'gold',
+  ): Promise<{ message: string }> {
     const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
     if (!user) throw new NotFoundException('Agent not found');
-    await this.userRepo.update(id, { agentProfileStatus: 'approved' } as any);
-    return { message: 'Professional details approved' };
+
+    const update: any = { agentProfileStatus: 'approved' };
+
+    if (badge && badge !== user.agentTick) {
+      update.agentTick = badge;
+      // Sync subscription plan to badge tier
+      const targetPlanType = AdminService.BADGE_PLAN_MAP[badge];
+      if (targetPlanType) {
+        const plan = await this.walletService.getPlanByType(targetPlanType);
+        if (plan) await this.walletService.adminAssignPlan(id, plan.id);
+      }
+    }
+
+    await this.userRepo.update(id, update);
+    return { message: `Professional details approved${badge ? ` with ${badge} badge` : ''}` };
   }
 
-  async rejectProfessionalDetails(id: string): Promise<{ message: string }> {
+  async rejectProfessionalDetails(
+    id: string,
+    reason?: string,
+  ): Promise<{ message: string }> {
     const user = await this.userRepo.findOne({ where: { id, role: UserRole.AGENT } });
     if (!user) throw new NotFoundException('Agent not found');
-    await this.userRepo.update(id, { agentProfileStatus: 'none' } as any);
+    // Reset to 'none' so agent can re-submit; store rejection note in agentBio if provided
+    const update: any = { agentProfileStatus: 'none' };
+    if (reason?.trim()) {
+      // Preserve existing meta, append rejection note
+      let meta: Record<string, string> = {};
+      if (user.agentBio?.startsWith('__meta__:')) {
+        try { meta = JSON.parse(user.agentBio.slice(9)); } catch {}
+      }
+      meta.rejectionReason = reason.trim();
+      update.agentBio = `__meta__:${JSON.stringify(meta)}`;
+    }
+    await this.userRepo.update(id, update);
     return { message: 'Professional details rejected' };
   }
 

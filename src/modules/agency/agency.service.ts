@@ -13,6 +13,7 @@ import { AgentProfile } from './entities/agent-profile.entity';
 import { PropertyAgentMap } from './entities/property-agent-map.entity';
 import { AgentLocationMap } from './entities/agent-location-map.entity';
 import { PremiumSlot } from './entities/premium-slot.entity';
+import { AgencyMember, AgencyMemberRole, AgencyMemberStatus } from './entities/agency-member.entity';
 import {
   CreateAgencyDto,
   UpdateAgencyDto,
@@ -35,6 +36,8 @@ export class AgencyService {
     private agentLocationMapRepo: Repository<AgentLocationMap>,
     @InjectRepository(PremiumSlot)
     private premiumSlotRepo: Repository<PremiumSlot>,
+    @InjectRepository(AgencyMember)
+    private agencyMemberRepo: Repository<AgencyMember>,
   ) {}
 
   // ─── Agency CRUD ─────────────────────────────────────────────────────────────
@@ -733,6 +736,9 @@ export class AgencyService {
       await this.agentProfileRepo.save(agentProfile);
     }
 
+    // Bootstrap owner membership row (idempotent)
+    await this.bootstrapAgencyOwner(agency.id, userId);
+
     return { agency, agentProfile, isNew };
   }
 
@@ -1104,5 +1110,247 @@ export class AgencyService {
         this.agentProfileRepo.create({ userId: agentUserId, avgResponseHours: avgHours }),
       );
     }
+  }
+
+  // ─── Agency Members ───────────────────────────────────────────────────────────
+
+  /**
+   * Returns the AgentProfile + their Agency for ownerUserId.
+   * Throws if no profile or no agency is found.
+   */
+  private async resolveAgentAgency(ownerUserId: string): Promise<{ profile: AgentProfile; agency: Agency }> {
+    const profile = await this.agentProfileRepo.findOne({
+      where: { userId: ownerUserId },
+      relations: ['agency'],
+    });
+    if (!profile) throw new NotFoundException('Agent profile not found');
+    if (!profile.agency) throw new BadRequestException('You are not associated with any agency');
+    return { profile, agency: profile.agency };
+  }
+
+  /**
+   * Invite a user (by userId) to join the calling agent's agency.
+   * - Caller must be OWNER or MANAGER in the agency.
+   * - Agency must be APPROVED.
+   * - Agency must be premium if memberCount >= maxMembers.
+   * - Duplicate active invites are silently returned.
+   */
+  async inviteAgencyMember(
+    ownerUserId: string,
+    targetUserId: string,
+    role: AgencyMemberRole = AgencyMemberRole.MEMBER,
+  ): Promise<AgencyMember> {
+    const { agency } = await this.resolveAgentAgency(ownerUserId);
+
+    if (agency.status !== AgencyStatus.APPROVED) {
+      throw new BadRequestException('Agency must be approved before inviting members');
+    }
+
+    // Verify caller is owner or manager
+    const callerMembership = await this.agencyMemberRepo.findOne({
+      where: { agencyId: agency.id, userId: ownerUserId, status: AgencyMemberStatus.ACTIVE },
+    });
+    if (!callerMembership || (callerMembership.role !== AgencyMemberRole.OWNER && callerMembership.role !== AgencyMemberRole.MANAGER)) {
+      throw new ForbiddenException('Only agency owners or managers can invite members');
+    }
+
+    // Premium check
+    const activeCount = await this.agencyMemberRepo.count({
+      where: { agencyId: agency.id, status: AgencyMemberStatus.ACTIVE },
+    });
+    if (activeCount >= agency.maxMembers) {
+      throw new BadRequestException(
+        agency.isPremium
+          ? `Maximum member limit (${agency.maxMembers}) reached. Contact support to increase.`
+          : 'Upgrade to premium to add more members to your agency.',
+      );
+    }
+
+    // Check for existing non-removed record
+    const existing = await this.agencyMemberRepo.findOne({
+      where: { agencyId: agency.id, userId: targetUserId },
+    });
+    if (existing) {
+      if (existing.status === AgencyMemberStatus.ACTIVE) {
+        throw new ConflictException('User is already an active member of this agency');
+      }
+      // Re-invite: reset status to invited
+      existing.status = AgencyMemberStatus.INVITED;
+      existing.role = role;
+      existing.inviteToken = this.generateToken();
+      existing.inviteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      existing.invitedByUserId = ownerUserId;
+      existing.removedAt = null;
+      existing.removalReason = null;
+      return this.agencyMemberRepo.save(existing);
+    }
+
+    const member = this.agencyMemberRepo.create({
+      agencyId: agency.id,
+      userId: targetUserId,
+      invitedByUserId: ownerUserId,
+      role,
+      status: AgencyMemberStatus.INVITED,
+      inviteToken: this.generateToken(),
+      inviteExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
+    return this.agencyMemberRepo.save(member);
+  }
+
+  /**
+   * Accept an invite via token. Sets status=ACTIVE, sets joinedAt, increments memberCount.
+   */
+  async acceptAgencyInvite(token: string, acceptingUserId: string): Promise<AgencyMember> {
+    const member = await this.agencyMemberRepo.findOne({
+      where: { inviteToken: token, userId: acceptingUserId },
+    });
+    if (!member) throw new NotFoundException('Invite not found');
+    if (member.status !== AgencyMemberStatus.INVITED) {
+      throw new BadRequestException('Invite is no longer valid');
+    }
+    if (member.inviteExpiresAt && member.inviteExpiresAt < new Date()) {
+      throw new BadRequestException('Invite has expired. Ask the agency owner to re-invite you.');
+    }
+
+    member.status = AgencyMemberStatus.ACTIVE;
+    member.joinedAt = new Date();
+    member.inviteToken = null;
+    member.inviteExpiresAt = null;
+    await this.agencyMemberRepo.save(member);
+
+    // Increment denormalised count
+    await this.agencyRepo.increment({ id: member.agencyId }, 'memberCount', 1);
+    return member;
+  }
+
+  /** Decline an invite */
+  async declineAgencyInvite(token: string, userId: string): Promise<{ message: string }> {
+    const member = await this.agencyMemberRepo.findOne({
+      where: { inviteToken: token, userId },
+    });
+    if (!member) throw new NotFoundException('Invite not found');
+    member.status = AgencyMemberStatus.DECLINED;
+    member.inviteToken = null;
+    await this.agencyMemberRepo.save(member);
+    return { message: 'Invite declined' };
+  }
+
+  /** List all members (active + invited) for the caller's agency */
+  async adminGetAgencyMembers(agencyId: string): Promise<AgencyMember[]> {
+    return this.agencyMemberRepo.find({
+      where: { agencyId },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  async getAgencyMembers(ownerUserId: string): Promise<AgencyMember[]> {
+    const { agency } = await this.resolveAgentAgency(ownerUserId);
+    return this.agencyMemberRepo.find({
+      where: { agencyId: agency.id },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /** Remove a member from the agency */
+  async removeAgencyMember(
+    ownerUserId: string,
+    targetUserId: string,
+    reason?: string,
+  ): Promise<{ message: string }> {
+    const { agency } = await this.resolveAgentAgency(ownerUserId);
+
+    const callerMembership = await this.agencyMemberRepo.findOne({
+      where: { agencyId: agency.id, userId: ownerUserId, status: AgencyMemberStatus.ACTIVE },
+    });
+    if (!callerMembership || (callerMembership.role !== AgencyMemberRole.OWNER && callerMembership.role !== AgencyMemberRole.MANAGER)) {
+      throw new ForbiddenException('Only owners or managers can remove members');
+    }
+
+    const target = await this.agencyMemberRepo.findOne({
+      where: { agencyId: agency.id, userId: targetUserId },
+    });
+    if (!target) throw new NotFoundException('Member not found');
+    if (target.isPrimaryOwner) throw new ForbiddenException('Cannot remove the primary owner');
+
+    const wasActive = target.status === AgencyMemberStatus.ACTIVE;
+    target.status = AgencyMemberStatus.REMOVED;
+    target.removedAt = new Date();
+    target.removalReason = reason ?? 'Removed by owner/manager';
+    await this.agencyMemberRepo.save(target);
+
+    if (wasActive) {
+      await this.agencyRepo.decrement({ id: agency.id }, 'memberCount', 1);
+    }
+    return { message: 'Member removed' };
+  }
+
+  /** Update a member's role (owner-only, cannot change primary owner) */
+  async updateMemberRole(
+    ownerUserId: string,
+    targetUserId: string,
+    newRole: AgencyMemberRole,
+  ): Promise<AgencyMember> {
+    const { agency } = await this.resolveAgentAgency(ownerUserId);
+
+    const callerMembership = await this.agencyMemberRepo.findOne({
+      where: { agencyId: agency.id, userId: ownerUserId, status: AgencyMemberStatus.ACTIVE },
+    });
+    if (!callerMembership || callerMembership.role !== AgencyMemberRole.OWNER) {
+      throw new ForbiddenException('Only the agency owner can change member roles');
+    }
+
+    const target = await this.agencyMemberRepo.findOne({
+      where: { agencyId: agency.id, userId: targetUserId, status: AgencyMemberStatus.ACTIVE },
+    });
+    if (!target) throw new NotFoundException('Active member not found');
+    if (target.isPrimaryOwner && newRole !== AgencyMemberRole.OWNER) {
+      throw new ForbiddenException('Cannot downgrade the primary owner');
+    }
+    target.role = newRole;
+    return this.agencyMemberRepo.save(target);
+  }
+
+  /**
+   * Admin: upgrade/downgrade agency premium status + adjust maxMembers.
+   * Called from the admin panel when managing agencies.
+   */
+  async adminSetAgencyPremium(
+    agencyId: string,
+    isPremium: boolean,
+    maxMembers: number,
+  ): Promise<Agency> {
+    const agency = await this.agencyRepo.findOne({ where: { id: agencyId } });
+    if (!agency) throw new NotFoundException('Agency not found');
+    agency.isPremium = isPremium;
+    agency.maxMembers = maxMembers;
+    return this.agencyRepo.save(agency);
+  }
+
+  /**
+   * Bootstrap: when a new agency is self-registered or created,
+   * auto-creates an ACTIVE OWNER member row for the creating user.
+   */
+  async bootstrapAgencyOwner(agencyId: string, ownerUserId: string): Promise<void> {
+    const existing = await this.agencyMemberRepo.findOne({
+      where: { agencyId, userId: ownerUserId },
+    });
+    if (existing) return; // Already bootstrapped
+
+    await this.agencyMemberRepo.save(
+      this.agencyMemberRepo.create({
+        agencyId,
+        userId: ownerUserId,
+        invitedByUserId: ownerUserId,
+        role: AgencyMemberRole.OWNER,
+        status: AgencyMemberStatus.ACTIVE,
+        isPrimaryOwner: true,
+        joinedAt: new Date(),
+      }),
+    );
+    await this.agencyRepo.increment({ id: agencyId }, 'memberCount', 1);
+  }
+
+  private generateToken(): string {
+    return require('crypto').randomUUID();
   }
 }

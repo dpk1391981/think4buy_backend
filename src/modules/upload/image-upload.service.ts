@@ -1,8 +1,10 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as sharp from 'sharp';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as https from 'https';
+import * as http from 'http';
 import { v4 as uuidv4 } from 'uuid';
 import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
@@ -109,6 +111,47 @@ export class ImageUploadService {
     const dest = this.safeDest(dir, filename);
     await fs.writeFile(dest, file.buffer);
     return this.localUrl('brochures', subFolder, filename);
+  }
+
+  /**
+   * Fetch the raw bytes of a stored document URL (local file or remote S3/CDN).
+   * Used by controllers to proxy KYC documents through the backend.
+   */
+  async fetchDocumentBuffer(url: string): Promise<{ buffer: Buffer; contentType: string }> {
+    const publicBase = this.config.get<string>('PUBLIC_API_URL', '').replace(/\/$/, '');
+
+    // Local file served by this server
+    if (publicBase && url.startsWith(publicBase)) {
+      const rel = url.replace(publicBase, '').replace(/^\//, '');
+      const fullPath = path.resolve(process.cwd(), rel);
+      if (!fullPath.startsWith(UPLOADS_ROOT + path.sep)) {
+        throw new NotFoundException('Document path is not accessible');
+      }
+      try {
+        const buffer = await fs.readFile(fullPath);
+        return { buffer, contentType: 'image/webp' };
+      } catch {
+        throw new NotFoundException('File not found on disk');
+      }
+    }
+
+    // Remote URL (S3 / CDN) — fetch and buffer
+    return new Promise((resolve, reject) => {
+      const mod = url.startsWith('https') ? https : http;
+      mod.get(url, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new NotFoundException('Could not fetch document from storage'));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => resolve({
+          buffer: Buffer.concat(chunks),
+          contentType: res.headers['content-type'] || 'image/webp',
+        }));
+        res.on('error', reject);
+      }).on('error', reject);
+    });
   }
 
   async deleteByUrl(url: string): Promise<void> {

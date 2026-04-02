@@ -170,10 +170,33 @@ export class AuthService {
     };
     if (dto.name?.trim()) update.name = dto.name.trim();
     if (dto.agentLicense?.trim()) update.agentLicense = dto.agentLicense.trim();
-    if ((dto as any).agentGstNumber?.trim()) (update as any).agentGstNumber = (dto as any).agentGstNumber.trim();
+    if (dto.agentGstNumber?.trim()) update.agentGstNumber = dto.agentGstNumber.trim();
     if (dto.agentExperience != null) update.agentExperience = dto.agentExperience;
     if (dto.agencyName?.trim()) update.company = dto.agencyName.trim();
     if (dto.contactPhone?.trim()) update.phone = dto.contactPhone.trim();
+
+    // Buyer: store city preference
+    if (dto.role === 'buyer') {
+      if (dto.buyerCity?.trim()) update.city = dto.buyerCity.trim();
+      if (dto.buyerCityId?.trim()) update.cityId = dto.buyerCityId.trim();
+    }
+
+    // Agent: build rich bio from extended profile fields
+    if (dto.role === 'agent') {
+      const bioMeta: Record<string, string> = {};
+      if (dto.agentPan?.trim())             bioMeta.pan             = dto.agentPan.trim().toUpperCase();
+      if (dto.businessType?.trim())         bioMeta.businessType    = dto.businessType.trim();
+      if (dto.agentSpecializations?.trim()) bioMeta.specializations = dto.agentSpecializations.trim();
+      if (dto.agentLanguages?.trim())       bioMeta.languages       = dto.agentLanguages.trim();
+      if (dto.officeStartTime?.trim())      bioMeta.officeStart     = dto.officeStartTime.trim();
+      if (dto.officeEndTime?.trim())        bioMeta.officeEnd       = dto.officeEndTime.trim();
+      if (dto.workingDays?.trim())          bioMeta.workingDays     = dto.workingDays.trim();
+      if (dto.agentWebsite?.trim())         bioMeta.website         = dto.agentWebsite.trim();
+      if (Object.keys(bioMeta).length) {
+        // Prefix structured metadata so it can be parsed without a schema change
+        update.agentBio = `__meta__:${JSON.stringify(bioMeta)}`;
+      }
+    }
 
     await this.userRepository.update(userId, update);
     const user = await this.userRepository.findOne({ where: { id: userId } });
@@ -182,12 +205,10 @@ export class AuthService {
     // For agents: ensure AgentProfile exists + create pending Agency if company provided
     if (dto.role === 'agent') {
       if (dto.agencyName?.trim()) {
-        // Creates pending agency + links agent profile
         await this.agencyService.agentRegisterOrJoinAgency(userId, {
           agencyName: dto.agencyName.trim(),
         });
       } else {
-        // Always create an AgentProfile so the agent appears in admin panel
         await this.agencyService.getOrCreateAgentProfile(userId);
       }
     }
@@ -212,6 +233,80 @@ export class AuthService {
     return this.getProfile(userId);
   }
 
+  /** Update agent company / professional details — merges meta JSON in agentBio */
+  async updateAgentCompany(userId: string, dto: {
+    agencyName?: string;
+    agentLicense?: string;
+    agentGstNumber?: string;
+    agentExperience?: number;
+    phone?: string;
+    pan?: string;
+    businessType?: string;
+    specializations?: string;
+    languages?: string;
+    officeStart?: string;
+    officeEnd?: string;
+    workingDays?: string;
+    website?: string;
+    docRera?: string;
+    docGst?: string;
+    docPan?: string;
+  }) {
+    // Read current bio to merge meta (don't overwrite existing keys unless provided)
+    const current = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['agentBio', 'agentProfileStatus', 'role'],
+    });
+
+    let existingMeta: Record<string, string> = {};
+    if (current?.agentBio?.startsWith('__meta__:')) {
+      try { existingMeta = JSON.parse(current.agentBio.slice(9)); } catch {}
+    }
+
+    const newMeta: Record<string, string> = { ...existingMeta };
+    if (dto.pan?.trim())             newMeta.pan             = dto.pan.trim().toUpperCase();
+    if (dto.businessType?.trim())    newMeta.businessType    = dto.businessType.trim();
+    if (dto.specializations?.trim()) newMeta.specializations = dto.specializations.trim();
+    if (dto.languages?.trim())       newMeta.languages       = dto.languages.trim();
+    if (dto.officeStart?.trim())     newMeta.officeStart     = dto.officeStart.trim();
+    if (dto.officeEnd?.trim())       newMeta.officeEnd       = dto.officeEnd.trim();
+    if (dto.workingDays?.trim())     newMeta.workingDays     = dto.workingDays.trim();
+    if (dto.website?.trim())         newMeta.website         = dto.website.trim();
+    if (dto.docRera?.trim())         newMeta.docRera         = dto.docRera.trim();
+    if (dto.docGst?.trim())          newMeta.docGst          = dto.docGst.trim();
+    if (dto.docPan?.trim())          newMeta.docPan          = dto.docPan.trim();
+
+    const update: any = { agentBio: `__meta__:${JSON.stringify(newMeta)}` };
+    if (dto.agencyName?.trim())          update.company          = dto.agencyName.trim();
+    if (dto.agentLicense?.trim())        update.agentLicense     = dto.agentLicense.trim();
+    if (dto.agentGstNumber?.trim())      update.agentGstNumber   = dto.agentGstNumber.trim();
+    if (dto.agentExperience != null)     update.agentExperience  = dto.agentExperience;
+    if (dto.phone?.trim())               update.phone            = dto.phone.trim();
+
+    // Set to pending when professional details are updated (so admin re-reviews)
+    if (current?.role === UserRole.AGENT && current?.agentProfileStatus !== 'inactive') {
+      update.agentProfileStatus = 'pending';
+    }
+
+    await this.userRepository.update(userId, update);
+    return this.getProfile(userId);
+  }
+
+  /** Store a document URL inside the agentBio meta for the given docType key */
+  async saveAgentDocument(userId: string, docType: string, fileUrl: string) {
+    const current = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['agentBio'],
+    });
+    let meta: Record<string, string> = {};
+    if (current?.agentBio?.startsWith('__meta__:')) {
+      try { meta = JSON.parse(current.agentBio.slice(9)); } catch {}
+    }
+    meta[`doc${docType.charAt(0).toUpperCase()}${docType.slice(1)}`] = fileUrl;
+    await this.userRepository.update(userId, { agentBio: `__meta__:${JSON.stringify(meta)}` });
+    return this.getProfile(userId);
+  }
+
   /** Allows a BUYER to upgrade their role to OWNER or AGENT */
   async upgradeRole(userId: string, newRole: 'owner' | 'agent') {
     const user = await this.userRepository.findOne({ where: { id: userId } });
@@ -230,13 +325,8 @@ export class AuthService {
   }
 
   async updateAvatar(userId: string, avatarUrl: string) {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-    // Agents: put upload into pending queue — admin must approve before it goes live
-    if (user?.role === UserRole.AGENT) {
-      await this.userRepository.update(userId, { pendingAvatar: avatarUrl });
-    } else {
-      await this.userRepository.update(userId, { avatar: avatarUrl });
-    }
+    // All users: upload goes into pending queue — super admin must approve before it goes live
+    await this.userRepository.update(userId, { pendingAvatar: avatarUrl });
     return this.getProfile(userId);
   }
 

@@ -4,10 +4,12 @@ import {
   Patch,
   Get,
   Body,
+  Param,
   UseGuards,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  NotFoundException,
   Request,
   Res,
   Req,
@@ -165,9 +167,80 @@ export class AuthController {
   @ApiOperation({ summary: 'Update current user profile' })
   updateProfile(
     @Request() req,
-    @Body() dto: { name?: string; email?: string; city?: string; company?: string },
+    @Body() dto: {
+      name?: string; email?: string; city?: string; company?: string;
+      phone?: string; agentLicense?: string; agentGstNumber?: string; agentBio?: string; agentExperience?: number;
+    },
   ) {
     return this.authService.updateProfile(req.user.id, dto);
+  }
+
+  @Patch('profile/company')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update agent company / professional details' })
+  updateAgentCompany(
+    @Request() req,
+    @Body() dto: {
+      agencyName?: string;
+      agentLicense?: string;
+      agentGstNumber?: string;
+      agentExperience?: number;
+      phone?: string;
+      pan?: string;
+      businessType?: string;
+      specializations?: string;
+      languages?: string;
+      officeStart?: string;
+      officeEnd?: string;
+      workingDays?: string;
+      website?: string;
+    },
+  ) {
+    return this.authService.updateAgentCompany(req.user.id, dto);
+  }
+
+  @Post('profile/documents/:docType')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Upload agent document image (RERA cert, GST, PAN — max 5 MB)' })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseInterceptors(FileInterceptor('file', imageMulterOptions(1)))
+  async uploadDocument(
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req,
+    @Param('docType') docType: string,
+  ) {
+    const allowed = new Set(['rera', 'gst', 'pan']);
+    if (!allowed.has(docType)) throw new BadRequestException('docType must be rera, gst, or pan');
+    if (!file) throw new BadRequestException('No file uploaded');
+    const url = await this.imageUploadService.saveImage(file, 'agent-docs');
+    return this.authService.saveAgentDocument(req.user.id, docType, url);
+  }
+
+  @Get('profile/documents/:docType')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Serve agent KYC document proxied through the backend' })
+  async serveMyDocument(
+    @Request() req,
+    @Param('docType') docType: string,
+    @Res() res: Response,
+  ) {
+    const allowed = new Set(['rera', 'gst', 'pan']);
+    if (!allowed.has(docType)) throw new BadRequestException('docType must be rera, gst, or pan');
+    const profile = await this.authService.getProfile(req.user.id);
+    let meta: Record<string, string> = {};
+    if (profile?.agentBio?.startsWith('__meta__:')) {
+      try { meta = JSON.parse(profile.agentBio.slice(9)); } catch {}
+    }
+    const key = `doc${docType.charAt(0).toUpperCase()}${docType.slice(1)}`;
+    const docUrl = meta[key];
+    if (!docUrl) throw new NotFoundException('Document not uploaded');
+    const { buffer, contentType } = await this.imageUploadService.fetchDocumentBuffer(docUrl);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.end(buffer);
   }
 
   @Post('profile/avatar')

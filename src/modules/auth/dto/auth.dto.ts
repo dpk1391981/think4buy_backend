@@ -81,7 +81,9 @@ export class OnboardingDto {
   @IsString()
   name?: string;
 
-  @ApiPropertyOptional({ example: 'MH-AG-12345' })
+  // ── Agent professional fields ──────────────────────────────────────────────
+
+  @ApiPropertyOptional({ example: 'MH/RERA/A12345' })
   @IsOptional()
   @IsString()
   agentLicense?: string;
@@ -91,6 +93,12 @@ export class OnboardingDto {
   @IsString()
   agentGstNumber?: string;
 
+  /** PAN stored in agentBio as structured prefix; pure optional KYC capture */
+  @ApiPropertyOptional({ example: 'ABCDE1234F' })
+  @IsOptional()
+  @IsString()
+  agentPan?: string;
+
   @ApiPropertyOptional({ example: 5 })
   @IsOptional()
   @IsNumber()
@@ -98,8 +106,8 @@ export class OnboardingDto {
   @Max(60)
   agentExperience?: number;
 
-  /** Company / agency name — when provided for agents, a pending agency record is created */
-  @ApiPropertyOptional({ example: 'PropElite Realty' })
+  /** Company / agency name — creates a pending agency record when provided */
+  @ApiPropertyOptional({ example: 'PropElite Realty Pvt Ltd' })
   @IsOptional()
   @IsString()
   agencyName?: string;
@@ -111,8 +119,104 @@ export class OnboardingDto {
   contactPhone?: string;
 
   /** Agent business address */
-  @ApiPropertyOptional({ example: '12, MG Road, Bangalore' })
+  @ApiPropertyOptional({ example: '12, MG Road, Bangalore 560001' })
   @IsOptional()
   @IsString()
   businessAddress?: string;
+
+  /** Business type: individual | firm | pvt_ltd | llp | partnership */
+  @ApiPropertyOptional({ example: 'pvt_ltd' })
+  @IsOptional()
+  @IsString()
+  businessType?: string;
+
+  /** Comma-separated specializations e.g. "Residential,Commercial,Plots" */
+  @ApiPropertyOptional({ example: 'Residential,Commercial' })
+  @IsOptional()
+  @IsString()
+  agentSpecializations?: string;
+
+  /** Comma-separated spoken languages e.g. "Hindi,English,Marathi" */
+  @ApiPropertyOptional({ example: 'Hindi,English' })
+  @IsOptional()
+  @IsString()
+  agentLanguages?: string;
+
+  /** Office opening time e.g. "09:00" */
+  @ApiPropertyOptional({ example: '09:00' })
+  @IsOptional()
+  @IsString()
+  officeStartTime?: string;
+
+  /** Office closing time e.g. "19:00" */
+  @ApiPropertyOptional({ example: '19:00' })
+  @IsOptional()
+  @IsString()
+  officeEndTime?: string;
+
+  /** Comma-separated working days e.g. "Mon,Tue,Wed,Thu,Fri,Sat" */
+  @ApiPropertyOptional({ example: 'Mon,Tue,Wed,Thu,Fri,Sat' })
+  @IsOptional()
+  @IsString()
+  workingDays?: string;
+
+  /** Agent / agency website */
+  @ApiPropertyOptional({ example: 'https://propelite.in' })
+  @IsOptional()
+  @IsString()
+  agentWebsite?: string;
+
+  // ── Buyer preference fields (captured at onboarding for instant personalisation) ──
+
+  /** Preferred city name for buyers */
+  @ApiPropertyOptional({ example: 'Mumbai' })
+  @IsOptional()
+  @IsString()
+  buyerCity?: string;
+
+  /** Preferred city ID for buyers */
+  @ApiPropertyOptional({ example: 'uuid-city-id' })
+  @IsOptional()
+  @IsString()
+  buyerCityId?: string;
+
+  /** Buyer minimum budget in rupees */
+  @ApiPropertyOptional({ example: 5000000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  buyerBudgetMin?: number;
+
+  /** Buyer maximum budget in rupees */
+  @ApiPropertyOptional({ example: 15000000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  buyerBudgetMax?: number;
+
+  /** Buyer preferred property types — comma-separated e.g. "apartment,villa" */
+  @ApiPropertyOptional({ example: 'apartment,villa' })
+  @IsOptional()
+  @IsString()
+  buyerPropertyTypes?: string;
+
+  /** Purpose: buy | rent */
+  @ApiPropertyOptional({ example: 'buy' })
+  @IsOptional()
+  @IsString()
+  buyerPurpose?: string;
+
+  // ── Owner listing intent (captured at onboarding to pre-fill post-property) ──
+
+  /** Property type owner wants to list */
+  @ApiPropertyOptional({ example: 'apartment' })
+  @IsOptional()
+  @IsString()
+  ownerPropertyType?: string;
+
+  /** Listing type: sale | rent */
+  @ApiPropertyOptional({ example: 'sale' })
+  @IsOptional()
+  @IsString()
+  ownerListingType?: string;
 }
