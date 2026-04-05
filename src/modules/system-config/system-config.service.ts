@@ -265,6 +265,14 @@ export class SystemConfigService implements OnModuleInit {
         description: 'Show the "Pin Location on Map" Leaflet map picker in the post-property form (owners only)',
         group: 'forms',
       },
+      // ── Payments ──────────────────────────────────────────────────────────
+      {
+        key: 'PAYMENT_ENABLED',
+        value: false,
+        valueType: ConfigValueType.BOOLEAN,
+        description: 'Enable real-money payments via configured gateway. When false, the platform uses token-based billing.',
+        group: 'billing',
+      },
       // ── Auth ──────────────────────────────────────────────────────────────
       {
         key: 'ENABLE_OTP_SMS',

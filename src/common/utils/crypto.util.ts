@@ -46,7 +46,9 @@ export class CryptoUtil {
   }
 
   static decrypt(ciphertext: string): string {
-    if (!ciphertext || !ciphertext.includes(':')) return ciphertext; // not encrypted
+    if (!ciphertext) return ciphertext;
+    if (typeof ciphertext !== 'string') return JSON.stringify(ciphertext); // object stored directly (no encryption)
+    if (!ciphertext.includes(':')) return ciphertext; // not encrypted
     try {
       const [ivHex, authTagHex, encHex] = ciphertext.split(':');
       const key    = this.getKey();
