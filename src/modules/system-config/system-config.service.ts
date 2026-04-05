@@ -273,6 +273,14 @@ export class SystemConfigService implements OnModuleInit {
         description: 'Enable real-money payments via configured gateway. When false, the platform uses token-based billing.',
         group: 'billing',
       },
+      // ── Homepage sections ─────────────────────────────────────────────────
+      {
+        key: 'SHOW_TOP_DEVELOPERS',
+        value: true,
+        valueType: ConfigValueType.BOOLEAN,
+        description: 'Show the "Top Builders & Developers" section on the homepage and city pages. When disabled, the section is hidden.',
+        group: 'homepage',
+      },
       // ── Auth ──────────────────────────────────────────────────────────────
       {
         key: 'ENABLE_OTP_SMS',
@@ -280,6 +288,19 @@ export class SystemConfigService implements OnModuleInit {
         valueType: ConfigValueType.BOOLEAN,
         description: 'Send OTP via SMS for login and registration. Requires an active SMS message service configured in Messaging Centre. Optionally create a template named "otp_verification_sms" with {{otp}} placeholder for a custom message body.',
         group: 'auth',
+      },
+      // ── Contact Page Content ───────────────────────────────────────────────
+      {
+        key: 'CONTACT_PAGE_INFO',
+        value: JSON.stringify({
+          address: ['Think4BuySale Pvt. Ltd.', 'New Delhi, India — 110001'],
+          phone:   ['+91 98765 43210', 'Mon – Sat, 9am – 6pm'],
+          email:   ['support@think4buysale.com', 'Response within 24 hours'],
+          hours:   ['Mon – Sat: 9:00 AM – 6:00 PM', 'Sunday: Closed'],
+        }),
+        valueType: ConfigValueType.JSON,
+        description: 'Contact page details shown to visitors: address, phone, email, business hours.',
+        group: 'general',
       },
     ];
 

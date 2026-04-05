@@ -36,6 +36,8 @@ import {
   UpdateAgentDto,
   UpdateAgentQuotaDto,
   RejectPropertyDto,
+  CreateBuilderDto,
+  UpdateBuilderDto,
 } from './dto/admin.dto';
 import { UserRole } from '../users/entities/user.entity';
 import { ApprovalStatus } from '../properties/entities/property.entity';
@@ -770,6 +772,73 @@ export class AdminController {
       throw new ForbiddenException('Super admin access required');
     }
     return this.adminService.changeUserRole(id, body.role);
+  }
+
+  // ── Builder Management ──────────────────────────────────────────────────────
+
+  @Get('builders')
+  @ApiOperation({ summary: 'List all builder accounts (admin)' })
+  @ApiQuery({ name: 'page',   required: false })
+  @ApiQuery({ name: 'limit',  required: false })
+  @ApiQuery({ name: 'search', required: false })
+  getAdminBuilders(
+    @Request() req,
+    @Query('page',  new DefaultValuePipe(1),  ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+  ) {
+    this.assertAdmin(req);
+    return this.adminService.getBuilders(page, limit, search);
+  }
+
+  @Post('builders')
+  @ApiOperation({ summary: 'Create a builder account (admin)' })
+  createBuilder(@Request() req, @Body() dto: CreateBuilderDto) {
+    this.assertAdmin(req);
+    return this.adminService.createBuilder(dto);
+  }
+
+  @Get('builders/:id')
+  @ApiOperation({ summary: 'Get single builder (admin)' })
+  getAdminBuilder(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.getBuilderById(id);
+  }
+
+  @Patch('builders/:id')
+  @ApiOperation({ summary: 'Update builder profile (admin)' })
+  updateBuilder(@Request() req, @Param('id') id: string, @Body() dto: UpdateBuilderDto) {
+    this.assertAdmin(req);
+    return this.adminService.updateBuilder(id, dto);
+  }
+
+  @Delete('builders/:id')
+  @ApiOperation({ summary: 'Delete builder account (admin)' })
+  deleteBuilder(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.deleteBuilder(id);
+  }
+
+  @Patch('builders/:id/toggle-verify')
+  @ApiOperation({ summary: 'Toggle verified status of a builder' })
+  toggleBuilderVerified(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.adminService.toggleBuilderVerified(id);
+  }
+
+  @Post('builders/:id/logo')
+  @ApiOperation({ summary: 'Upload brand logo for a builder (max 5 MB, JPEG/PNG/WebP → stored as WebP)' })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseInterceptors(FileInterceptor('file', imageMulterOptions(1)))
+  async uploadBuilderLogo(
+    @Request() req,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    this.assertAdmin(req);
+    if (!file) throw new BadRequestException('No file uploaded');
+    const url = await this.imageUploadService.saveImage(file, 'builders');
+    return this.adminService.updateBuilderLogo(id, url);
   }
 
   @Post('storage-config/test-s3')

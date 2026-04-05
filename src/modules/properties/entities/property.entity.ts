@@ -47,8 +47,9 @@ export enum PropertyCategory {
 }
 
 export enum ListingUserType {
-  OWNER = 'owner',
-  AGENT = 'agent',
+  OWNER   = 'owner',
+  AGENT   = 'agent',
+  BUILDER = 'builder',
 }
 
 export enum PropertyStatus {

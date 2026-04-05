@@ -41,6 +41,9 @@ const SEED_MENUS: { name: string; slug: string; icon: string; section: string; s
   { name: 'Premium Slots',       slug: 'admin_premium_slots',        icon: 'zap',              section: 'admin_agents',     sortOrder: 121 },
   { name: 'Agent Coverage',      slug: 'admin_agent_coverage',       icon: 'gem',              section: 'admin_agents',     sortOrder: 122 },
 
+  // ── Admin Panel — Builders ──────────────────────────────────────────────────
+  { name: 'Builders',            slug: 'admin_builders',             icon: 'hard-hat',         section: 'admin_builders',   sortOrder: 125 },
+
   // ── Admin Panel — Users ─────────────────────────────────────────────────────
   { name: 'All Users',           slug: 'admin_users',                icon: 'users',            section: 'admin_users',      sortOrder: 130 },
 
@@ -114,6 +117,10 @@ const ROLE_MENUS: Record<UserRole, string[]> = {
   [UserRole.SELLER]: [
     'dashboard', 'add_property', 'my_properties', 'leads',
     'messages', 'property_analytics', 'boost_listing', 'saved_properties', 'profile', 'settings',
+  ],
+  [UserRole.BUILDER]: [
+    'dashboard', 'add_property', 'my_properties', 'leads',
+    'messages', 'property_analytics', 'boost_listing', 'profile', 'settings',
   ],
   // Admin gets all admin panel menus except RBAC management (roles, role_menus)
   [UserRole.ADMIN]: [

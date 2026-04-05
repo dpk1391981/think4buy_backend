@@ -1,11 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import {
   Property,
   PropertyStatus,
   ApprovalStatus,
 } from '../properties/entities/property.entity';
+import { PropertyImage } from '../properties/entities/property-image.entity';
+import { User, UserRole } from '../users/entities/user.entity';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 export interface BuilderProject {
   id: string;
@@ -18,11 +21,22 @@ export interface BuilderProject {
   locality: string;
   city: string;
   category: string;
+  type: string;
+  bedrooms: number | null;
+  area: number | null;
+  areaUnit: string | null;
+  coverImage: string | null;
 }
 
 export interface BuilderResponse {
+  builderId: string | null;
   builderName: string;
   builderSlug: string;
+  builderLogo: string | null;
+  builderVerified: boolean;
+  builderReraNumber: string | null;
+  builderWebsite: string | null;
+  builderExperience: number | null;
   city: string;
   cities: string[];
   totalProjects: number;
@@ -37,12 +51,21 @@ export class BuildersService {
   constructor(
     @InjectRepository(Property)
     private readonly propertyRepo: Repository<Property>,
+    @InjectRepository(PropertyImage)
+    private readonly imageRepo: Repository<PropertyImage>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    private readonly systemConfig: SystemConfigService,
   ) {}
 
   // ─── List top builders (optionally city-scoped) ────────────────────────────
 
   async getBuilders(city?: string, limit = 6): Promise<BuilderResponse[]> {
-    // Step 1: aggregate builder stats
+    // Feature flag: hide section if disabled
+    const showDevelopers = await this.systemConfig.getBoolean('SHOW_TOP_DEVELOPERS', true);
+    if (!showDevelopers) return [];
+
+    // Step 1: aggregate builder stats by builderName on properties
     const qb = this.propertyRepo
       .createQueryBuilder('p')
       .select('p.builderName', 'builderName')
@@ -77,7 +100,22 @@ export class BuildersService {
 
     if (!rows.length) return [];
 
-    // Step 2: for each builder, load top projects + city list in parallel
+    // Step 2: Load matching builder User profiles for logo/verified/rera
+    const builderNames: string[] = rows.map((r) => r.builderName as string);
+    const builderUsers = await this.userRepo.find({
+      where: { role: UserRole.BUILDER },
+      select: [
+        'id', 'builderCompanyName', 'builderLogo', 'builderVerified',
+        'builderReraNumber', 'builderWebsite', 'builderExperience',
+      ],
+    });
+    // Map by company name for O(1) lookup
+    const userMap = new Map<string, User>();
+    for (const u of builderUsers) {
+      if (u.builderCompanyName) userMap.set(u.builderCompanyName, u);
+    }
+
+    // Step 3: for each builder, load top projects + city list in parallel
     const results = await Promise.all(
       rows.map(async (b) => {
         const whereBase: any = {
@@ -93,6 +131,7 @@ export class BuildersService {
           select: [
             'id', 'title', 'slug', 'possessionStatus', 'isNewProject',
             'price', 'priceUnit', 'locality', 'city', 'category',
+            'type', 'bedrooms', 'area', 'areaUnit',
           ],
           order: { listingScore: 'DESC', createdAt: 'DESC' },
           take: 5,
@@ -119,27 +158,24 @@ export class BuildersService {
           ? `${nameSlug}-in-${this.slugify(city)}`
           : nameSlug;
 
+        const builderUser = userMap.get(b.builderName as string);
+
         return {
-          builderName:      b.builderName as string,
+          builderId:          builderUser?.id ?? null,
+          builderName:        b.builderName as string,
           builderSlug,
+          builderLogo:        builderUser?.builderLogo ?? null,
+          builderVerified:    builderUser?.builderVerified ?? false,
+          builderReraNumber:  builderUser?.builderReraNumber ?? null,
+          builderWebsite:     builderUser?.builderWebsite ?? null,
+          builderExperience:  builderUser?.builderExperience ?? null,
           city:             primaryCity,
           cities,
           totalProjects:    parseInt(b.total,   10) || 0,
           readyToMove:      parseInt(b.ready,   10) || 0,
           underConstruction:parseInt(b.uc,      10) || 0,
           newProjects:      parseInt(b.newProj, 10) || 0,
-          topProjects: topProjects.map((p) => ({
-            id:               p.id,
-            title:            p.title,
-            slug:             p.slug,
-            possessionStatus: p.possessionStatus ?? null,
-            isNewProject:     p.isNewProject,
-            price:            Number(p.price),
-            priceUnit:        p.priceUnit ?? null,
-            locality:         p.locality,
-            city:             p.city,
-            category:         p.category,
-          })),
+          topProjects: await this.attachCovers(topProjects),
         } satisfies BuilderResponse;
       }),
     );
@@ -184,7 +220,6 @@ export class BuildersService {
     const builderName = matched.builderName as string;
 
     // Get builder summary
-    const [builderInfo] = await this.getBuilders(cityHint, 100);
     const builder = (await this.getBuilders(cityHint, 100)).find(
       (b) => b.builderName === builderName,
     ) ?? null;
@@ -204,6 +239,7 @@ export class BuildersService {
       select: [
         'id', 'title', 'slug', 'possessionStatus', 'isNewProject',
         'price', 'priceUnit', 'locality', 'city', 'category',
+        'type', 'bedrooms', 'area', 'areaUnit',
       ],
       order: { listingScore: 'DESC', createdAt: 'DESC' },
       take: limit,
@@ -212,23 +248,53 @@ export class BuildersService {
 
     return {
       builder,
-      projects: projects.map((p) => ({
-        id:               p.id,
-        title:            p.title,
-        slug:             p.slug,
-        possessionStatus: p.possessionStatus ?? null,
-        isNewProject:     p.isNewProject,
-        price:            Number(p.price),
-        priceUnit:        p.priceUnit ?? null,
-        locality:         p.locality,
-        city:             p.city,
-        category:         p.category,
-      })),
+      projects: await this.attachCovers(projects),
       total,
     };
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
+
+  /** Bulk-fetch primary cover images for a list of properties. */
+  private async attachCovers(props: Property[]): Promise<BuilderProject[]> {
+    if (!props.length) return [];
+    const ids = props.map((p) => p.id);
+    const images = await this.imageRepo
+      .createQueryBuilder('img')
+      .select(['img.propertyId', 'img.url', 'img.thumbnailUrl', 'img.isPrimary', 'img.sortOrder'])
+      .where('img.propertyId IN (:...ids)', { ids })
+      .andWhere("img.mediaType = 'image'")
+      .andWhere("img.processingStatus != 'failed'")
+      .orderBy('img.isPrimary', 'DESC')
+      .addOrderBy('img.sortOrder', 'ASC')
+      .getMany();
+
+    // Build a map: propertyId → first (primary) image url
+    const coverMap = new Map<string, string>();
+    for (const img of images) {
+      if (!coverMap.has(img.propertyId)) {
+        coverMap.set(img.propertyId, img.url);
+      }
+    }
+
+    return props.map((p) => ({
+      id:               p.id,
+      title:            p.title,
+      slug:             p.slug,
+      possessionStatus: p.possessionStatus ?? null,
+      isNewProject:     p.isNewProject,
+      price:            Number(p.price),
+      priceUnit:        p.priceUnit ?? null,
+      locality:         p.locality,
+      city:             p.city,
+      category:         p.category,
+      type:             p.type,
+      bedrooms:         p.bedrooms ?? null,
+      area:             p.area ? Number(p.area) : null,
+      areaUnit:         p.areaUnit ?? null,
+      coverImage:       coverMap.get(p.id) ?? null,
+    }));
+  }
 
   private slugify(s: string): string {
     return s.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
