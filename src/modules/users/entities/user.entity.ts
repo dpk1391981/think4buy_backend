@@ -20,6 +20,7 @@ export enum UserRole {
   SELLER      = 'seller',      // kept for backward compatibility
   AGENT       = 'agent',
   BROKER      = 'broker',
+  BUILDER     = 'builder',     // real-estate developer / builder company
   ADMIN       = 'admin',
   SUPER_ADMIN = 'super_admin', // root level — isSuperAdmin flag must also be true
 }
@@ -140,6 +141,36 @@ export class User {
 
   @Column({ type: 'date', nullable: true })
   dailyCreditDate: string; // ISO date string YYYY-MM-DD, reset when date changes
+
+  // ── Builder-specific fields ─────────────────────────────────────────────────
+
+  /** Registered company / brand name (e.g. "Godrej Properties Ltd.") */
+  @Column({ nullable: true, length: 200 })
+  builderCompanyName: string;
+
+  /** RERA registration number of the builder entity */
+  @Column({ nullable: true, length: 100 })
+  builderReraNumber: string;
+
+  /** Years the company has been in operation */
+  @Column({ type: 'int', nullable: true })
+  builderExperience: number;
+
+  /** Public-facing website URL */
+  @Column({ nullable: true, length: 300 })
+  builderWebsite: string;
+
+  /** CDN URL of the builder's logo image */
+  @Column({ nullable: true, length: 500 })
+  builderLogo: string;
+
+  /** Total number of projects delivered so far (self-reported) */
+  @Column({ type: 'int', default: 0 })
+  builderProjectCount: number;
+
+  /** Admin has verified this builder's credentials */
+  @Column({ default: false })
+  builderVerified: boolean;
 
   // ── Security fields ─────────────────────────────────────────────────────────
 

@@ -6,6 +6,7 @@ import { PaymentGateway, GatewayStatus } from './entities/payment-gateway.entity
 import { WalletService } from '../wallet/wallet.service';
 import { TransactionReason } from '../wallet/entities/wallet-transaction.entity';
 import { PaymentType } from './entities/payment-transaction.entity';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 export interface ChargeUserOptions {
   userId:        string;
@@ -45,6 +46,7 @@ export class BillingService {
   constructor(
     private readonly configService: ConfigService,
     private readonly walletService: WalletService,
+    private readonly systemConfig: SystemConfigService,
     @InjectRepository(PaymentGateway)
     private gatewayRepo: Repository<PaymentGateway>,
   ) {}
@@ -56,8 +58,9 @@ export class BillingService {
    *   2. At least one active gateway in DB
    */
   async isRealPaymentEnabled(): Promise<boolean> {
-    const envFlag = this.configService.get<string>('PAYMENT_ENABLED', 'false');
-    if (envFlag !== 'true') return false;
+    // DB flag takes precedence over env var (admin-toggleable at runtime)
+    const dbFlag = await this.systemConfig.getBoolean('PAYMENT_ENABLED', false);
+    if (!dbFlag) return false;
 
     const activeGateway = await this.gatewayRepo.findOne({
       where: { status: GatewayStatus.ACTIVE },

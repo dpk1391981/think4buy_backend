@@ -5,13 +5,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Like } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Property, ApprovalStatus, PropertyStatus } from '../properties/entities/property.entity';
 import { PropertyStatusHistory } from '../properties/entities/property-status-history.entity';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
-import { CreateAgentDto, UpdateAgentDto, UpdateAgentQuotaDto } from './dto/admin.dto';
+import { CreateAgentDto, UpdateAgentDto, UpdateAgentQuotaDto, CreateBuilderDto, UpdateBuilderDto } from './dto/admin.dto';
 import { WalletService } from '../wallet/wallet.service';
 import { TransactionReason } from '../wallet/entities/wallet-transaction.entity';
 import { LocationsService } from '../locations/locations.service';
@@ -704,5 +704,136 @@ export class AdminService {
     user.role = newRole as UserRole;
     await this.userRepo.save(user);
     return { success: true };
+  }
+
+  // ── Builder Management ──────────────────────────────────────────────────────
+
+  async getBuilders(page = 1, limit = 20, search?: string) {
+    const where: any = { role: UserRole.BUILDER };
+    const qb = this.userRepo.createQueryBuilder('u')
+      .where('u.role = :role', { role: UserRole.BUILDER });
+
+    if (search) {
+      qb.andWhere(
+        '(u.name LIKE :s OR u.email LIKE :s OR u.builderCompanyName LIKE :s OR u.builderReraNumber LIKE :s)',
+        { s: `%${search}%` },
+      );
+    }
+
+    qb.orderBy('u.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const [items, total] = await qb.getManyAndCount();
+
+    return {
+      items: items.map((u) => this.sanitizeBuilderUser(u)),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async getBuilderById(id: string) {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.BUILDER } });
+    if (!user) throw new NotFoundException('Builder not found');
+    return this.sanitizeBuilderUser(user);
+  }
+
+  async createBuilder(dto: CreateBuilderDto) {
+    const existing = await this.userRepo.findOne({ where: { email: dto.email } });
+    if (existing) throw new ConflictException('Email already registered');
+
+    const bcrypt = require('bcryptjs');
+    const hashed = await bcrypt.hash(dto.password, 12);
+
+    const user = this.userRepo.create({
+      name:                dto.name,
+      email:               dto.email,
+      phone:               dto.phone ?? null,
+      password:            hashed,
+      role:                UserRole.BUILDER,
+      city:                dto.city ?? null,
+      state:               dto.state ?? null,
+      isActive:            true,
+      isVerified:          true,
+      needsOnboarding:     false,
+      builderCompanyName:  dto.builderCompanyName,
+      builderReraNumber:   dto.builderReraNumber ?? null,
+      builderExperience:   dto.builderExperience ?? null,
+      builderWebsite:      dto.builderWebsite ?? null,
+      builderProjectCount: dto.builderProjectCount ?? 0,
+      builderVerified:     false,
+    });
+
+    const saved = await this.userRepo.save(user);
+    return this.sanitizeBuilderUser(saved);
+  }
+
+  async updateBuilder(id: string, dto: UpdateBuilderDto) {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.BUILDER } });
+    if (!user) throw new NotFoundException('Builder not found');
+
+    if (dto.name               !== undefined) user.name               = dto.name;
+    if (dto.email              !== undefined) user.email              = dto.email;
+    if (dto.phone              !== undefined) user.phone              = dto.phone;
+    if (dto.city               !== undefined) user.city               = dto.city;
+    if (dto.state              !== undefined) user.state              = dto.state;
+    if (dto.builderCompanyName !== undefined) user.builderCompanyName = dto.builderCompanyName;
+    if (dto.builderReraNumber  !== undefined) user.builderReraNumber  = dto.builderReraNumber;
+    if (dto.builderExperience  !== undefined) user.builderExperience  = dto.builderExperience;
+    if (dto.builderWebsite     !== undefined) user.builderWebsite     = dto.builderWebsite;
+    if (dto.builderProjectCount !== undefined) user.builderProjectCount = dto.builderProjectCount;
+    if (dto.builderVerified    !== undefined) user.builderVerified    = dto.builderVerified;
+    if (dto.isActive           !== undefined) user.isActive           = dto.isActive;
+
+    const saved = await this.userRepo.save(user);
+    return this.sanitizeBuilderUser(saved);
+  }
+
+  async updateBuilderLogo(id: string, logoUrl: string) {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.BUILDER } });
+    if (!user) throw new NotFoundException('Builder not found');
+    user.builderLogo = logoUrl;
+    await this.userRepo.save(user);
+    return { id, builderLogo: logoUrl };
+  }
+
+  async toggleBuilderVerified(id: string) {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.BUILDER } });
+    if (!user) throw new NotFoundException('Builder not found');
+    user.builderVerified = !user.builderVerified;
+    await this.userRepo.save(user);
+    return { id, builderVerified: user.builderVerified };
+  }
+
+  async deleteBuilder(id: string) {
+    const user = await this.userRepo.findOne({ where: { id, role: UserRole.BUILDER } });
+    if (!user) throw new NotFoundException('Builder not found');
+    await this.userRepo.remove(user);
+    return { success: true };
+  }
+
+  private sanitizeBuilderUser(u: User) {
+    return {
+      id:                  u.id,
+      name:                u.name,
+      email:               u.email,
+      phone:               u.phone ?? null,
+      city:                u.city ?? null,
+      state:               u.state ?? null,
+      isActive:            u.isActive,
+      isVerified:          u.isVerified,
+      builderCompanyName:  u.builderCompanyName ?? null,
+      builderReraNumber:   u.builderReraNumber ?? null,
+      builderExperience:   u.builderExperience ?? null,
+      builderWebsite:      u.builderWebsite ?? null,
+      builderLogo:         u.builderLogo ?? null,
+      builderProjectCount: u.builderProjectCount ?? 0,
+      builderVerified:     u.builderVerified ?? false,
+      createdAt:           u.createdAt,
+      updatedAt:           u.updatedAt,
+    };
   }
 }

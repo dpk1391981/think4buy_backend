@@ -62,9 +62,9 @@ export class GatewayFactoryService {
   }
 
   private buildContext(gateway: PaymentGateway): ActiveGatewayContext {
-    const decryptedConfig = CryptoUtil.decrypt(gateway.config);
     let config: Record<string, any>;
     try {
+      const decryptedConfig = CryptoUtil.decrypt(gateway.config);
       config = JSON.parse(decryptedConfig);
     } catch {
       this.logger.error(`Failed to parse config for gateway ${gateway.id}`);

@@ -133,6 +133,12 @@ export class SeoService {
     // ── Priority 0: Footer Link SEO ───────────────────────────────────────
     // Exact URL match against footer_seo_links — takes precedence over all
     // other levels so admins can fully control programmatic SEO pages.
+    //
+    // If the footer link has full page content (h1/intro/bottom) it returns
+    // immediately.  If it only carries meta tags (metaTitle / metaDescription /
+    // metaKeywords / canonicalUrl), we save those overrides and continue
+    // checking lower-priority sources for actual page content, then merge.
+    let footerMetaOverride: Partial<SeoPageConfig> | null = null;
     if (urlSlug) {
       const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
       const footerLink = await this.footerLinkRepo
@@ -148,20 +154,60 @@ export class SeoService {
         .getOne();
 
       if (footerLink) {
-        return {
+        const hasContent =
+          footerLink.h1Title || footerLink.introContent || footerLink.bottomContent || footerLink.faqJson;
+
+        if (hasContent) {
+          // Full override — return immediately
+          return {
+            source: 'footer_link',
+            h1Title: footerLink.h1Title ?? null,
+            metaTitle: footerLink.metaTitle ?? null,
+            metaDescription: footerLink.metaDescription ?? null,
+            metaKeywords: footerLink.metaKeywords ?? null,
+            canonicalUrl: footerLink.canonicalUrl ?? null,
+            introContent: footerLink.introContent ?? null,
+            bottomContent: footerLink.bottomContent ?? null,
+            faqJson: footerLink.faqJson ?? null,
+            internalLinks: null,
+            robots: footerLink.robots ?? 'index,follow',
+            context: { citySlug, cityName: citySlug, localitySlug, categorySlug },
+          };
+        }
+
+        // Meta-only override — save and fall through for page content
+        footerMetaOverride = {
           source: 'footer_link',
-          h1Title: footerLink.h1Title ?? null,
           metaTitle: footerLink.metaTitle ?? null,
           metaDescription: footerLink.metaDescription ?? null,
           metaKeywords: footerLink.metaKeywords ?? null,
           canonicalUrl: footerLink.canonicalUrl ?? null,
-          introContent: footerLink.introContent ?? null,
-          bottomContent: footerLink.bottomContent ?? null,
-          faqJson: footerLink.faqJson ?? null,
-          internalLinks: null,
           robots: footerLink.robots ?? 'index,follow',
-          context: { citySlug, cityName: citySlug, localitySlug, categorySlug },
         };
+      }
+    }
+
+    // ── Priority 0.5: City SEO Pages (exact slug match) ───────────────────
+    // city_seo_pages stores rich content for city-level category pages
+    // (buy/rent/pg/commercial/new_projects per city). Match by exact slug.
+    if (urlSlug) {
+      const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+      const cityPage = await this.cityPageRepo.findOne({
+        where: { slug: normalized, isActive: true },
+      });
+      if (cityPage && (cityPage.h1 || cityPage.introContent || cityPage.seoContent || cityPage.faqs?.length)) {
+        const fields = normalizeOldFields(cityPage);
+        const ctx = { city: cityPage.cityName, locality: localitySlug ?? '', category: categorySlug ?? '' };
+        const resolved = applyPlaceholders(
+          {
+            source: 'city' as const,
+            ...fields,
+            context: { citySlug, cityName: cityPage.cityName, categorySlug },
+          },
+          ctx,
+        );
+        // Merge footer meta override on top if present
+        return footerMetaOverride ? { ...resolved, ...footerMetaOverride } : resolved;
       }
     }
 
@@ -172,7 +218,7 @@ export class SeoService {
       });
       if (row) {
         const ctx = { city: row.cityName, locality: row.localityName, category: categorySlug };
-        return applyPlaceholders(
+        const resolved = applyPlaceholders(
           {
             source: 'category_locality',
             h1Title: row.h1Title ?? null,
@@ -195,6 +241,7 @@ export class SeoService {
           },
           ctx,
         );
+        return footerMetaOverride ? { ...resolved, ...footerMetaOverride } : resolved;
       }
     }
 
@@ -205,7 +252,7 @@ export class SeoService {
       });
       if (row) {
         const ctx = { city: row.cityName, locality: localitySlug ?? '', category: categorySlug };
-        return applyPlaceholders(
+        const resolved = applyPlaceholders(
           {
             source: 'category_city',
             h1Title: row.h1Title ?? null,
@@ -226,6 +273,7 @@ export class SeoService {
           },
           ctx,
         );
+        return footerMetaOverride ? { ...resolved, ...footerMetaOverride } : resolved;
       }
     }
 
@@ -236,7 +284,7 @@ export class SeoService {
       });
       if (row) {
         const ctx = { city: row.cityName, locality: row.localityName, category: categorySlug ?? '' };
-        return applyPlaceholders(
+        const resolved = applyPlaceholders(
           {
             source: 'locality',
             h1Title: row.h1Title ?? null,
@@ -258,6 +306,7 @@ export class SeoService {
           },
           ctx,
         );
+        return footerMetaOverride ? { ...resolved, ...footerMetaOverride } : resolved;
       }
     }
 
@@ -267,7 +316,7 @@ export class SeoService {
       if (row && (row.metaTitle || row.h1)) {
         const fields = normalizeOldFields(row);
         const ctx = { city: row.name, locality: localitySlug ?? '', category: categorySlug ?? '' };
-        return applyPlaceholders(
+        const resolved = applyPlaceholders(
           {
             source: 'city',
             ...fields,
@@ -275,6 +324,7 @@ export class SeoService {
           },
           ctx,
         );
+        return footerMetaOverride ? { ...resolved, ...footerMetaOverride } : resolved;
       }
     }
 
@@ -284,7 +334,7 @@ export class SeoService {
       if (row && (row.metaTitle || row.h1)) {
         const fields = normalizeOldFields(row);
         const ctx = { city: citySlug ?? '', locality: localitySlug ?? '', category: row.name };
-        return applyPlaceholders(
+        const resolved = applyPlaceholders(
           {
             source: 'category',
             ...fields,
@@ -292,7 +342,23 @@ export class SeoService {
           },
           ctx,
         );
+        return footerMetaOverride ? { ...resolved, ...footerMetaOverride } : resolved;
       }
+    }
+
+    // If we have a footer meta override but no content from any priority,
+    // return the footer link data as-is (meta only, no page content shown)
+    if (footerMetaOverride) {
+      return {
+        source: 'footer_link',
+        h1Title: null,
+        introContent: null,
+        bottomContent: null,
+        faqJson: null,
+        internalLinks: null,
+        context: { citySlug, localitySlug, categorySlug },
+        ...footerMetaOverride,
+      } as SeoPageConfig;
     }
 
     return null;

@@ -22,6 +22,7 @@ import { PaymentService } from './payment.service';
 import { PaymentConfigService } from './payment-config.service';
 import { RefundService } from './refund.service';
 import { BillingService } from './billing.service';
+import { SystemConfigService } from '../system-config/system-config.service';
 import { CreateGatewayDto, UpdateGatewayDto } from './dto/admin-gateway.dto';
 import { InitiateRefundDto } from './dto/refund.dto';
 import { PaymentStatus } from './entities/payment-transaction.entity';
@@ -38,6 +39,7 @@ export class PaymentAdminController {
     private readonly configService: PaymentConfigService,
     private readonly refundService: RefundService,
     private readonly billingService: BillingService,
+    private readonly systemConfig: SystemConfigService,
   ) {}
 
   private assertAdmin(req: any) {
@@ -57,6 +59,39 @@ export class PaymentAdminController {
       this.billingService.isRealPaymentEnabled(),
     ]);
     return { ...stats, paymentEnabled: paymentMode };
+  }
+
+  // ─── Payment Mode Toggle ────────────────────────────────────────────────────
+
+  @Get('mode')
+  @ApiOperation({ summary: 'Get payment mode status (real money vs token-based)' })
+  async getPaymentMode(@Request() req: any) {
+    this.assertAdmin(req);
+    const [enabled, hasActiveGateway] = await Promise.all([
+      this.systemConfig.getBoolean('PAYMENT_ENABLED', false),
+      this.billingService.isRealPaymentEnabled(),
+    ]);
+    return { paymentEnabled: enabled, hasActiveGateway };
+  }
+
+  @Patch('mode')
+  @ApiOperation({ summary: 'Enable or disable real-money payment mode' })
+  async setPaymentMode(@Request() req: any, @Body() body: { enabled: boolean }) {
+    this.assertAdmin(req);
+    await this.systemConfig.set('PAYMENT_ENABLED', body.enabled, {
+      group: 'billing',
+      description: 'Enable real-money payments via configured gateway. When false, the platform uses token-based billing.',
+    });
+    const isActive = await this.billingService.isRealPaymentEnabled();
+    return {
+      paymentEnabled: body.enabled,
+      hasActiveGateway: isActive,
+      message: body.enabled
+        ? isActive
+          ? 'Real-money payments enabled.'
+          : 'Flag enabled but no active gateway — configure and activate a gateway.'
+        : 'Token-based billing restored.',
+    };
   }
 
   // ─── Transactions ──────────────────────────────────────────────────────────

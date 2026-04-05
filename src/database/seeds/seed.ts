@@ -20,6 +20,7 @@ import { Agency } from '../../modules/agency/entities/agency.entity';
 import { AgentProfile } from '../../modules/agency/entities/agent-profile.entity';
 import { PropertyAgentMap } from '../../modules/agency/entities/property-agent-map.entity';
 import { AgentLocationMap } from '../../modules/agency/entities/agent-location-map.entity';
+import { AgencyMember } from '../../modules/agency/entities/agency-member.entity';
 import { PropertyImage } from '../../modules/properties/entities/property-image.entity';
 import { Location } from '../../modules/locations/entities/location.entity';
 import { Inquiry } from '../../modules/inquiries/entities/inquiry.entity';
@@ -39,6 +40,8 @@ import { CategoryAnalytics } from '../../modules/analytics/entities/category-ana
 import { FooterSeoLink, FooterSeoLinkGroup } from '../../modules/seo/entities/footer-seo-link.entity';
 import { SeoConfig } from '../../modules/seo/entities/seo-config.entity';
 import { CityPage } from '../../modules/seo/entities/city-page.entity';
+import { Role } from '../../modules/rbac/entities/role.entity';
+import { Permission } from '../../modules/rbac/entities/permission.entity';
 
 console.log("DB USER:", process.env.DB_USERNAME);
 
@@ -49,7 +52,7 @@ const dataSource = new DataSource({
   username: process.env.DB_USERNAME || 'dpk1391981',
   password: process.env.DB_PASSWORD || 'Dpk1391981!',
   database: process.env.DB_NAME || 'realestate_db',
-  entities: [User, Amenity, Property, PropertyImage, Location, Inquiry, ServiceCatalog, Wallet, WalletTransaction, BoostPlan, SubscriptionPlan, State, City, Country, PropCategory, PropType, PropTypeAmenity, PropTypeField, CategoryAnalytics, FooterSeoLink, FooterSeoLinkGroup, SeoConfig, CityPage, Agency, AgentProfile, PropertyAgentMap, AgentLocationMap],
+  entities: [User, Role, Permission, Amenity, Property, PropertyImage, Location, Inquiry, ServiceCatalog, Wallet, WalletTransaction, BoostPlan, SubscriptionPlan, State, City, Country, PropCategory, PropType, PropTypeAmenity, PropTypeField, CategoryAnalytics, FooterSeoLink, FooterSeoLinkGroup, SeoConfig, CityPage, Agency, AgencyMember, AgentProfile, PropertyAgentMap, AgentLocationMap],
   synchronize: true,
 });
 

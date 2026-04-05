@@ -11,6 +11,8 @@ import { Amenity } from '../properties/entities/amenity.entity';
 import { ListingFilterConfig, FilterWidgetType } from './entities/listing-filter-config.entity';
 import { SearchKeywordMapping } from './entities/search-keyword-mapping.entity';
 
+let filterMigrationDone = false;
+
 const DEFAULT_FILTERS = [
   {
     filterKey: 'budget', label: 'Budget', icon: '₹',
@@ -43,13 +45,14 @@ const DEFAULT_FILTERS = [
     categories: ['buy', 'rent', 'pg'], defaultOpen: false, showOnMobile: true, sortOrder: 5,
   },
   {
-    filterKey: 'possessionStatus', label: 'Possession', icon: '🔑',
+    filterKey: 'possessionStatus', label: 'Possession Status', icon: '🔑',
     widgetType: FilterWidgetType.OPTION_SELECT,
     optionsJson: [
       { value: 'ready_to_move',      label: 'Ready to Move' },
       { value: 'under_construction', label: 'Under Construction' },
+      { value: 'ongoing_project',    label: 'Ongoing Project' },
     ],
-    categories: ['buy', 'builder_project', 'investment'], defaultOpen: false, showOnMobile: true, sortOrder: 6,
+    categories: ['buy', 'builder_project', 'new_projects', 'investment'], defaultOpen: true, showOnMobile: true, sortOrder: 6,
   },
   {
     filterKey: 'listedBy', label: 'Posted By', icon: '👤',
@@ -69,7 +72,7 @@ const DEFAULT_FILTERS = [
   {
     filterKey: 'builderName', label: 'Builder / Developer', icon: '🏗️',
     widgetType: FilterWidgetType.TEXT_INPUT,
-    optionsJson: null, categories: ['buy', 'builder_project', 'investment'], defaultOpen: false, showOnMobile: false, sortOrder: 9,
+    optionsJson: null, categories: ['buy', 'builder_project', 'new_projects', 'investment'], defaultOpen: false, showOnMobile: false, sortOrder: 9,
   },
   {
     filterKey: 'isVerified', label: 'Verified Only', icon: '✅',
@@ -79,7 +82,7 @@ const DEFAULT_FILTERS = [
   {
     filterKey: 'isNewProject', label: 'New Projects', icon: '⭐',
     widgetType: FilterWidgetType.TOGGLE_BOOLEAN,
-    optionsJson: null, categories: ['buy', 'builder_project', 'investment'], defaultOpen: false, showOnMobile: true, sortOrder: 11,
+    optionsJson: null, categories: ['buy', 'builder_project', 'investment'], defaultOpen: false, showOnMobile: true, sortOrder: 12,
   },
 ];
 
@@ -360,6 +363,28 @@ export class PropertyConfigService {
     if (count === 0) {
       const rows = DEFAULT_FILTERS.map(f => this.lfcRepo.create({ ...f, isActive: true }));
       await this.lfcRepo.save(rows);
+    } else if (!filterMigrationDone) {
+      filterMigrationDone = true;
+      // Migrate possessionStatus: ensure new_projects included + ongoing_project option present
+      const poss = await this.lfcRepo.findOne({ where: { filterKey: 'possessionStatus' } });
+      if (poss) {
+        let changed = false;
+        if (!poss.categories?.includes('new_projects')) {
+          poss.categories = [...(poss.categories || []), 'new_projects'];
+          changed = true;
+        }
+        if (!poss.optionsJson?.some((o: any) => o.value === 'ongoing_project')) {
+          poss.optionsJson = [...(poss.optionsJson || []), { value: 'ongoing_project', label: 'Ongoing Project' }];
+          changed = true;
+        }
+        if (changed) await this.lfcRepo.save(poss);
+      }
+      // Migrate builderName: ensure new_projects included
+      const builder = await this.lfcRepo.findOne({ where: { filterKey: 'builderName' } });
+      if (builder && !builder.categories?.includes('new_projects')) {
+        builder.categories = [...(builder.categories || []), 'new_projects'];
+        await this.lfcRepo.save(builder);
+      }
     }
     const all = await this.lfcRepo.find({
       where: { isActive: true },

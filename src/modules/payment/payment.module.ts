@@ -29,10 +29,12 @@ import { PaymentAdminController } from './payment-admin.controller';
 
 // External module dependencies
 import { WalletModule } from '../wallet/wallet.module';
+import { SystemConfigModule } from '../system-config/system-config.module';
 
 @Module({
   imports: [
     ConfigModule,
+    SystemConfigModule,
     TypeOrmModule.forFeature([
       PaymentGateway,
       PaymentTransaction,

@@ -124,6 +124,7 @@ import { SupportModule } from './modules/support/support.module';
 import { SupportTicket } from './modules/support/entities/support-ticket.entity';
 import { LocationImportModule } from './modules/location-import/location-import.module';
 import { LocationImportJob } from './modules/location-import/entities/location-import-job.entity';
+import { BuildersModule } from './modules/builders/builders.module';
 
 @Module({
   imports: [
@@ -262,6 +263,7 @@ import { LocationImportJob } from './modules/location-import/entities/location-i
     MediaProcessingModule,
     SupportModule,
     LocationImportModule,
+    BuildersModule,
     HealthModule,
   ],
   providers: [
