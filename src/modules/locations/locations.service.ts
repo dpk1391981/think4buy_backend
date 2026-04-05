@@ -285,7 +285,6 @@ export class LocationsService {
        FROM states s
        LEFT JOIN properties p
          ON LOWER(p.state) = LOWER(s.name)
-        AND p.status = 'active'
        WHERE s.isActive = 1
        GROUP BY s.id, s.name, s.slug, s.code, s.imageUrl, s.propertyCount
        ORDER BY totalListings DESC, s.propertyCount DESC`,
@@ -315,20 +314,8 @@ export class LocationsService {
         c.name        AS cityName,
         c.slug,
         c.imageUrl    AS image,
-        COUNT(p.id)   AS total,
-        SUM(CASE WHEN p.type IN ('plot','land')                                          THEN 1 ELSE 0 END) AS plots,
-        SUM(CASE WHEN p.type IN ('apartment','studio','penthouse','builder_floor','co_living') THEN 1 ELSE 0 END) AS flats,
-        SUM(CASE WHEN p.type IN ('house','villa','farm_house')                           THEN 1 ELSE 0 END) AS independentHouse
-       FROM cities c
-       INNER JOIN properties p
-         ON LOWER(p.city) = LOWER(c.name)
-        AND p.status = 'active'
-        AND p.approvalStatus = 'approved'
-        AND p.isDraft = 0
-       WHERE c.isActive = 1
-       GROUP BY c.id, c.name, c.slug, c.imageUrl
-       HAVING total > 0
-       ORDER BY total DESC
+        c.isActive
+       FROM cities c where c.isActive = 1
        LIMIT ?`,
       [limit],
     );
