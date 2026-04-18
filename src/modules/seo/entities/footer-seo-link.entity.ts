@@ -8,6 +8,16 @@ export class FooterSeoLinkGroup {
   @Column({ length: 200 })
   title: string;
 
+  @Column({ length: 36, nullable: true })
+  cityId: string;
+
+  @Column({ length: 150, nullable: true })
+  cityName: string;
+
+  // e.g. 'buy' | 'rent' | 'flats' | 'flats-rent' | 'villas' | 'plots' | 'commercial' | 'office' | 'new-projects' | 'pg'
+  @Column({ length: 50, nullable: true })
+  category: string;
+
   @Column({ type: 'int', default: 0 })
   sortOrder: number;
 
@@ -38,6 +48,12 @@ export class FooterSeoLink {
 
   @Column({ length: 500 })
   url: string;
+
+  @Column({ length: 36, nullable: true })
+  localityId: string;
+
+  @Column({ length: 150, nullable: true })
+  localityName: string;
 
   @Column({ type: 'int', default: 0 })
   sortOrder: number;
