@@ -1,4 +1,32 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+
+@Entity('footer_seo_categories')
+export class FooterSeoCategory {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Index({ unique: true })
+  @Column({ length: 50 })
+  value: string;        // slug e.g. 'buy', 'flats', 'villas'
+
+  @Column({ length: 150 })
+  label: string;        // e.g. 'Property for Sale'
+
+  @Column({ length: 80 })
+  short: string;        // e.g. 'Buy'
+
+  @Column({ type: 'int', default: 0 })
+  sortOrder: number;
+
+  @Column({ default: true })
+  isActive: boolean;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+}
 
 @Entity('footer_seo_link_groups')
 export class FooterSeoLinkGroup {

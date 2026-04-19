@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CityPage } from './entities/city-page.entity';
 import { SeoConfig } from './entities/seo-config.entity';
-import { FooterSeoLink, FooterSeoLinkGroup } from './entities/footer-seo-link.entity';
+import { FooterSeoLink, FooterSeoLinkGroup, FooterSeoCategory } from './entities/footer-seo-link.entity';
 import { LocalitySeo } from './entities/locality-seo.entity';
 import { CategoryCitySeo } from './entities/category-city-seo.entity';
 import { CategoryLocalitySeo } from './entities/category-locality-seo.entity';
@@ -99,6 +99,7 @@ export class SeoService {
     @InjectRepository(SeoConfig) private seoConfigRepo: Repository<SeoConfig>,
     @InjectRepository(FooterSeoLink) private footerLinkRepo: Repository<FooterSeoLink>,
     @InjectRepository(FooterSeoLinkGroup) private footerGroupRepo: Repository<FooterSeoLinkGroup>,
+    @InjectRepository(FooterSeoCategory) private footerCategoryRepo: Repository<FooterSeoCategory>,
     @InjectRepository(PropCategory) private propCategoryRepo: Repository<PropCategory>,
     @InjectRepository(City) private cityRepo: Repository<City>,
     @InjectRepository(LocalitySeo) private localitySeoRepo: Repository<LocalitySeo>,
@@ -736,5 +737,39 @@ export class SeoService {
     if (!row) throw new NotFoundException('Property City SEO not found');
     await this.propertyCitySeoRepo.remove(row);
     return { message: 'Property City SEO deleted' };
+  }
+
+  // ── Footer Categories CRUD ────────────────────────────────────────────────
+
+  async getActiveFooterCategories(): Promise<FooterSeoCategory[]> {
+    return this.footerCategoryRepo.find({ where: { isActive: true }, order: { sortOrder: 'ASC', createdAt: 'ASC' } });
+  }
+
+  async getAllFooterCategories(): Promise<FooterSeoCategory[]> {
+    return this.footerCategoryRepo.find({ order: { sortOrder: 'ASC', createdAt: 'ASC' } });
+  }
+
+  async createFooterCategory(data: Partial<FooterSeoCategory>): Promise<FooterSeoCategory> {
+    const existing = await this.footerCategoryRepo.findOne({ where: { value: data.value } });
+    if (existing) throw new ConflictException(`Category slug "${data.value}" already exists`);
+    return this.footerCategoryRepo.save(this.footerCategoryRepo.create(data));
+  }
+
+  async updateFooterCategory(id: string, data: Partial<FooterSeoCategory>): Promise<FooterSeoCategory> {
+    const row = await this.footerCategoryRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Footer category not found');
+    if (data.value && data.value !== row.value) {
+      const exists = await this.footerCategoryRepo.findOne({ where: { value: data.value } });
+      if (exists) throw new ConflictException(`Category slug "${data.value}" already exists`);
+    }
+    Object.assign(row, data);
+    return this.footerCategoryRepo.save(row);
+  }
+
+  async deleteFooterCategory(id: string): Promise<{ message: string }> {
+    const row = await this.footerCategoryRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Footer category not found');
+    await this.footerCategoryRepo.remove(row);
+    return { message: 'Footer category deleted' };
   }
 }

@@ -89,6 +89,14 @@ export class SeoController {
     return this.seoService.getCategoryLocalitySeoBySlug(slug);
   }
 
+  // ── Public: Footer Categories ─────────────────────────────────────────────
+
+  @Get('footer-categories')
+  @ApiOperation({ summary: 'Get active footer categories (public)' })
+  getActiveFooterCategories() {
+    return this.seoService.getActiveFooterCategories();
+  }
+
   // ── Public: Footer Links ──────────────────────────────────────────────────
 
   @Get('footer-links')
@@ -426,6 +434,44 @@ export class SeoController {
   deletePropertyCitySeo(@Request() req, @Param('id') id: string) {
     this.assertAdmin(req);
     return this.seoService.deletePropertyCitySeo(id);
+  }
+
+  // ── Admin: Footer Categories ──────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('admin/footer-categories')
+  @ApiOperation({ summary: 'List all footer categories (admin)' })
+  getAllFooterCategories(@Request() req) {
+    this.assertAdmin(req);
+    return this.seoService.getAllFooterCategories();
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('admin/footer-categories')
+  @ApiOperation({ summary: 'Create footer category (admin)' })
+  createFooterCategory(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.createFooterCategory(body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Patch('admin/footer-categories/:id')
+  @ApiOperation({ summary: 'Update footer category (admin)' })
+  updateFooterCategory(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.updateFooterCategory(id, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Delete('admin/footer-categories/:id')
+  @ApiOperation({ summary: 'Delete footer category (admin)' })
+  deleteFooterCategory(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.seoService.deleteFooterCategory(id);
   }
 
   // ── Admin: Footer Groups ──────────────────────────────────────────────────
