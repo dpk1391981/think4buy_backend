@@ -1259,6 +1259,13 @@ export class PropertiesService {
       industrial:      ['factory', 'industrial_shed'],
       builder_project: ['apartment', 'flat', 'villa', 'house', 'builder_floor', 'studio'],
       investment:      ['apartment', 'flat', 'villa', 'plot', 'land', 'commercial_office'],
+      // Footer/display category slugs — mapped to real type lists so SEO pages get results
+      flats:           ['apartment', 'flat', 'builder_floor'],
+      'flats-rent':    ['apartment', 'flat', 'builder_floor'],
+      villas:          ['villa', 'farm_house'],
+      plots:           ['plot', 'land'],
+      'new-projects':  ['apartment', 'flat', 'villa', 'house', 'builder_floor', 'studio'],
+      office:          ['commercial_office'],
     };
 
     if (filters.category) {
