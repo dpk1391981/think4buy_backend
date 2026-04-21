@@ -512,7 +512,98 @@ export class SeoController {
     return this.seoService.deleteFooterGroup(id);
   }
 
+  // ── Admin: Quick SEO ─────────────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('admin/quick-seo/preview')
+  @ApiOperation({ summary: 'Preview bulk SEO pages that will be generated (admin)' })
+  quickSeoPreview(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.quickSeoPreview(body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('admin/quick-seo/apply')
+  @ApiOperation({ summary: 'Bulk apply SEO content to category+locality pages (admin)' })
+  quickSeoApply(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.quickSeoApply(body);
+  }
+
+  // ── Admin: Quick SEO Templates ────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('admin/quick-seo/templates')
+  @ApiOperation({ summary: 'List all Quick SEO templates (admin)' })
+  listTemplates(@Request() req) {
+    this.assertAdmin(req);
+    return this.seoService.listQuickSeoTemplates();
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('admin/quick-seo/templates')
+  @ApiOperation({ summary: 'Save a Quick SEO template (admin)' })
+  createTemplate(@Request() req, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.createQuickSeoTemplate(body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Patch('admin/quick-seo/templates/:id')
+  @ApiOperation({ summary: 'Update a Quick SEO template (admin)' })
+  updateTemplate(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.updateQuickSeoTemplate(id, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Delete('admin/quick-seo/templates/:id')
+  @ApiOperation({ summary: 'Delete a Quick SEO template (admin)' })
+  deleteTemplate(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.seoService.deleteQuickSeoTemplate(id);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Post('admin/quick-seo/templates/:id/apply')
+  @ApiOperation({ summary: 'Apply a Quick SEO template to a scope (admin)' })
+  applyTemplate(@Request() req, @Param('id') id: string, @Body() body: any) {
+    this.assertAdmin(req);
+    return this.seoService.applyQuickSeoTemplate(id, body);
+  }
+
   // ── Admin: Footer Links ───────────────────────────────────────────────────
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('admin/footer-links/all')
+  @ApiOperation({ summary: 'Paginated list of all footer SEO link pages (admin)' })
+  getAllFooterLinks(
+    @Request() req,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('category') category?: string,
+    @Query('city') city?: string,
+    @Query('isActive') isActive?: string,
+  ) {
+    this.assertAdmin(req);
+    return this.seoService.getAllFooterLinksPageable({
+      page:     page     ? Number(page)     : undefined,
+      limit:    limit    ? Number(limit)    : undefined,
+      search:   search   || undefined,
+      category: category || undefined,
+      city:     city     || undefined,
+      isActive: isActive !== undefined ? isActive === 'true' : undefined,
+    });
+  }
 
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()

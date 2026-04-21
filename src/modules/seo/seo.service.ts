@@ -9,8 +9,10 @@ import { CategoryCitySeo } from './entities/category-city-seo.entity';
 import { CategoryLocalitySeo } from './entities/category-locality-seo.entity';
 import { AgentCitySeo } from './entities/agent-city-seo.entity';
 import { PropertyCitySeo } from './entities/property-city-seo.entity';
+import { QuickSeoTemplate } from './entities/quick-seo-template.entity';
 import { PropCategory } from '../property-config/entities/prop-category.entity';
 import { City } from '../locations/entities/city.entity';
+import { Location } from '../locations/entities/location.entity';
 
 // ── Normalized SEO config returned by the resolver ───────────────────────────
 
@@ -107,6 +109,8 @@ export class SeoService {
     @InjectRepository(CategoryLocalitySeo) private categoryLocalitySeoRepo: Repository<CategoryLocalitySeo>,
     @InjectRepository(AgentCitySeo) private agentCitySeoRepo: Repository<AgentCitySeo>,
     @InjectRepository(PropertyCitySeo) private propertyCitySeoRepo: Repository<PropertyCitySeo>,
+    @InjectRepository(Location) private locationRepo: Repository<Location>,
+    @InjectRepository(QuickSeoTemplate) private quickSeoTemplateRepo: Repository<QuickSeoTemplate>,
   ) {}
 
   // ── SEO Listing Page Resolver ─────────────────────────────────────────────
@@ -134,8 +138,14 @@ export class SeoService {
     // ── Priority 0: Footer Link SEO ───────────────────────────────────────
     // Exact URL match against footer_seo_links — takes precedence over all
     // other levels so admins can fully control programmatic SEO pages.
+    // Quick SEO always writes records here, so every Quick-SEO-generated page
+    // automatically gets highest-priority content resolution.
     //
-    // If the footer link has full page content (h1/intro/bottom) it returns
+    // NOTE: isActive is NOT checked here — showInFooter only controls footer-nav
+    // visibility; the SEO content of a footer link is always authoritative
+    // regardless of whether it is visible in the site footer.
+    //
+    // If the footer link has full page content (h1/intro/bottom/faq) it returns
     // immediately.  If it only carries meta tags (metaTitle / metaDescription /
     // metaKeywords / canonicalUrl), we save those overrides and continue
     // checking lower-priority sources for actual page content, then merge.
@@ -144,19 +154,20 @@ export class SeoService {
       const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
       const footerLink = await this.footerLinkRepo
         .createQueryBuilder('fl')
-        .where('fl.isActive = 1')
-        .andWhere(
+        // NOTE: intentionally no isActive filter — content is served even when
+        // the link is hidden from the footer nav (showInFooter=false → isActive=false).
+        .where(
           "(LOWER(TRIM(BOTH '/' FROM fl.url)) = :slug OR LOWER(TRIM(BOTH '/' FROM fl.url)) = :slashSlug)",
           { slug: normalized, slashSlug: '/' + normalized },
         )
         .andWhere(
-          '(fl.metaTitle IS NOT NULL OR fl.h1Title IS NOT NULL OR fl.introContent IS NOT NULL)',
+          '(fl.metaTitle IS NOT NULL OR fl.h1Title IS NOT NULL OR fl.introContent IS NOT NULL OR fl.bottomContent IS NOT NULL OR fl.faqJson IS NOT NULL)',
         )
         .getOne();
 
       if (footerLink) {
         const hasContent =
-          footerLink.h1Title || footerLink.introContent || footerLink.bottomContent || footerLink.faqJson;
+          footerLink.h1Title || footerLink.introContent || footerLink.bottomContent || footerLink.faqJson?.length;
 
         if (hasContent) {
           // Full override — return immediately
@@ -208,6 +219,78 @@ export class SeoService {
           ctx,
         );
         // Merge footer meta override on top if present
+        return footerMetaOverride ? { ...resolved, ...footerMetaOverride } : resolved;
+      }
+    }
+
+    // ── Priority 0.7: Category+Locality SEO by URL slug ──────────────────
+    // Quick SEO creates records whose slug field IS the canonical URL.
+    // Doing a slug-based lookup here means the resolver works regardless of
+    // whether the category slug stored in the record matches what the URL
+    // parser emitted (e.g. "flats" stored vs "buy" parsed from LISTING_PREFIXES).
+    if (urlSlug) {
+      const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+      const row = await this.categoryLocalitySeoRepo.findOne({
+        where: { slug: normalized, isActive: true },
+      });
+      if (row) {
+        const ctx = { city: row.cityName, locality: row.localityName, category: row.categorySlug };
+        const resolved = applyPlaceholders(
+          {
+            source: 'category_locality' as const,
+            h1Title: row.h1Title ?? null,
+            metaTitle: row.metaTitle ?? null,
+            metaDescription: row.metaDescription ?? null,
+            metaKeywords: row.metaKeywords ?? null,
+            canonicalUrl: row.canonicalUrl ?? null,
+            introContent: row.introContent ?? null,
+            bottomContent: row.bottomContent ?? null,
+            faqJson: row.faqJson ?? null,
+            internalLinks: row.internalLinks ?? null,
+            robots: row.robots ?? 'index,follow',
+            context: {
+              categorySlug: row.categorySlug,
+              citySlug: row.citySlug,
+              cityName: row.cityName,
+              localitySlug: row.localitySlug,
+              localityName: row.localityName,
+            },
+          },
+          ctx,
+        );
+        return footerMetaOverride ? { ...resolved, ...footerMetaOverride } : resolved;
+      }
+    }
+
+    // ── Priority 0.8: Category+City SEO by URL slug ───────────────────────
+    if (urlSlug) {
+      const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+      const row = await this.categoryCitySeoRepo.findOne({
+        where: { slug: normalized, isActive: true },
+      });
+      if (row) {
+        const ctx = { city: row.cityName, locality: localitySlug ?? '', category: row.categorySlug };
+        const resolved = applyPlaceholders(
+          {
+            source: 'category_city' as const,
+            h1Title: row.h1Title ?? null,
+            metaTitle: row.metaTitle ?? null,
+            metaDescription: row.metaDescription ?? null,
+            metaKeywords: row.metaKeywords ?? null,
+            canonicalUrl: row.canonicalUrl ?? null,
+            introContent: row.introContent ?? null,
+            bottomContent: row.bottomContent ?? null,
+            faqJson: row.faqJson ?? null,
+            internalLinks: row.internalLinks ?? null,
+            robots: row.robots ?? 'index,follow',
+            context: {
+              categorySlug: row.categorySlug,
+              citySlug: row.citySlug,
+              cityName: row.cityName,
+            },
+          },
+          ctx,
+        );
         return footerMetaOverride ? { ...resolved, ...footerMetaOverride } : resolved;
       }
     }
@@ -637,6 +720,62 @@ export class SeoService {
     return this.footerLinkRepo.find({ where: { groupId }, order: { sortOrder: 'ASC' } });
   }
 
+  async getAllFooterLinksPageable(params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    category?: string;
+    city?: string;
+    isActive?: boolean;
+  }) {
+    const page  = params.page  ?? 1;
+    const limit = Math.min(params.limit ?? 50, 200);
+
+    const qb = this.footerLinkRepo
+      .createQueryBuilder('fl')
+      .leftJoinAndSelect('fl.group', 'fg')
+      .orderBy('fg.category', 'ASC')
+      .addOrderBy('fg.cityName', 'ASC')
+      .addOrderBy('fl.localityName', 'ASC');
+
+    if (params.search) {
+      qb.andWhere(
+        '(fl.label LIKE :s OR fl.url LIKE :s OR fl.metaTitle LIKE :s OR fl.localityName LIKE :s)',
+        { s: `%${params.search}%` },
+      );
+    }
+    if (params.category) {
+      qb.andWhere('fg.category = :cat', { cat: params.category });
+    }
+    if (params.city) {
+      qb.andWhere('fg.cityName LIKE :city', { city: `%${params.city}%` });
+    }
+    if (params.isActive !== undefined) {
+      qb.andWhere('fl.isActive = :active', { active: params.isActive });
+    }
+
+    const total = await qb.getCount();
+    const items = await qb.skip((page - 1) * limit).take(limit).getMany();
+
+    const enriched = items.map(link => ({
+      id:           link.id,
+      label:        link.label,
+      url:          link.url,
+      localityName: link.localityName,
+      isActive:     link.isActive,
+      metaTitle:    link.metaTitle,
+      h1Title:      link.h1Title,
+      robots:       link.robots,
+      groupId:      link.groupId,
+      groupTitle:   (link as any).group?.title ?? null,
+      category:     (link as any).group?.category ?? null,
+      cityName:     (link as any).group?.cityName ?? null,
+      type:         link.localityName ? 'locality' : 'city',
+    }));
+
+    return { items: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
   async createFooterLink(data: Partial<FooterSeoLink>): Promise<FooterSeoLink> {
     return this.footerLinkRepo.save(this.footerLinkRepo.create(data));
   }
@@ -771,5 +910,413 @@ export class SeoService {
     if (!row) throw new NotFoundException('Footer category not found');
     await this.footerCategoryRepo.remove(row);
     return { message: 'Footer category deleted' };
+  }
+
+  // ── Quick SEO ─────────────────────────────────────────────────────────────
+
+  private toSlug(text: string): string {
+    return text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-');
+  }
+
+  private applyQuickSeoVars(
+    text: string | null | undefined,
+    t: { cityName: string; localityName: string; categorySlug: string },
+  ): string | null {
+    if (!text) return null;
+    let result = text
+      .replace(/\{city\}/gi, t.cityName)
+      .replace(/\{locality\}/gi, t.localityName)
+      .replace(/\{category\}/gi, t.categorySlug);
+
+    // When locality is empty (city-level pages), remove orphaned separators
+    // so "Flats for Sale in , Delhi" → "Flats for Sale in Delhi"
+    if (!t.localityName) {
+      result = result
+        .replace(/\s*,\s*,/g, ',')           // double commas
+        .replace(/\bin\s*,\s*/gi, 'in ')      // "in , City" → "in City"
+        .replace(/,\s*([A-Z])/g, ', $1')      // normalise comma+space
+        .replace(/\(\s*,\s*/g, '(')           // "( , City)" → "(City)"
+        .replace(/,\s*\)/g, ')')              // "(Locality, )" → "(Locality)"
+        .replace(/^\s*,\s*/g, '')             // leading comma
+        .replace(/\s*,\s*$/g, '')             // trailing comma
+        .replace(/\s{2,}/g, ' ')              // collapse multiple spaces
+        .trim();
+    }
+
+    return result || null;
+  }
+
+  private generateQuickSlug(pattern: string, categorySlug: string, citySlug: string, localitySlug: string): string {
+    return pattern
+      .replace(/\{category\}/g, categorySlug)
+      .replace(/\{city\}/g, citySlug)
+      .replace(/\{locality\}/g, localitySlug)
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
+  private async getCategoryLabel(categorySlug: string): Promise<string> {
+    const cat = await this.footerCategoryRepo.findOne({ where: { value: categorySlug } });
+    if (cat) return cat.label;
+    const LABELS: Record<string, string> = {
+      buy: 'Property for Sale', rent: 'Property for Rent',
+      flats: 'Flats for Sale', 'flats-rent': 'Flats for Rent',
+      villas: 'Villas for Sale', plots: 'Plots for Sale',
+      commercial: 'Commercial Property', office: 'Office Space',
+      'new-projects': 'New Projects', pg: 'PG / Co-Living',
+      industrial: 'Industrial Property', investment: 'Investment Property',
+      builder_project: 'New Projects',
+    };
+    return LABELS[categorySlug] || categorySlug;
+  }
+
+  private async resolveQuickSeoTargets(body: {
+    categorySlug: string;
+    citySlug?: string;
+    localitySlug?: string;
+  }): Promise<{ categorySlug: string; citySlug: string; cityName: string; cityId?: string; localitySlug: string; localityName: string; localityId?: string }[]> {
+    const { categorySlug, citySlug, localitySlug } = body;
+    const MAX_ITEMS = 500;
+    const targets: { categorySlug: string; citySlug: string; cityName: string; cityId?: string; localitySlug: string; localityName: string; localityId?: string }[] = [];
+
+    if (citySlug && localitySlug) {
+      const city = await this.cityRepo.findOne({ where: { slug: citySlug } });
+      if (!city) throw new NotFoundException(`City not found: ${citySlug}`);
+      const allLocs = await this.locationRepo.find({ where: { city: city.name, isActive: true } });
+      const match = allLocs.find(l => this.toSlug(l.locality) === localitySlug);
+      if (match) {
+        targets.push({ categorySlug, citySlug, cityName: city.name, cityId: city.id, localitySlug, localityName: match.locality, localityId: match.id });
+      } else {
+        targets.push({ categorySlug, citySlug, cityName: city.name, cityId: city.id, localitySlug, localityName: localitySlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) });
+      }
+    } else if (citySlug) {
+      const city = await this.cityRepo.findOne({ where: { slug: citySlug } });
+      if (!city) throw new NotFoundException(`City not found: ${citySlug}`);
+      const locs = await this.locationRepo.find({ where: { city: city.name, isActive: true }, take: MAX_ITEMS });
+      const unique = Array.from(new Map(locs.filter(l => l.locality).map(l => [l.locality, l])).values());
+      for (const loc of unique) {
+        targets.push({ categorySlug, citySlug, cityName: city.name, cityId: city.id, localitySlug: this.toSlug(loc.locality), localityName: loc.locality, localityId: loc.id });
+      }
+    } else {
+      const cities = await this.cityRepo.find({ where: { isActive: true }, take: 100 });
+      const perCity = Math.max(1, Math.floor(MAX_ITEMS / Math.max(cities.length, 1)));
+      for (const city of cities) {
+        if (!city.slug || targets.length >= MAX_ITEMS) break;
+        const locs = await this.locationRepo.find({ where: { city: city.name, isActive: true }, take: perCity });
+        const unique = Array.from(new Map(locs.filter(l => l.locality).map(l => [l.locality, l])).values());
+        for (const loc of unique) {
+          if (targets.length >= MAX_ITEMS) break;
+          targets.push({ categorySlug, citySlug: city.slug, cityName: city.name, cityId: city.id, localitySlug: this.toSlug(loc.locality), localityName: loc.locality, localityId: loc.id });
+        }
+      }
+    }
+
+    return targets;
+  }
+
+  // ── Quick SEO Preview ─────────────────────────────────────────────────────
+  // Checks footer_seo_links for existence so preview accurately reflects
+  // what would be created vs updated vs skipped.
+
+  async quickSeoPreview(body: {
+    categorySlug: string;
+    citySlug?: string;
+    localitySlug?: string;
+    slugPattern?: string;
+    citySlugPattern?: string;
+    includeCityPage?: boolean;
+    template: {
+      h1Title?: string;
+      metaTitle?: string;
+      metaDescription?: string;
+      metaKeywords?: string;
+      canonicalUrl?: string;
+      introContent?: string;
+      bottomContent?: string;
+      faqJson?: { question: string; answer: string }[];
+      robots?: string;
+    };
+  }): Promise<{
+    total: number;
+    items: {
+      type: 'city' | 'locality';
+      cityName: string;
+      localityName: string;
+      citySlug: string;
+      localitySlug: string;
+      slug: string;
+      exists: boolean;
+      previewMetaTitle: string | null;
+      previewH1: string | null;
+    }[];
+  }> {
+    const localityPattern = body.slugPattern || '{category}-in-{city}-{locality}';
+    const cityPattern = body.citySlugPattern || '{category}-in-{city}';
+    const targets = await this.resolveQuickSeoTargets(body);
+    const items: any[] = [];
+
+    // City-level pages (one per unique city)
+    if (body.includeCityPage) {
+      const seenCities = new Set<string>();
+      for (const t of targets) {
+        if (seenCities.has(t.citySlug)) continue;
+        seenCities.add(t.citySlug);
+        const slug = this.generateQuickSlug(cityPattern, t.categorySlug, t.citySlug, '');
+        const url = `/${slug}`;
+        const existing = await this.footerLinkRepo.findOne({ where: { url } });
+        const ctx = { ...t, localityName: '' };
+        items.push({
+          type: 'city',
+          cityName: t.cityName,
+          localityName: '',
+          citySlug: t.citySlug,
+          localitySlug: '',
+          slug,
+          exists: !!existing,
+          previewMetaTitle: this.applyQuickSeoVars(body.template.metaTitle, ctx),
+          previewH1: this.applyQuickSeoVars(body.template.h1Title, ctx),
+        });
+      }
+    }
+
+    // Locality-level pages
+    for (const t of targets) {
+      const slug = this.generateQuickSlug(localityPattern, t.categorySlug, t.citySlug, t.localitySlug);
+      const url = `/${slug}`;
+      const existing = await this.footerLinkRepo.findOne({ where: { url } });
+      items.push({
+        type: 'locality',
+        cityName: t.cityName,
+        localityName: t.localityName,
+        citySlug: t.citySlug,
+        localitySlug: t.localitySlug,
+        slug,
+        exists: !!existing,
+        previewMetaTitle: this.applyQuickSeoVars(body.template.metaTitle, t),
+        previewH1: this.applyQuickSeoVars(body.template.h1Title, t),
+      });
+    }
+
+    return { total: items.length, items };
+  }
+
+  // ── Quick SEO Apply ───────────────────────────────────────────────────────
+  // Writes to footer_seo_link_groups + footer_seo_links so that:
+  //  - Pages appear in the Footer SEO Links admin panel
+  //  - Pages appear in the public footer (when showInFooter = true)
+  //  - The SEO resolver Priority 0 (footer_link URL match) picks them up
+
+  async quickSeoApply(body: {
+    categorySlug: string;
+    citySlug?: string;
+    localitySlug?: string;
+    slugPattern?: string;
+    citySlugPattern?: string;
+    overwriteExisting?: boolean;
+    showInFooter?: boolean;
+    includeCityPage?: boolean;
+    template: {
+      h1Title?: string;
+      metaTitle?: string;
+      metaDescription?: string;
+      metaKeywords?: string;
+      canonicalUrl?: string;
+      introContent?: string;
+      bottomContent?: string;
+      faqJson?: { question: string; answer: string }[];
+      robots?: string;
+    };
+  }): Promise<{ created: number; updated: number; skipped: number; failed: number; total: number }> {
+    const localityPattern = body.slugPattern || '{category}-in-{city}-{locality}';
+    const cityPattern = body.citySlugPattern || '{category}-in-{city}';
+    // Footer links are ALWAYS active (their SEO content is live).
+    // showInFooter controls only whether the group appears in the public footer nav.
+    const groupActive = body.showInFooter !== false;
+    const targets = await this.resolveQuickSeoTargets(body);
+    const catLabel = await this.getCategoryLabel(body.categorySlug);
+
+    let created = 0, updated = 0, skipped = 0, failed = 0;
+
+    // Build a map of city slug → group (find or create one group per category+city)
+    const groupMap = new Map<string, FooterSeoLinkGroup>();
+    const citySet = new Map<string, { cityName: string; cityId?: string }>();
+    for (const t of targets) {
+      if (!citySet.has(t.citySlug)) citySet.set(t.citySlug, { cityName: t.cityName, cityId: t.cityId });
+    }
+
+    for (const [cs, cityData] of citySet.entries()) {
+      let group = await this.footerGroupRepo.findOne({
+        where: { category: body.categorySlug, cityName: cityData.cityName },
+      });
+      if (!group) {
+        group = this.footerGroupRepo.create({
+          title: `${catLabel} in ${cityData.cityName}`,
+          category: body.categorySlug,
+          cityName: cityData.cityName,
+          cityId: cityData.cityId || null,
+          isActive: groupActive,   // controls footer nav visibility only
+          sortOrder: 0,
+        });
+        group = await this.footerGroupRepo.save(group);
+      } else if (body.overwriteExisting) {
+        group.isActive = groupActive;
+        group = await this.footerGroupRepo.save(group);
+      }
+      groupMap.set(cs, group);
+
+      // City-level page (one per city, no locality in URL)
+      if (body.includeCityPage) {
+        const slug = this.generateQuickSlug(cityPattern, body.categorySlug, cs, '');
+        const url = `/${slug}`;
+        const ctx = { categorySlug: body.categorySlug, citySlug: cs, cityName: cityData.cityName, localitySlug: '', localityName: '' };
+        const seoData = {
+          groupId: group.id,
+          label: `${catLabel} in ${cityData.cityName}`,
+          url,
+          localityName: null as string | null,
+          localityId: null as string | null,
+          isActive: true,          // SEO content is always live regardless of footer nav visibility
+          sortOrder: 0,
+          h1Title: this.applyQuickSeoVars(body.template.h1Title, ctx),
+          metaTitle: this.applyQuickSeoVars(body.template.metaTitle, ctx),
+          metaDescription: this.applyQuickSeoVars(body.template.metaDescription, ctx),
+          metaKeywords: this.applyQuickSeoVars(body.template.metaKeywords, ctx),
+          canonicalUrl: this.applyQuickSeoVars(body.template.canonicalUrl, ctx),
+          introContent: this.applyQuickSeoVars(body.template.introContent, ctx),
+          bottomContent: this.applyQuickSeoVars(body.template.bottomContent, ctx),
+          faqJson: body.template.faqJson?.map(f => ({
+            question: this.applyQuickSeoVars(f.question, ctx) ?? f.question,
+            answer: this.applyQuickSeoVars(f.answer, ctx) ?? f.answer,
+          })) ?? null,
+          robots: body.template.robots || 'index,follow',
+        };
+        const existingCity = await this.footerLinkRepo.findOne({ where: { url } });
+        if (existingCity && !body.overwriteExisting) {
+          skipped++;
+        } else if (existingCity) {
+          Object.assign(existingCity, seoData);
+          await this.footerLinkRepo.save(existingCity);
+          updated++;
+        } else {
+          await this.footerLinkRepo.save(this.footerLinkRepo.create(seoData));
+          created++;
+        }
+      }
+    }
+
+    // Locality-level pages
+    for (const t of targets) {
+      try {
+        const group = groupMap.get(t.citySlug);
+        if (!group) { failed++; continue; }
+
+        const slug = this.generateQuickSlug(localityPattern, t.categorySlug, t.citySlug, t.localitySlug);
+        const url = `/${slug}`;
+        const existing = await this.footerLinkRepo.findOne({ where: { url } });
+
+        if (existing && !body.overwriteExisting) { skipped++; continue; }
+
+        const seoData = {
+          groupId: group.id,
+          label: t.localityName,
+          url,
+          localityName: t.localityName,
+          localityId: t.localityId || null,
+          isActive: true,          // SEO content is always live regardless of footer nav visibility
+          sortOrder: 0,
+          h1Title: this.applyQuickSeoVars(body.template.h1Title, t),
+          metaTitle: this.applyQuickSeoVars(body.template.metaTitle, t),
+          metaDescription: this.applyQuickSeoVars(body.template.metaDescription, t),
+          metaKeywords: this.applyQuickSeoVars(body.template.metaKeywords, t),
+          canonicalUrl: this.applyQuickSeoVars(body.template.canonicalUrl, t),
+          introContent: this.applyQuickSeoVars(body.template.introContent, t),
+          bottomContent: this.applyQuickSeoVars(body.template.bottomContent, t),
+          faqJson: body.template.faqJson?.map(f => ({
+            question: this.applyQuickSeoVars(f.question, t) ?? f.question,
+            answer: this.applyQuickSeoVars(f.answer, t) ?? f.answer,
+          })) ?? null,
+          robots: body.template.robots || 'index,follow',
+        };
+
+        if (existing) {
+          Object.assign(existing, seoData);
+          await this.footerLinkRepo.save(existing);
+          updated++;
+        } else {
+          await this.footerLinkRepo.save(this.footerLinkRepo.create(seoData));
+          created++;
+        }
+      } catch {
+        failed++;
+      }
+    }
+
+    const cityPageCount = body.includeCityPage ? citySet.size : 0;
+    return { created, updated, skipped, failed, total: targets.length + cityPageCount };
+  }
+
+  // ── Quick SEO Templates ───────────────────────────────────────────────────
+
+  async listQuickSeoTemplates(): Promise<QuickSeoTemplate[]> {
+    return this.quickSeoTemplateRepo.find({ order: { categorySlug: 'ASC', name: 'ASC' } });
+  }
+
+  async getQuickSeoTemplate(id: string): Promise<QuickSeoTemplate> {
+    const t = await this.quickSeoTemplateRepo.findOne({ where: { id } });
+    if (!t) throw new NotFoundException('Template not found');
+    return t;
+  }
+
+  async createQuickSeoTemplate(data: Partial<QuickSeoTemplate>): Promise<QuickSeoTemplate> {
+    return this.quickSeoTemplateRepo.save(this.quickSeoTemplateRepo.create(data));
+  }
+
+  async updateQuickSeoTemplate(id: string, data: Partial<QuickSeoTemplate>): Promise<QuickSeoTemplate> {
+    const t = await this.quickSeoTemplateRepo.findOne({ where: { id } });
+    if (!t) throw new NotFoundException('Template not found');
+    Object.assign(t, data);
+    return this.quickSeoTemplateRepo.save(t);
+  }
+
+  async deleteQuickSeoTemplate(id: string): Promise<{ message: string }> {
+    const t = await this.quickSeoTemplateRepo.findOne({ where: { id } });
+    if (!t) throw new NotFoundException('Template not found');
+    await this.quickSeoTemplateRepo.remove(t);
+    return { message: 'Template deleted' };
+  }
+
+  async applyQuickSeoTemplate(id: string, scope: {
+    citySlug?: string;
+    localitySlug?: string;
+    overwriteExisting?: boolean;
+  }): Promise<{ created: number; updated: number; skipped: number; failed: number; total: number }> {
+    const t = await this.getQuickSeoTemplate(id);
+    const result = await this.quickSeoApply({
+      categorySlug:    t.categorySlug,
+      citySlug:        scope.citySlug,
+      localitySlug:    scope.localitySlug,
+      slugPattern:     t.slugPattern,
+      citySlugPattern: t.citySlugPattern,
+      includeCityPage: t.includeCityPage,
+      showInFooter:    t.showInFooter,
+      overwriteExisting: scope.overwriteExisting ?? false,
+      template: {
+        h1Title:         t.h1Title,
+        metaTitle:       t.metaTitle,
+        metaDescription: t.metaDescription,
+        metaKeywords:    t.metaKeywords,
+        canonicalUrl:    t.canonicalUrl,
+        introContent:    t.introContent,
+        bottomContent:   t.bottomContent,
+        faqJson:         t.faqJson,
+        robots:          t.robots,
+      },
+    });
+    // Track usage
+    await this.quickSeoTemplateRepo.update(id, {
+      appliedCount: () => 'appliedCount + 1',
+      lastAppliedAt: new Date(),
+    });
+    return result;
   }
 }

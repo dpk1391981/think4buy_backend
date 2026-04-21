@@ -44,7 +44,7 @@ export class LocationsService {
     return rows;
   }
 
-  async getCities(search?: string, limit = 50): Promise<{ id: string; name: string; stateName?: string; stateId?: string }[]> {
+  async getCities(search?: string, limit = 50): Promise<{ id: string; name: string; slug: string | null; stateName?: string; stateId?: string }[]> {
     // Returns all active cities from the cities table — used by navbar and post-property form.
     // No property-existence filter: cities are valid destinations regardless of current listings.
     const qb = this.cityRepository
@@ -57,6 +57,7 @@ export class LocationsService {
     return cities.map(c => ({
       id: c.id,
       name: c.name,
+      slug: c.slug ?? null,
       stateName: c.state?.name,
       stateId: c.stateId,
     }));
