@@ -11,7 +11,7 @@ export class QuickSeoTemplate {
   @Column({ length: 50 })
   categorySlug: string;
 
-  @Column({ length: 300, default: '{category}-in-{city}-{locality}' })
+  @Column({ length: 300, default: '{category}-in-{locality}-{city}' })
   slugPattern: string;
 
   @Column({ length: 300, nullable: true })

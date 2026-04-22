@@ -36,6 +36,7 @@ const CATEGORIES = [
   { value: 'office',       label: 'Office Space for Rent', short: 'Office',       sortOrder: 7  },
   { value: 'new-projects', label: 'New Projects',          short: 'New Projects', sortOrder: 8  },
   { value: 'pg',           label: 'PG / Co-Living',        short: 'PG',           sortOrder: 9  },
+  { value: 'agents',      label: 'Property Agents',       short: 'Agents',       sortOrder: 10 },
 ];
 
 async function main() {
