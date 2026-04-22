@@ -52,10 +52,12 @@ const SEED_MENUS: { name: string; slug: string; icon: string; section: string; s
   { name: 'Menu',                slug: 'admin_menu',                 icon: 'navigation',       section: 'admin_content',    sortOrder: 141 },
 
   // ── Admin Panel — SEO ───────────────────────────────────────────────────────
-  { name: 'Footer SEO Links',    slug: 'admin_seo_footer_links',     icon: 'link-2',           section: 'admin_seo',        sortOrder: 150 },
-  { name: 'Agent Listing SEO',    slug: 'admin_seo_agent_listing',    icon: 'map-pin',          section: 'admin_seo',        sortOrder: 151 },
-  { name: 'Property Listing SEO', slug: 'admin_seo_property_listing', icon: 'building-2',       section: 'admin_seo',        sortOrder: 152 },
-  { name: 'SEO Config',           slug: 'admin_seo_config',           icon: 'settings',         section: 'admin_seo',        sortOrder: 153 },
+  { name: 'SEO Templates',        slug: 'admin_seo_templates',        icon: 'zap',              section: 'admin_seo',        sortOrder: 149 },
+  { name: 'All SEO Pages',        slug: 'admin_seo_all_pages',        icon: 'file-text',        section: 'admin_seo',        sortOrder: 150 },
+  { name: 'Footer SEO Links',     slug: 'admin_seo_footer_links',     icon: 'link-2',           section: 'admin_seo',        sortOrder: 151 },
+  { name: 'Agent Listing SEO',    slug: 'admin_seo_agent_listing',    icon: 'map-pin',          section: 'admin_seo',        sortOrder: 152 },
+  { name: 'Property Listing SEO', slug: 'admin_seo_property_listing', icon: 'building-2',       section: 'admin_seo',        sortOrder: 153 },
+  { name: 'SEO Config',           slug: 'admin_seo_config',           icon: 'settings',         section: 'admin_seo',        sortOrder: 154 },
 
   // ── Admin Panel — System ────────────────────────────────────────────────────
   { name: 'Storage & Watermark', slug: 'admin_storage_settings',     icon: 'database',         section: 'admin_system',     sortOrder: 160 },

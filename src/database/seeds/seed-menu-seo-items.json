@@ -1,0 +1,42 @@
+{
+  "_description": "Migration seed — adds missing SEO admin menu items and role permissions. Run the companion SQL below or use the MenusService syncMissingMenus() auto-sync (triggered on backend restart).",
+
+  "menus": [
+    {
+      "name": "SEO Templates",
+      "slug": "admin_seo_templates",
+      "icon": "zap",
+      "section": "admin_seo",
+      "sortOrder": 149,
+      "isActive": true
+    },
+    {
+      "name": "All SEO Pages",
+      "slug": "admin_seo_all_pages",
+      "icon": "file-text",
+      "section": "admin_seo",
+      "sortOrder": 150,
+      "isActive": true
+    }
+  ],
+
+  "rolePermissions": [
+    { "role": "super_admin", "menuSlug": "admin_seo_templates", "isVisible": true },
+    { "role": "super_admin", "menuSlug": "admin_seo_all_pages",  "isVisible": true },
+    { "role": "admin",       "menuSlug": "admin_seo_templates", "isVisible": true },
+    { "role": "admin",       "menuSlug": "admin_seo_all_pages",  "isVisible": true }
+  ],
+
+  "sql": [
+    "INSERT IGNORE INTO menus (name, slug, icon, section, sort_order, is_active, created_at, updated_at) VALUES ('SEO Templates', 'admin_seo_templates', 'zap', 'admin_seo', 149, 1, NOW(), NOW());",
+    "INSERT IGNORE INTO menus (name, slug, icon, section, sort_order, is_active, created_at, updated_at) VALUES ('All SEO Pages', 'admin_seo_all_pages', 'file-text', 'admin_seo', 150, 1, NOW(), NOW());",
+    "INSERT IGNORE INTO role_menu_permissions (role, menu_id, is_visible) SELECT 'super_admin', id, 1 FROM menus WHERE slug = 'admin_seo_templates';",
+    "INSERT IGNORE INTO role_menu_permissions (role, menu_id, is_visible) SELECT 'super_admin', id, 1 FROM menus WHERE slug = 'admin_seo_all_pages';",
+    "INSERT IGNORE INTO role_menu_permissions (role, menu_id, is_visible) SELECT 'admin', id, 1 FROM menus WHERE slug = 'admin_seo_templates';",
+    "INSERT IGNORE INTO role_menu_permissions (role, menu_id, is_visible) SELECT 'admin', id, 1 FROM menus WHERE slug = 'admin_seo_all_pages';"
+  ],
+
+  "note": "The backend MenusService has syncMissingMenus() and syncMissingPermissions() which run automatically on every server start. Simply restarting the backend will apply these changes without needing to run the SQL manually.",
+
+  "slug_convention": "URL slug order is always {prefix}-in-{locality}-{city} when locality is present. City-only: {prefix}-in-{city}. Examples: /property-for-sale-in-sector-56-noida, /agents-in-sector-56-noida. The splitCityLocality parser resolves city from the longest matching suffix in KNOWN_CITY_SLUGS."
+}
