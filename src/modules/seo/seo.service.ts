@@ -974,8 +974,9 @@ export class SeoService {
     categorySlug: string;
     citySlug?: string;
     localitySlug?: string;
+    stateId?: string;
   }): Promise<{ categorySlug: string; citySlug: string; cityName: string; cityId?: string; localitySlug: string; localityName: string; localityId?: string }[]> {
-    const { categorySlug, citySlug, localitySlug } = body;
+    const { categorySlug, citySlug, localitySlug, stateId } = body;
     const MAX_ITEMS = 500;
     const targets: { categorySlug: string; citySlug: string; cityName: string; cityId?: string; localitySlug: string; localityName: string; localityId?: string }[] = [];
 
@@ -998,7 +999,9 @@ export class SeoService {
         targets.push({ categorySlug, citySlug, cityName: city.name, cityId: city.id, localitySlug: this.toSlug(loc.locality), localityName: loc.locality, localityId: loc.id });
       }
     } else {
-      const cities = await this.cityRepo.find({ where: { isActive: true }, take: 100 });
+      const cityWhere: any = { isActive: true };
+      if (stateId) cityWhere.stateId = stateId;
+      const cities = await this.cityRepo.find({ where: cityWhere, order: { name: 'ASC' }, take: 100 });
       const perCity = Math.max(1, Math.floor(MAX_ITEMS / Math.max(cities.length, 1)));
       for (const city of cities) {
         if (!city.slug || targets.length >= MAX_ITEMS) break;
@@ -1022,6 +1025,7 @@ export class SeoService {
     categorySlug: string;
     citySlug?: string;
     localitySlug?: string;
+    stateId?: string;
     slugPattern?: string;
     citySlugPattern?: string;
     includeCityPage?: boolean;
@@ -1052,7 +1056,7 @@ export class SeoService {
   }> {
     const localityPattern = body.slugPattern || '{category}-in-{city}-{locality}';
     const cityPattern = body.citySlugPattern || '{category}-in-{city}';
-    const targets = await this.resolveQuickSeoTargets(body);
+    const targets = await this.resolveQuickSeoTargets({ ...body, stateId: body.stateId });
     const items: any[] = [];
 
     // City-level pages (one per unique city)
@@ -1110,6 +1114,7 @@ export class SeoService {
     categorySlug: string;
     citySlug?: string;
     localitySlug?: string;
+    stateId?: string;
     slugPattern?: string;
     citySlugPattern?: string;
     overwriteExisting?: boolean;
@@ -1288,6 +1293,7 @@ export class SeoService {
   async applyQuickSeoTemplate(id: string, scope: {
     citySlug?: string;
     localitySlug?: string;
+    stateId?: string;
     overwriteExisting?: boolean;
   }): Promise<{ created: number; updated: number; skipped: number; failed: number; total: number }> {
     const t = await this.getQuickSeoTemplate(id);
@@ -1295,6 +1301,7 @@ export class SeoService {
       categorySlug:    t.categorySlug,
       citySlug:        scope.citySlug,
       localitySlug:    scope.localitySlug,
+      stateId:         scope.stateId,
       slugPattern:     t.slugPattern,
       citySlugPattern: t.citySlugPattern,
       includeCityPage: t.includeCityPage,
