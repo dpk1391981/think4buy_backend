@@ -977,7 +977,10 @@ export class SeoService {
     stateId?: string;
   }): Promise<{ categorySlug: string; citySlug: string; cityName: string; cityId?: string; localitySlug: string; localityName: string; localityId?: string }[]> {
     const { categorySlug, citySlug, localitySlug, stateId } = body;
-    const MAX_ITEMS = 500;
+    // Per-city max: no global cap when citySlug is given (frontend batches city-by-city).
+    // For the all-cities fallback path (preview only), cap at 500 across all cities.
+    const MAX_LOCALITIES_PER_CITY = 2000;
+    const MAX_ITEMS_GLOBAL = 500;
     const targets: { categorySlug: string; citySlug: string; cityName: string; cityId?: string; localitySlug: string; localityName: string; localityId?: string }[] = [];
 
     if (citySlug && localitySlug) {
@@ -991,24 +994,28 @@ export class SeoService {
         targets.push({ categorySlug, citySlug, cityName: city.name, cityId: city.id, localitySlug, localityName: localitySlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) });
       }
     } else if (citySlug) {
+      // Single city — no global cap, fetch all localities for this city
       const city = await this.cityRepo.findOne({ where: { slug: citySlug } });
       if (!city) throw new NotFoundException(`City not found: ${citySlug}`);
-      const locs = await this.locationRepo.find({ where: { city: city.name, isActive: true }, take: MAX_ITEMS });
+      const locs = await this.locationRepo.find({ where: { city: city.name, isActive: true }, take: MAX_LOCALITIES_PER_CITY });
       const unique = Array.from(new Map(locs.filter(l => l.locality).map(l => [l.locality, l])).values());
       for (const loc of unique) {
         targets.push({ categorySlug, citySlug, cityName: city.name, cityId: city.id, localitySlug: this.toSlug(loc.locality), localityName: loc.locality, localityId: loc.id });
       }
     } else {
+      // All-cities path (used by preview and as fallback).
+      // Frontend now batches city-by-city, so this path handles preview or
+      // single-state previews where a global cap is acceptable.
       const cityWhere: any = { isActive: true };
       if (stateId) cityWhere.stateId = stateId;
       const cities = await this.cityRepo.find({ where: cityWhere, order: { name: 'ASC' }, take: 100 });
-      const perCity = Math.max(1, Math.floor(MAX_ITEMS / Math.max(cities.length, 1)));
+      const perCity = Math.max(1, Math.floor(MAX_ITEMS_GLOBAL / Math.max(cities.length, 1)));
       for (const city of cities) {
-        if (!city.slug || targets.length >= MAX_ITEMS) break;
+        if (!city.slug || targets.length >= MAX_ITEMS_GLOBAL) break;
         const locs = await this.locationRepo.find({ where: { city: city.name, isActive: true }, take: perCity });
         const unique = Array.from(new Map(locs.filter(l => l.locality).map(l => [l.locality, l])).values());
         for (const loc of unique) {
-          if (targets.length >= MAX_ITEMS) break;
+          if (targets.length >= MAX_ITEMS_GLOBAL) break;
           targets.push({ categorySlug, citySlug: city.slug, cityName: city.name, cityId: city.id, localitySlug: this.toSlug(loc.locality), localityName: loc.locality, localityId: loc.id });
         }
       }
@@ -1209,51 +1216,81 @@ export class SeoService {
       }
     }
 
-    // Locality-level pages
-    for (const t of targets) {
-      try {
-        const group = groupMap.get(t.citySlug);
-        if (!group) { failed++; continue; }
+    // ── Locality-level pages — batch lookup then batch save ────────────────────
+    // Build all target slugs first, then do a single IN-query to find existing rows.
+    // This replaces N individual findOne calls with one query, dramatically reducing
+    // DB round-trips when a city has many localities.
+    const localityTargets = targets.map(t => ({
+      t,
+      group: groupMap.get(t.citySlug),
+      slug:  this.generateQuickSlug(localityPattern, t.categorySlug, t.citySlug, t.localitySlug),
+    })).filter(item => !!item.group);
 
-        const slug = this.generateQuickSlug(localityPattern, t.categorySlug, t.citySlug, t.localitySlug);
-        const url = `/${slug}`;
-        const existing = await this.footerLinkRepo.findOne({ where: { url } });
+    failed += targets.length - localityTargets.length; // targets missing a group
 
-        if (existing && !body.overwriteExisting) { skipped++; continue; }
+    if (localityTargets.length > 0) {
+      const urls = localityTargets.map(item => `/${item.slug}`);
 
-        const seoData = {
-          groupId: group.id,
-          label: t.localityName,
-          url,
-          localityName: t.localityName,
-          localityId: t.localityId || null,
-          isActive: true,          // SEO content is always live regardless of footer nav visibility
-          sortOrder: 0,
-          h1Title: this.applyQuickSeoVars(body.template.h1Title, t),
-          metaTitle: this.applyQuickSeoVars(body.template.metaTitle, t),
-          metaDescription: this.applyQuickSeoVars(body.template.metaDescription, t),
-          metaKeywords: this.applyQuickSeoVars(body.template.metaKeywords, t),
-          canonicalUrl: this.applyQuickSeoVars(body.template.canonicalUrl, t),
-          introContent: this.applyQuickSeoVars(body.template.introContent, t),
-          bottomContent: this.applyQuickSeoVars(body.template.bottomContent, t),
-          faqJson: body.template.faqJson?.map(f => ({
-            question: this.applyQuickSeoVars(f.question, t) ?? f.question,
-            answer: this.applyQuickSeoVars(f.answer, t) ?? f.answer,
-          })) ?? null,
-          robots: body.template.robots || 'index,follow',
-        };
+      // Single batch query for all existing links
+      const existingLinks = await this.footerLinkRepo
+        .createQueryBuilder('fl')
+        .where('fl.url IN (:...urls)', { urls })
+        .getMany();
+      const existingMap = new Map(existingLinks.map(l => [l.url, l]));
 
-        if (existing) {
-          Object.assign(existing, seoData);
-          await this.footerLinkRepo.save(existing);
-          updated++;
-        } else {
-          await this.footerLinkRepo.save(this.footerLinkRepo.create(seoData));
-          created++;
+      const toCreate: FooterSeoLink[] = [];
+      const toUpdate: FooterSeoLink[] = [];
+
+      for (const { t, group, slug } of localityTargets) {
+        try {
+          const url = `/${slug}`;
+          const existing = existingMap.get(url);
+
+          if (existing && !body.overwriteExisting) { skipped++; continue; }
+
+          const seoData = {
+            groupId: group!.id,
+            label: t.localityName,
+            url,
+            localityName: t.localityName,
+            localityId: t.localityId || null,
+            isActive: true,
+            sortOrder: 0,
+            h1Title: this.applyQuickSeoVars(body.template.h1Title, t),
+            metaTitle: this.applyQuickSeoVars(body.template.metaTitle, t),
+            metaDescription: this.applyQuickSeoVars(body.template.metaDescription, t),
+            metaKeywords: this.applyQuickSeoVars(body.template.metaKeywords, t),
+            canonicalUrl: this.applyQuickSeoVars(body.template.canonicalUrl, t),
+            introContent: this.applyQuickSeoVars(body.template.introContent, t),
+            bottomContent: this.applyQuickSeoVars(body.template.bottomContent, t),
+            faqJson: body.template.faqJson?.map(f => ({
+              question: this.applyQuickSeoVars(f.question, t) ?? f.question,
+              answer: this.applyQuickSeoVars(f.answer, t) ?? f.answer,
+            })) ?? null,
+            robots: body.template.robots || 'index,follow',
+          };
+
+          if (existing) {
+            Object.assign(existing, seoData);
+            toUpdate.push(existing);
+          } else {
+            toCreate.push(this.footerLinkRepo.create(seoData));
+          }
+        } catch {
+          failed++;
         }
-      } catch {
-        failed++;
       }
+
+      // Batch save in chunks of 100 to avoid oversized queries
+      const CHUNK = 100;
+      for (let i = 0; i < toCreate.length; i += CHUNK) {
+        await this.footerLinkRepo.save(toCreate.slice(i, i + CHUNK));
+      }
+      for (let i = 0; i < toUpdate.length; i += CHUNK) {
+        await this.footerLinkRepo.save(toUpdate.slice(i, i + CHUNK));
+      }
+      created += toCreate.length;
+      updated += toUpdate.length;
     }
 
     const cityPageCount = body.includeCityPage ? citySet.size : 0;
