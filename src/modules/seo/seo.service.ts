@@ -151,13 +151,15 @@ export class SeoService {
     // checking lower-priority sources for actual page content, then merge.
     let footerMetaOverride: Partial<SeoPageConfig> | null = null;
     if (urlSlug) {
-      const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+      const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase().trim();
       const footerLink = await this.footerLinkRepo
         .createQueryBuilder('fl')
         // NOTE: intentionally no isActive filter — content is served even when
         // the link is hidden from the footer nav (showInFooter=false → isActive=false).
+        // TRIM(fl.url) removes leading/trailing whitespace; TRIM(BOTH '/' ...) removes slashes.
+        // The double-TRIM handles URLs that have both issues (e.g. '/ path /').
         .where(
-          "(LOWER(TRIM(BOTH '/' FROM fl.url)) = :slug OR LOWER(TRIM(BOTH '/' FROM fl.url)) = :slashSlug)",
+          "(LOWER(TRIM(TRIM(BOTH '/' FROM fl.url))) = :slug OR LOWER(TRIM(fl.url)) = :slashSlug)",
           { slug: normalized, slashSlug: '/' + normalized },
         )
         .andWhere(
@@ -691,7 +693,22 @@ export class SeoService {
 
   async getActiveFooterLinksWithGroups() {
     const groups = await this.footerGroupRepo.find({ where: { isActive: true }, order: { sortOrder: 'ASC' } });
-    const links = await this.footerLinkRepo.find({ where: { isActive: true }, order: { sortOrder: 'ASC' } });
+    // Only select columns needed for footer nav display — text content fields are NOT needed here.
+    // This avoids loading ~20k rows of HTML/JSON content on every page load.
+    const links = await this.footerLinkRepo.find({
+      select: {
+        id: true,
+        groupId: true,
+        label: true,
+        url: true,
+        localityName: true,
+        localityId: true,
+        isActive: true,
+        sortOrder: true,
+      },
+      where: { isActive: true },
+      order: { groupId: 'ASC', sortOrder: 'ASC' },
+    });
     return groups.map(g => ({
       ...g,
       links: links.filter(l => l.groupId === g.id),
@@ -948,11 +965,13 @@ export class SeoService {
 
   private generateQuickSlug(pattern: string, categorySlug: string, citySlug: string, localitySlug: string): string {
     return pattern
-      .replace(/\{category\}/g, categorySlug)
-      .replace(/\{city\}/g, citySlug)
-      .replace(/\{locality\}/g, localitySlug)
+      .replace(/\{category\}/g, categorySlug.trim())
+      .replace(/\{city\}/g, citySlug.trim())
+      .replace(/\{locality\}/g, localitySlug.trim())
+      .replace(/\s+/g, '-')
       .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
+      .replace(/^[\s-]+|[\s-]+$/g, '')
+      .trim();
   }
 
   private async getCategoryLabel(categorySlug: string): Promise<string> {
@@ -1062,7 +1081,7 @@ export class SeoService {
         if (seenCities.has(t.citySlug)) continue;
         seenCities.add(t.citySlug);
         const slug = this.generateQuickSlug(cityPattern, t.categorySlug, t.citySlug, '');
-        const url = `/${slug}`;
+        const url = `/${slug}`.trimEnd();
         const existing = await this.footerLinkRepo.findOne({ where: { url } });
         const ctx = { ...t, localityName: '' };
         items.push({
@@ -1082,7 +1101,7 @@ export class SeoService {
     // Locality-level pages
     for (const t of targets) {
       const slug = this.generateQuickSlug(localityPattern, t.categorySlug, t.citySlug, t.localitySlug);
-      const url = `/${slug}`;
+      const url = `/${slug}`.trimEnd();
       const existing = await this.footerLinkRepo.findOne({ where: { url } });
       items.push({
         type: 'locality',
@@ -1167,7 +1186,7 @@ export class SeoService {
       // City-level page (one per city, no locality in URL)
       if (body.includeCityPage) {
         const slug = this.generateQuickSlug(cityPattern, body.categorySlug, cs, '');
-        const url = `/${slug}`;
+        const url = `/${slug}`.trimEnd();
         const ctx = { categorySlug: body.categorySlug, citySlug: cs, cityName: cityData.cityName, localitySlug: '', localityName: '' };
         const seoData = {
           groupId: group.id,
@@ -1211,7 +1230,7 @@ export class SeoService {
         if (!group) { failed++; continue; }
 
         const slug = this.generateQuickSlug(localityPattern, t.categorySlug, t.citySlug, t.localitySlug);
-        const url = `/${slug}`;
+        const url = `/${slug}`.trimEnd();
         const existing = await this.footerLinkRepo.findOne({ where: { url } });
 
         if (existing && !body.overwriteExisting) { skipped++; continue; }
