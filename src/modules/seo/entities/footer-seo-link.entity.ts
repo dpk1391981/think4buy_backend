@@ -74,6 +74,12 @@ export class FooterSeoLink {
   @Column({ length: 200 })
   label: string;
 
+  // Indexed: the SEO resolver looks a page up by this on every listing-page
+  // render, and there are tens of thousands of rows. See
+  // migrations/2026-08-13_footer_seo_links_url_index.sql for the production DDL
+  // (synchronize is off there) and resolveListingPageSeo() for the query that
+  // has to stay index-friendly — no function may wrap this column.
+  @Index()
   @Column({ length: 500 })
   url: string;
 

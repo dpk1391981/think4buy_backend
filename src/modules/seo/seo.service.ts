@@ -40,6 +40,16 @@ export interface SeoPageConfig {
   };
 }
 
+/**
+ * Static-asset paths reach the resolver whenever a browser asks for something
+ * Next.js doesn't serve — /apple-touch-icon.png is a constant in the logs. No
+ * SEO row can ever match one, so don't spend queries on them.
+ */
+function isAssetPath(slug: string): boolean {
+  const last = slug.replace(/^\/+|\/+$/g, '').split('/').pop() ?? '';
+  return /\.[a-z0-9]{2,5}$/i.test(last);
+}
+
 // ── Placeholder replacement ───────────────────────────────────────────────────
 
 function replacePlaceholders(
@@ -113,6 +123,27 @@ export class SeoService {
     @InjectRepository(QuickSeoTemplate) private quickSeoTemplateRepo: Repository<QuickSeoTemplate>,
   ) {}
 
+  // ── Public footer cache ───────────────────────────────────────────────────
+  // The footer is on every page, and its content changes only when an admin
+  // edits it. Held in process (one API instance per PM2 worker) and dropped on
+  // every footer write, so an edit shows up on the next request, not in 5 min.
+
+  private footerCache: { at: number; data: any } | null = null;
+  private static readonly FOOTER_CACHE_TTL_MS = 5 * 60 * 1000;
+
+  private readFooterCache(): any | null {
+    if (!this.footerCache) return null;
+    if (Date.now() - this.footerCache.at > SeoService.FOOTER_CACHE_TTL_MS) {
+      this.footerCache = null;
+      return null;
+    }
+    return this.footerCache.data;
+  }
+
+  private invalidateFooterCache(): void {
+    this.footerCache = null;
+  }
+
   // ── SEO Listing Page Resolver ─────────────────────────────────────────────
 
   /**
@@ -135,6 +166,12 @@ export class SeoService {
   }): Promise<SeoPageConfig | null> {
     const { categorySlug, citySlug, localitySlug, urlSlug } = params;
 
+    // Normalised once. Null for asset paths, which can never match a row and
+    // otherwise cost a query on every 404'd icon or map file.
+    const lookupSlug = urlSlug && !isAssetPath(urlSlug)
+      ? urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase()
+      : null;
+
     // ── Priority 0: Footer Link SEO ───────────────────────────────────────
     // Exact URL match against footer_seo_links — takes precedence over all
     // other levels so admins can fully control programmatic SEO pages.
@@ -150,16 +187,19 @@ export class SeoService {
     // metaKeywords / canonicalUrl), we save those overrides and continue
     // checking lower-priority sources for actual page content, then merge.
     let footerMetaOverride: Partial<SeoPageConfig> | null = null;
-    if (urlSlug) {
-      const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+    if (lookupSlug) {
+      const normalized = lookupSlug;
       const footerLink = await this.footerLinkRepo
         .createQueryBuilder('fl')
         // NOTE: intentionally no isActive filter — content is served even when
         // the link is hidden from the footer nav (showInFooter=false → isActive=false).
-        .where(
-          "(LOWER(TRIM(BOTH '/' FROM fl.url)) = :slug OR LOWER(TRIM(BOTH '/' FROM fl.url)) = :slashSlug)",
-          { slug: normalized, slashSlug: '/' + normalized },
-        )
+        //
+        // Matched against the raw column, never LOWER(TRIM(...)): a function
+        // around `url` makes IDX_footer_seo_links_url unusable and turns every
+        // listing-page render into a full scan of the table. Rows are written
+        // as '/slug'; the bare form covers older hand-entered rows. Case is
+        // already handled — the column collates utf8mb4_0900_ai_ci.
+        .where('fl.url IN (:...urls)', { urls: ['/' + normalized, normalized] })
         .andWhere(
           '(fl.metaTitle IS NOT NULL OR fl.h1Title IS NOT NULL OR fl.introContent IS NOT NULL OR fl.bottomContent IS NOT NULL OR fl.faqJson IS NOT NULL)',
         )
@@ -202,10 +242,9 @@ export class SeoService {
     // ── Priority 0.5: City SEO Pages (exact slug match) ───────────────────
     // city_seo_pages stores rich content for city-level category pages
     // (buy/rent/pg/commercial/new_projects per city). Match by exact slug.
-    if (urlSlug) {
-      const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+    if (lookupSlug) {
       const cityPage = await this.cityPageRepo.findOne({
-        where: { slug: normalized, isActive: true },
+        where: { slug: lookupSlug, isActive: true },
       });
       if (cityPage && (cityPage.h1 || cityPage.introContent || cityPage.seoContent || cityPage.faqs?.length)) {
         const fields = normalizeOldFields(cityPage);
@@ -228,10 +267,9 @@ export class SeoService {
     // Doing a slug-based lookup here means the resolver works regardless of
     // whether the category slug stored in the record matches what the URL
     // parser emitted (e.g. "flats" stored vs "buy" parsed from LISTING_PREFIXES).
-    if (urlSlug) {
-      const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+    if (lookupSlug) {
       const row = await this.categoryLocalitySeoRepo.findOne({
-        where: { slug: normalized, isActive: true },
+        where: { slug: lookupSlug, isActive: true },
       });
       if (row) {
         const ctx = { city: row.cityName, locality: row.localityName, category: row.categorySlug };
@@ -263,10 +301,9 @@ export class SeoService {
     }
 
     // ── Priority 0.8: Category+City SEO by URL slug ───────────────────────
-    if (urlSlug) {
-      const normalized = urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+    if (lookupSlug) {
       const row = await this.categoryCitySeoRepo.findOne({
-        where: { slug: normalized, isActive: true },
+        where: { slug: lookupSlug, isActive: true },
       });
       if (row) {
         const ctx = { city: row.cityName, locality: localitySlug ?? '', category: row.categorySlug };
@@ -680,25 +717,88 @@ export class SeoService {
     return this.footerGroupRepo.find({ order: { sortOrder: 'ASC' } });
   }
 
-  async getFooterLinksWithGroups() {
-    const groups = await this.footerGroupRepo.find({ order: { sortOrder: 'ASC' } });
-    const links = await this.footerLinkRepo.find({ order: { groupId: 'ASC', sortOrder: 'ASC' } });
-    return groups.map(g => ({
-      ...g,
-      links: links.filter(l => l.groupId === g.id),
-    }));
+  // ── Footer link listings ──────────────────────────────────────────────────
+  //
+  // Neither listing may select introContent / bottomContent / faqJson. Every
+  // Quick SEO page carries HTML in those columns, and there are tens of
+  // thousands of pages: loading them all and serialising them to JSON is what
+  // took the footer request to 13s and then killed the API process with
+  // "Reached heap limit Allocation failed - JavaScript heap out of memory".
+  // The list views only need enough to draw a link; the editor fetches the one
+  // row it is about to edit through getFooterLinkById().
+
+  /** Columns the public footer renders. Nothing else may be added here. */
+  private static readonly FOOTER_LINK_LIST_COLUMNS = [
+    'id', 'groupId', 'label', 'url', 'localityId', 'localityName', 'isActive', 'sortOrder',
+  ] as const;
+
+  private groupLinks<T extends { groupId: string }>(
+    groups: FooterSeoLinkGroup[],
+    links: T[],
+  ): (FooterSeoLinkGroup & { links: T[] })[] {
+    // Map, not a filter per group: 500 groups × 40k links is 20M comparisons.
+    const byGroup = new Map<string, T[]>();
+    for (const link of links) {
+      const bucket = byGroup.get(link.groupId);
+      if (bucket) bucket.push(link);
+      else byGroup.set(link.groupId, [link]);
+    }
+    return groups.map(g => ({ ...g, links: byGroup.get(g.id) ?? [] }));
   }
 
+  /**
+   * Admin listing. Same light columns as the public one plus the short meta
+   * fields the list displays, and `hasSeoContent` computed in SQL so the UI can
+   * still show which links carry content without shipping the content itself.
+   */
+  async getFooterLinksWithGroups() {
+    const groups = await this.footerGroupRepo.find({ order: { sortOrder: 'ASC' } });
+    const links = await this.footerLinkRepo
+      .createQueryBuilder('fl')
+      .select([
+        ...SeoService.FOOTER_LINK_LIST_COLUMNS.map(c => `fl.${c}`),
+        'fl.h1Title', 'fl.metaTitle', 'fl.robots',
+      ])
+      .addSelect(
+        `(fl.metaTitle IS NOT NULL OR fl.h1Title IS NOT NULL
+          OR fl.introContent IS NOT NULL OR fl.bottomContent IS NOT NULL
+          OR fl.faqJson IS NOT NULL)`,
+        'hasSeoContent',
+      )
+      .orderBy('fl.groupId', 'ASC')
+      .addOrderBy('fl.sortOrder', 'ASC')
+      .getRawAndEntities();
+
+    const flagById = new Map(links.raw.map((r: any) => [r.fl_id, !!Number(r.hasSeoContent)]));
+    const withFlag = links.entities.map(l => ({ ...l, hasSeoContent: flagById.get(l.id) ?? false }));
+    return this.groupLinks(groups, withFlag);
+  }
+
+  /** Public footer. Cached — see footerCache. */
   async getActiveFooterLinksWithGroups() {
+    const cached = this.readFooterCache();
+    if (cached) return cached;
+
     const groups = await this.footerGroupRepo.find({ where: { isActive: true }, order: { sortOrder: 'ASC' } });
-    const links = await this.footerLinkRepo.find({ where: { isActive: true }, order: { sortOrder: 'ASC' } });
-    return groups.map(g => ({
-      ...g,
-      links: links.filter(l => l.groupId === g.id),
-    }));
+    const links = await this.footerLinkRepo.find({
+      where: { isActive: true },
+      order: { sortOrder: 'ASC' },
+      select: [...SeoService.FOOTER_LINK_LIST_COLUMNS],
+    });
+    const result = this.groupLinks(groups, links);
+    this.footerCache = { at: Date.now(), data: result };
+    return result;
+  }
+
+  /** The full row, including SEO content — one link at a time, for the editor. */
+  async getFooterLinkById(id: string): Promise<FooterSeoLink> {
+    const link = await this.footerLinkRepo.findOne({ where: { id } });
+    if (!link) throw new NotFoundException('Footer link not found');
+    return link;
   }
 
   async createFooterGroup(data: Partial<FooterSeoLinkGroup>): Promise<FooterSeoLinkGroup> {
+    this.invalidateFooterCache();
     return this.footerGroupRepo.save(this.footerGroupRepo.create(data));
   }
 
@@ -706,6 +806,7 @@ export class SeoService {
     const group = await this.footerGroupRepo.findOne({ where: { id } });
     if (!group) throw new NotFoundException('Group not found');
     Object.assign(group, data);
+    this.invalidateFooterCache();
     return this.footerGroupRepo.save(group);
   }
 
@@ -713,6 +814,7 @@ export class SeoService {
     const group = await this.footerGroupRepo.findOne({ where: { id } });
     if (!group) throw new NotFoundException('Group not found');
     await this.footerGroupRepo.remove(group);
+    this.invalidateFooterCache();
     return { message: 'Group deleted' };
   }
 
@@ -777,6 +879,7 @@ export class SeoService {
   }
 
   async createFooterLink(data: Partial<FooterSeoLink>): Promise<FooterSeoLink> {
+    this.invalidateFooterCache();
     return this.footerLinkRepo.save(this.footerLinkRepo.create(data));
   }
 
@@ -784,6 +887,7 @@ export class SeoService {
     const link = await this.footerLinkRepo.findOne({ where: { id } });
     if (!link) throw new NotFoundException('Link not found');
     Object.assign(link, data);
+    this.invalidateFooterCache();
     return this.footerLinkRepo.save(link);
   }
 
@@ -791,6 +895,7 @@ export class SeoService {
     const link = await this.footerLinkRepo.findOne({ where: { id } });
     if (!link) throw new NotFoundException('Link not found');
     await this.footerLinkRepo.remove(link);
+    this.invalidateFooterCache();
     return { message: 'Link deleted' };
   }
 
@@ -970,50 +1075,105 @@ export class SeoService {
     return LABELS[categorySlug] || categorySlug;
   }
 
+  /** The city slugs a scope names, singular or plural form, de-duplicated. */
+  private scopeCitySlugs(body: { citySlug?: string; citySlugs?: string[] }): string[] {
+    const list = body.citySlugs?.length ? body.citySlugs : body.citySlug ? [body.citySlug] : [];
+    return Array.from(new Set(list.map(s => (s || '').trim()).filter(Boolean)));
+  }
+
+  /**
+   * The cities a scope names, as rows. Empty when the scope names none (the
+   * all-cities path resolves those from the localities it finds instead).
+   *
+   * Used for city-level pages so that a city the admin explicitly picked gets
+   * one even when it has no localities yet — a freshly imported city otherwise
+   * produces no targets at all and would be silently dropped.
+   */
+  private async resolveQuickSeoCities(body: { citySlug?: string; citySlugs?: string[] }): Promise<{ citySlug: string; cityName: string; cityId?: string }[]> {
+    const out: { citySlug: string; cityName: string; cityId?: string }[] = [];
+    for (const cs of this.scopeCitySlugs(body)) {
+      const city = await this.cityRepo.findOne({ where: { slug: cs } });
+      if (city) out.push({ citySlug: cs, cityName: city.name, cityId: city.id });
+    }
+    return out;
+  }
+
+  /**
+   * Turns a Quick SEO scope into the concrete city+locality pairs to write.
+   *
+   * Scope can name several cities (`citySlugs`) and several localities
+   * (`localitySlugs`) — the admin picks exactly where a template applies, e.g.
+   * the handful of cities a warehouse category is actually sold in. The
+   * singular `citySlug` / `localitySlug` are the older one-at-a-time form and
+   * still work; each is folded into its plural.
+   *
+   * `localitySlugs` is matched per city, so one flat list of localities coming
+   * from a multi-city picker lands only in the city it belongs to.
+   */
   private async resolveQuickSeoTargets(body: {
     categorySlug: string;
     citySlug?: string;
+    citySlugs?: string[];
     localitySlug?: string;
-    stateId?: string;
+    localitySlugs?: string[];
   }): Promise<{ categorySlug: string; citySlug: string; cityName: string; cityId?: string; localitySlug: string; localityName: string; localityId?: string }[]> {
-    const { categorySlug, citySlug, localitySlug, stateId } = body;
-    // Per-city max: no global cap when citySlug is given (frontend batches city-by-city).
+    const { categorySlug, localitySlug } = body;
+    // Per-city max: no global cap when cities are named (frontend batches city-by-city).
     // For the all-cities fallback path (preview only), cap at 500 across all cities.
     const MAX_LOCALITIES_PER_CITY = 2000;
     const MAX_ITEMS_GLOBAL = 500;
     const targets: { categorySlug: string; citySlug: string; cityName: string; cityId?: string; localitySlug: string; localityName: string; localityId?: string }[] = [];
 
-    if (citySlug && localitySlug) {
-      const city = await this.cityRepo.findOne({ where: { slug: citySlug } });
-      if (!city) throw new NotFoundException(`City not found: ${citySlug}`);
-      const allLocs = await this.locationRepo.find({ where: { city: city.name, isActive: true } });
-      const match = allLocs.find(l => this.toSlug(l.locality) === localitySlug);
-      if (match) {
-        targets.push({ categorySlug, citySlug, cityName: city.name, cityId: city.id, localitySlug, localityName: match.locality, localityId: match.id });
-      } else {
-        targets.push({ categorySlug, citySlug, cityName: city.name, cityId: city.id, localitySlug, localityName: localitySlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) });
-      }
-    } else if (citySlug) {
-      // Single city — no global cap, fetch all localities for this city
-      const city = await this.cityRepo.findOne({ where: { slug: citySlug } });
-      if (!city) throw new NotFoundException(`City not found: ${citySlug}`);
-      const locs = await this.locationRepo.find({ where: { city: city.name, isActive: true }, take: MAX_LOCALITIES_PER_CITY });
-      const unique = Array.from(new Map(locs.filter(l => l.locality).map(l => [l.locality, l])).values());
-      for (const loc of unique) {
-        targets.push({ categorySlug, citySlug, cityName: city.name, cityId: city.id, localitySlug: this.toSlug(loc.locality), localityName: loc.locality, localityId: loc.id });
+    const cities = this.scopeCitySlugs(body);
+    const localities = Array.from(new Set(
+      (body.localitySlugs?.length ? body.localitySlugs : localitySlug ? [localitySlug] : [])
+        .map(s => (s || '').trim()).filter(Boolean),
+    ));
+    const localitySet = new Set(localities);
+
+    if (cities.length > 0) {
+      for (const cs of cities) {
+        const city = await this.cityRepo.findOne({ where: { slug: cs } });
+        if (!city) {
+          // One bad slug must not sink a multi-city run; alone it is still an error.
+          if (cities.length === 1) throw new NotFoundException(`City not found: ${cs}`);
+          continue;
+        }
+
+        const locs = await this.locationRepo.find({ where: { city: city.name, isActive: true }, take: MAX_LOCALITIES_PER_CITY });
+        const unique = Array.from(new Map(locs.filter(l => l.locality).map(l => [l.locality, l])).values());
+        const matched = localitySet.size > 0
+          ? unique.filter(l => localitySet.has(this.toSlug(l.locality)))
+          : unique;
+
+        for (const loc of matched) {
+          targets.push({ categorySlug, citySlug: cs, cityName: city.name, cityId: city.id, localitySlug: this.toSlug(loc.locality), localityName: loc.locality, localityId: loc.id });
+        }
+
+        // A single named locality that this city has no row for is still a page
+        // the admin asked for — keep the long-standing fallback for that one case.
+        if (matched.length === 0 && cities.length === 1 && localities.length === 1) {
+          const only = localities[0];
+          targets.push({
+            categorySlug, citySlug: cs, cityName: city.name, cityId: city.id,
+            localitySlug: only,
+            localityName: only.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+          });
+        }
       }
     } else {
-      // All-cities path (used by preview and as fallback).
-      // Frontend now batches city-by-city, so this path handles preview or
-      // single-state previews where a global cap is acceptable.
-      const cityWhere: any = { isActive: true };
-      if (stateId) cityWhere.stateId = stateId;
-      const cities = await this.cityRepo.find({ where: cityWhere, order: { name: 'ASC' }, take: 100 });
-      const perCity = Math.max(1, Math.floor(MAX_ITEMS_GLOBAL / Math.max(cities.length, 1)));
-      for (const city of cities) {
+      // No city named at all — every active city, capped. The admin screen
+      // always names its cities and batches them one request each, so this is
+      // the fallback for an API caller that didn't.
+      const allCities = await this.cityRepo.find({ where: { isActive: true }, order: { name: 'ASC' }, take: 100 });
+      const perCity = Math.max(1, Math.floor(MAX_ITEMS_GLOBAL / Math.max(allCities.length, 1)));
+      for (const city of allCities) {
         if (!city.slug || targets.length >= MAX_ITEMS_GLOBAL) break;
         const locs = await this.locationRepo.find({ where: { city: city.name, isActive: true }, take: perCity });
-        const unique = Array.from(new Map(locs.filter(l => l.locality).map(l => [l.locality, l])).values());
+        const deduped = Array.from(new Map(locs.filter(l => l.locality).map(l => [l.locality, l])).values());
+        const unique = localitySet.size > 0
+          ? deduped.filter(l => localitySet.has(this.toSlug(l.locality)))
+          : deduped;
         for (const loc of unique) {
           if (targets.length >= MAX_ITEMS_GLOBAL) break;
           targets.push({ categorySlug, citySlug: city.slug, cityName: city.name, cityId: city.id, localitySlug: this.toSlug(loc.locality), localityName: loc.locality, localityId: loc.id });
@@ -1031,8 +1191,9 @@ export class SeoService {
   async quickSeoPreview(body: {
     categorySlug: string;
     citySlug?: string;
+    citySlugs?: string[];
     localitySlug?: string;
-    stateId?: string;
+    localitySlugs?: string[];
     slugPattern?: string;
     citySlugPattern?: string;
     includeCityPage?: boolean;
@@ -1063,19 +1224,25 @@ export class SeoService {
   }> {
     const localityPattern = body.slugPattern || '{category}-in-{city}-{locality}';
     const cityPattern = body.citySlugPattern || '{category}-in-{city}';
-    const targets = await this.resolveQuickSeoTargets({ ...body, stateId: body.stateId });
+    const targets = await this.resolveQuickSeoTargets(body);
     const items: any[] = [];
 
-    // City-level pages (one per unique city)
+    // City-level pages (one per unique city). Cities the scope names explicitly
+    // count even if they have no localities yet; otherwise they come from the
+    // targets, which is all the all-cities path knows about.
     if (body.includeCityPage) {
+      const named = await this.resolveQuickSeoCities(body);
+      const cityRows = named.length > 0
+        ? named
+        : Array.from(new Map(targets.map(t => [t.citySlug, { citySlug: t.citySlug, cityName: t.cityName, cityId: t.cityId }])).values());
       const seenCities = new Set<string>();
-      for (const t of targets) {
+      for (const t of cityRows) {
         if (seenCities.has(t.citySlug)) continue;
         seenCities.add(t.citySlug);
-        const slug = this.generateQuickSlug(cityPattern, t.categorySlug, t.citySlug, '');
+        const slug = this.generateQuickSlug(cityPattern, body.categorySlug, t.citySlug, '');
         const url = `/${slug}`;
         const existing = await this.footerLinkRepo.findOne({ where: { url } });
-        const ctx = { ...t, localityName: '' };
+        const ctx = { ...t, categorySlug: body.categorySlug, localityName: '' };
         items.push({
           type: 'city',
           cityName: t.cityName,
@@ -1120,8 +1287,9 @@ export class SeoService {
   async quickSeoApply(body: {
     categorySlug: string;
     citySlug?: string;
+    citySlugs?: string[];
     localitySlug?: string;
-    stateId?: string;
+    localitySlugs?: string[];
     slugPattern?: string;
     citySlugPattern?: string;
     overwriteExisting?: boolean;
@@ -1149,9 +1317,14 @@ export class SeoService {
 
     let created = 0, updated = 0, skipped = 0, failed = 0;
 
-    // Build a map of city slug → group (find or create one group per category+city)
+    // Build a map of city slug → group (find or create one group per category+city).
+    // Cities the scope names explicitly are all included, so one the admin picked
+    // that has no localities yet still gets its group and its city-level page.
     const groupMap = new Map<string, FooterSeoLinkGroup>();
     const citySet = new Map<string, { cityName: string; cityId?: string }>();
+    for (const c of await this.resolveQuickSeoCities(body)) {
+      citySet.set(c.citySlug, { cityName: c.cityName, cityId: c.cityId });
+    }
     for (const t of targets) {
       if (!citySet.has(t.citySlug)) citySet.set(t.citySlug, { cityName: t.cityName, cityId: t.cityId });
     }
@@ -1293,6 +1466,10 @@ export class SeoService {
       updated += toUpdate.length;
     }
 
+    // Bulk apply is the main way footer links appear — the cached public
+    // payload is stale the moment it finishes.
+    this.invalidateFooterCache();
+
     const cityPageCount = body.includeCityPage ? citySet.size : 0;
     return { created, updated, skipped, failed, total: targets.length + cityPageCount };
   }
@@ -1329,16 +1506,18 @@ export class SeoService {
 
   async applyQuickSeoTemplate(id: string, scope: {
     citySlug?: string;
+    citySlugs?: string[];
     localitySlug?: string;
-    stateId?: string;
+    localitySlugs?: string[];
     overwriteExisting?: boolean;
   }): Promise<{ created: number; updated: number; skipped: number; failed: number; total: number }> {
     const t = await this.getQuickSeoTemplate(id);
     const result = await this.quickSeoApply({
       categorySlug:    t.categorySlug,
       citySlug:        scope.citySlug,
+      citySlugs:       scope.citySlugs,
       localitySlug:    scope.localitySlug,
-      stateId:         scope.stateId,
+      localitySlugs:   scope.localitySlugs,
       slugPattern:     t.slugPattern,
       citySlugPattern: t.citySlugPattern,
       includeCityPage: t.includeCityPage,

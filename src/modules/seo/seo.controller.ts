@@ -1,9 +1,10 @@
 import {
   Controller, Get, Post, Patch, Delete, Body, Param, Query,
   UseGuards, Request, ForbiddenException, DefaultValuePipe,
-  ParseIntPipe, NotFoundException,
+  ParseIntPipe, NotFoundException, Header,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
 import { SeoService } from './seo.service';
 import { UserRole } from '../users/entities/user.entity';
@@ -100,6 +101,11 @@ export class SeoController {
   // ── Public: Footer Links ──────────────────────────────────────────────────
 
   @Get('footer-links')
+  @SkipThrottle()
+  // On every page for every visitor. The payload only changes when an admin
+  // edits the footer, so let browsers and any CDN in front of the API hold it
+  // rather than asking again on each navigation.
+  @Header('Cache-Control', 'public, max-age=300, stale-while-revalidate=600')
   @ApiOperation({ summary: 'Get active footer SEO links (public)' })
   getActiveFooterLinks() {
     return this.seoService.getActiveFooterLinksWithGroups();
@@ -603,6 +609,15 @@ export class SeoController {
       city:     city     || undefined,
       isActive: isActive !== undefined ? isActive === 'true' : undefined,
     });
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('admin/footer-links/:id')
+  @ApiOperation({ summary: 'One footer link with its full SEO content (admin) — the list omits it' })
+  getFooterLink(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.seoService.getFooterLinkById(id);
   }
 
   @UseGuards(AuthGuard('jwt'))
