@@ -485,10 +485,19 @@ export class SeoController {
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
   @Get('admin/footer-groups')
-  @ApiOperation({ summary: 'List all footer link groups with links (admin)' })
+  @ApiOperation({ summary: 'List all footer link groups with link counts (admin)' })
   getFooterGroups(@Request() req) {
     this.assertAdmin(req);
-    return this.seoService.getFooterLinksWithGroups();
+    return this.seoService.getFooterGroupsWithCounts();
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('admin/footer-groups/:id/links')
+  @ApiOperation({ summary: 'Links of one footer group (admin) — the group listing omits them' })
+  getFooterGroupLinks(@Request() req, @Param('id') id: string) {
+    this.assertAdmin(req);
+    return this.seoService.getFooterGroupLinks(id);
   }
 
   @UseGuards(AuthGuard('jwt'))

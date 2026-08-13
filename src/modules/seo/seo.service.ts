@@ -753,12 +753,35 @@ export class SeoService {
   }
 
   /**
-   * Admin listing. Same light columns as the public one plus the short meta
-   * fields the list displays, and `hasSeoContent` computed in SQL so the UI can
-   * still show which links carry content without shipping the content itself.
+   * Admin group listing — groups only, with each group's link count computed in
+   * SQL. The links themselves come one group at a time from
+   * getFooterGroupLinks(), because the admin screen only ever displays the
+   * selected group. Returning every group's links in one response is ~60k rows
+   * / ~17MB, which the browser gives up on before it finishes arriving.
    */
-  async getFooterLinksWithGroups() {
+  async getFooterGroupsWithCounts() {
     const groups = await this.footerGroupRepo.find({ order: { sortOrder: 'ASC' } });
+    const counts = await this.footerLinkRepo
+      .createQueryBuilder('fl')
+      .select('fl.groupId', 'groupId')
+      .addSelect('COUNT(*)', 'linkCount')
+      .groupBy('fl.groupId')
+      .getRawMany<{ groupId: string; linkCount: string }>();
+
+    const countByGroup = new Map(counts.map(c => [c.groupId, Number(c.linkCount)]));
+    return groups.map(g => ({ ...g, linkCount: countByGroup.get(g.id) ?? 0 }));
+  }
+
+  /**
+   * The links of a single group, for the admin editor's link table. Same light
+   * columns as the public listing plus the short meta fields the table shows,
+   * and `hasSeoContent` computed in SQL so the UI can flag which links carry
+   * content without shipping the content itself.
+   */
+  async getFooterGroupLinks(groupId: string) {
+    const group = await this.footerGroupRepo.findOne({ where: { id: groupId } });
+    if (!group) throw new NotFoundException('Footer link group not found');
+
     const links = await this.footerLinkRepo
       .createQueryBuilder('fl')
       .select([
@@ -771,13 +794,12 @@ export class SeoService {
           OR fl.faqJson IS NOT NULL)`,
         'hasSeoContent',
       )
-      .orderBy('fl.groupId', 'ASC')
-      .addOrderBy('fl.sortOrder', 'ASC')
+      .where('fl.groupId = :groupId', { groupId })
+      .orderBy('fl.sortOrder', 'ASC')
       .getRawAndEntities();
 
     const flagById = new Map(links.raw.map((r: any) => [r.fl_id, !!Number(r.hasSeoContent)]));
-    const withFlag = links.entities.map(l => ({ ...l, hasSeoContent: flagById.get(l.id) ?? false }));
-    return this.groupLinks(groups, withFlag);
+    return links.entities.map(l => ({ ...l, hasSeoContent: flagById.get(l.id) ?? false }));
   }
 
   /** Public footer. Cached — see footerCache. */
