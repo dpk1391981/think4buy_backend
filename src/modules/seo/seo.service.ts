@@ -169,7 +169,7 @@ export class SeoService {
     // Normalised once. Null for asset paths, which can never match a row and
     // otherwise cost a query on every 404'd icon or map file.
     const lookupSlug = urlSlug && !isAssetPath(urlSlug)
-      ? urlSlug.replace(/^\/+|\/+$/g, '').toLowerCase()
+      ? urlSlug.trim().replace(/^\/+|\/+$/g, '').trim().toLowerCase()
       : null;
 
     // ── Priority 0: Footer Link SEO ───────────────────────────────────────
@@ -199,6 +199,12 @@ export class SeoService {
         // listing-page render into a full scan of the table. Rows are written
         // as '/slug'; the bare form covers older hand-entered rows. Case is
         // already handled — the column collates utf8mb4_0900_ai_ci.
+        //
+        // Stored URLs that carried stray whitespace or a trailing slash used to
+        // be absorbed by a double-TRIM here. They are normalised at rest
+        // instead — see the UPDATE in
+        // migrations/2026-08-13_footer_seo_links_url_index.sql — because doing
+        // it per request costs the index on every page view forever.
         .where('fl.url IN (:...urls)', { urls: ['/' + normalized, normalized] })
         .andWhere(
           '(fl.metaTitle IS NOT NULL OR fl.h1Title IS NOT NULL OR fl.introContent IS NOT NULL OR fl.bottomContent IS NOT NULL OR fl.faqJson IS NOT NULL)',
@@ -782,7 +788,7 @@ export class SeoService {
     const groups = await this.footerGroupRepo.find({ where: { isActive: true }, order: { sortOrder: 'ASC' } });
     const links = await this.footerLinkRepo.find({
       where: { isActive: true },
-      order: { sortOrder: 'ASC' },
+      order: { groupId: 'ASC', sortOrder: 'ASC' },
       select: [...SeoService.FOOTER_LINK_LIST_COLUMNS],
     });
     const result = this.groupLinks(groups, links);
@@ -1053,11 +1059,13 @@ export class SeoService {
 
   private generateQuickSlug(pattern: string, categorySlug: string, citySlug: string, localitySlug: string): string {
     return pattern
-      .replace(/\{category\}/g, categorySlug)
-      .replace(/\{city\}/g, citySlug)
-      .replace(/\{locality\}/g, localitySlug)
+      .replace(/\{category\}/g, categorySlug.trim())
+      .replace(/\{city\}/g, citySlug.trim())
+      .replace(/\{locality\}/g, localitySlug.trim())
+      .replace(/\s+/g, '-')
       .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
+      .replace(/^[\s-]+|[\s-]+$/g, '')
+      .trim();
   }
 
   private async getCategoryLabel(categorySlug: string): Promise<string> {
@@ -1239,6 +1247,10 @@ export class SeoService {
       for (const t of cityRows) {
         if (seenCities.has(t.citySlug)) continue;
         seenCities.add(t.citySlug);
+        // body.categorySlug, not t.categorySlug: these rows come from
+        // resolveQuickSeoCities() when the scope names its cities, and carry no
+        // category of their own — reading it off `t` put "undefined" in the URL.
+        // Trailing whitespace is handled inside generateQuickSlug().
         const slug = this.generateQuickSlug(cityPattern, body.categorySlug, t.citySlug, '');
         const url = `/${slug}`;
         const existing = await this.footerLinkRepo.findOne({ where: { url } });
