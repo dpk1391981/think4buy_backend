@@ -2,10 +2,11 @@ import { IsEmail, IsString, MinLength, IsOptional, IsEnum, Length, Matches, IsNu
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '../../users/entities/user.entity';
 
-// Only OWNER and AGENT roles are allowed during public registration.
-// BUYER is for search-only users (registered via OTP flow).
+// OWNER, AGENT and BUYER may be self-registered. BUYER was previously reachable
+// only through the OTP flow; the consolidated /auth page offers a password
+// signup for search-only users too, so it belongs here now.
 // ADMIN is system-only and cannot be self-registered.
-const ALLOWED_REGISTRATION_ROLES = [UserRole.OWNER, UserRole.AGENT] as const;
+const ALLOWED_REGISTRATION_ROLES = [UserRole.OWNER, UserRole.AGENT, UserRole.BUYER] as const;
 
 export class RegisterDto {
   @ApiProperty({ example: 'John Doe' })
@@ -29,13 +30,13 @@ export class RegisterDto {
   @ApiPropertyOptional({
     enum: ALLOWED_REGISTRATION_ROLES,
     default: UserRole.OWNER,
-    description: 'Only "owner" or "agent" allowed during registration',
+    description: 'One of "owner", "agent" or "buyer"',
   })
   @IsOptional()
   @IsEnum(ALLOWED_REGISTRATION_ROLES, {
-    message: 'role must be either "owner" or "agent"',
+    message: 'role must be "owner", "agent" or "buyer"',
   })
-  role?: UserRole.OWNER | UserRole.AGENT;
+  role?: UserRole.OWNER | UserRole.AGENT | UserRole.BUYER;
 }
 
 export class LoginDto {
@@ -53,6 +54,44 @@ export class SendOtpDto {
   @IsString()
   @Matches(/^[6-9]\d{9}$/, { message: 'Enter a valid 10-digit Indian mobile number' })
   phone: string;
+}
+
+// ── Email OTP ────────────────────────────────────────────────────────────────
+// Email is the only live OTP channel at launch — mobile OTP stays dark until DLT
+// approval (see ENABLE_MOBILE_OTP in system config).
+
+export class SendEmailOtpDto {
+  @ApiProperty({ example: 'john@example.com' })
+  @IsEmail()
+  email: string;
+}
+
+export class VerifyEmailOtpDto {
+  @ApiProperty({ example: 'john@example.com' })
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ example: '123456' })
+  @IsString()
+  @Length(6, 6)
+  otp: string;
+
+  @ApiPropertyOptional({ example: 'John Doe' })
+  @IsOptional()
+  @IsString()
+  name?: string;
+}
+
+/**
+ * Drives the consolidated /auth page: the visitor types an email, and the page
+ * decides whether to ask for a password, offer an email OTP, or show the
+ * registration form — without leaking whether the account exists via a
+ * different HTTP status.
+ */
+export class EmailStatusDto {
+  @ApiProperty({ example: 'john@example.com' })
+  @IsEmail()
+  email: string;
 }
 
 export class VerifyOtpDto {

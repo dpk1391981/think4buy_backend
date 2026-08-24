@@ -335,6 +335,75 @@ export class MessagingService {
     }
   }
 
+  // ── OTP Email ─────────────────────────────────────────────────────────────
+
+  /**
+   * Sends an OTP via the first active EMAIL service.
+   * Looks for a template named "otp_verification_email" on that service.
+   * Falls back to a built-in default body if no such template exists.
+   *
+   * Unlike `sendOtpSms`, this REPORTS failure to the caller instead of
+   * swallowing it. Email is the only live OTP channel at launch, so a bounced
+   * send is not a degraded path the user can route around — telling them "OTP
+   * sent" while nothing was delivered would strand them on the verify screen.
+   * The caller (auth.service.sendEmailOtp) decides whether to surface it.
+   */
+  async sendOtpEmail(email: string, otp: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const service = await this.serviceRepo.findOne({
+        where: { channel: MessageChannel.EMAIL, isActive: true },
+        order: { createdAt: 'ASC' },
+      });
+
+      if (!service) {
+        this.logger.warn('[OTP Email] No active email service configured — skipping send');
+        return { success: false, error: 'No active email service configured' };
+      }
+
+      // Optional: custom template named "otp_verification_email" on that service
+      const template = await this.templateRepo.findOne({
+        where: { name: 'otp_verification_email', serviceId: service.id, isActive: true },
+      });
+
+      const body = template
+        ? this.renderTemplate(template.body, { otp, email })
+        : `Your Think4BuySale verification code is ${otp}.\n\n`
+          + `It is valid for 10 minutes. Please do not share this code with anyone.\n\n`
+          + `If you did not request this code, you can safely ignore this email.`;
+
+      const subject = template?.subject
+        ? this.renderTemplate(template.subject, { otp, email })
+        : `${otp} is your Think4BuySale verification code`;
+
+      const provider = this.resolveProvider(service.channel, service.provider);
+      const result   = await provider.send({ to: email, body, subject }, service.config ?? {});
+
+      // Persist audit log
+      await this.logRepo.save(
+        this.logRepo.create({
+          event:         'otp_requested',
+          recipientType: 'email',
+          recipient:     email,
+          renderedBody:  body,
+          status:        result.success ? MessageStatus.SENT : MessageStatus.FAILED,
+          errorMessage:  result.error ?? null,
+          sentAt:        result.success ? new Date() : null,
+          attempts:      1,
+          serviceId:     service.id,
+          templateId:    template?.id ?? null,
+        }),
+      );
+
+      if (!result.success) {
+        this.logger.warn(`[OTP Email] Send failed for ${email}: ${result.error}`);
+      }
+      return { success: result.success, error: result.error };
+    } catch (err: any) {
+      this.logger.error(`[OTP Email] Unexpected error for ${email}: ${err.message}`, err.stack);
+      return { success: false, error: err.message };
+    }
+  }
+
   // ── Provider Resolution ───────────────────────────────────────────────────
 
   resolveProvider(channel: MessageChannel, provider: MessageProvider): IMessagingProvider {

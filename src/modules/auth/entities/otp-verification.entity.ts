@@ -8,14 +8,32 @@ import {
 
 export type OtpPurpose = 'login';
 
+/**
+ * Delivery channel for the OTP.
+ *
+ * `sms` rows are keyed on `phone`, `email` rows on `email` — exactly one of the
+ * two is ever populated. SMS is gated behind the ENABLE_MOBILE_OTP system-config
+ * flag (off until DLT approval), so `email` is the only live channel at launch.
+ */
+export type OtpChannel = 'sms' | 'email';
+
 @Entity('otp_verifications')
 @Index('idx_otp_phone_purpose', ['phone', 'purpose'])
+@Index('idx_otp_email_purpose', ['email', 'purpose'])
 export class OtpVerification {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ length: 20 })
-  phone: string;
+  /** Populated for `sms` channel rows only */
+  @Column({ length: 20, nullable: true })
+  phone: string | null;
+
+  /** Populated for `email` channel rows only — lower-cased before write */
+  @Column({ length: 150, nullable: true })
+  email: string | null;
+
+  @Column({ type: 'varchar', length: 10, default: 'sms' })
+  channel: OtpChannel;
 
   /** bcrypt hash of the OTP — never store plaintext */
   @Column({ length: 60 })

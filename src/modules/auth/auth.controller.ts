@@ -22,7 +22,16 @@ import { Throttle } from '@nestjs/throttler';
 import { imageMulterOptions } from '../upload/multer.config';
 import { ImageUploadService } from '../upload/image-upload.service';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, SendOtpDto, VerifyOtpDto, OnboardingDto } from './dto/auth.dto';
+import {
+  RegisterDto,
+  LoginDto,
+  SendOtpDto,
+  VerifyOtpDto,
+  OnboardingDto,
+  SendEmailOtpDto,
+  VerifyEmailOtpDto,
+  EmailStatusDto,
+} from './dto/auth.dto';
 
 /** Cookie name for the HTTP-only refresh token */
 const REFRESH_COOKIE = 'rt';
@@ -48,11 +57,10 @@ export class AuthController {
 
   @Post('register')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Register new user' })
+  @ApiOperation({ summary: 'Register new user — emails an OTP, returns no tokens until verified' })
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.register(dto);
-    this.setRefreshCookie(res, result.refreshToken);
-    return { user: result.user, token: result.accessToken, accessToken: result.accessToken };
+    return this.respondWithSession(res, result);
   }
 
   // ── Login — 5 req/min (brute-force protection) ───────────────────────────
@@ -62,8 +70,49 @@ export class AuthController {
   @ApiOperation({ summary: 'User login' })
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(dto);
+    return this.respondWithSession(res, result);
+  }
+
+  // ── Auth capabilities — drives which options the /auth page renders ──────
+
+  @Get('config')
+  @ApiOperation({ summary: 'Which auth methods are currently enabled' })
+  getAuthConfig() {
+    return this.authService.getAuthConfig();
+  }
+
+  // ── Email OTP (the live OTP channel while mobile OTP is off) ─────────────
+
+  @Post('email-status')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Whether an address has an account, and how it can sign in' })
+  emailStatus(@Body() dto: EmailStatusDto) {
+    return this.authService.getEmailStatus(dto.email);
+  }
+
+  @Post('otp/email/send')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Email a 6-digit login / verification code' })
+  sendEmailOtp(@Body() dto: SendEmailOtpDto) {
+    return this.authService.sendEmailOtp(dto);
+  }
+
+  @Post('otp/email/verify')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Verify an emailed code and log in / register' })
+  async verifyEmailOtp(
+    @Body() dto: VerifyEmailOtpDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.verifyEmailOtp(dto);
     this.setRefreshCookie(res, result.refreshToken);
-    return { user: result.user, token: result.accessToken, accessToken: result.accessToken };
+    return {
+      user: result.user,
+      token: result.accessToken,
+      accessToken: result.accessToken,
+      menus: result.menus,
+      isNewUser: result.isNewUser,
+    };
   }
 
   // ── Refresh access token using HTTP-only cookie ──────────────────────────
@@ -259,5 +308,30 @@ export class AuthController {
 
   private setRefreshCookie(res: Response, token: string) {
     res.cookie(REFRESH_COOKIE, token, cookieOptions);
+  }
+
+  /**
+   * Register and login now have two possible outcomes: a real session, or a
+   * "prove the address first" instruction carrying no credentials. This keeps
+   * the refresh cookie from being set on the second kind — an unverified caller
+   * must not walk away holding anything it can refresh into a session with.
+   */
+  private respondWithSession(res: Response, result: any) {
+    if (result?.requiresVerification) {
+      return {
+        requiresVerification: true,
+        email:     result.email,
+        message:   result.message,
+        otpSentTo: result.otpSentTo,
+        ...(result.devOtp && { devOtp: result.devOtp }),
+      };
+    }
+    this.setRefreshCookie(res, result.refreshToken);
+    return {
+      user:        result.user,
+      token:       result.accessToken,
+      accessToken: result.accessToken,
+      menus:       result.menus,
+    };
   }
 }

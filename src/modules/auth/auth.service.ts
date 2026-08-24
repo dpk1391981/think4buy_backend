@@ -4,6 +4,7 @@ import {
   ConflictException,
   BadRequestException,
   ForbiddenException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -12,7 +13,15 @@ import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User, UserRole } from '../users/entities/user.entity';
 import { OtpVerification } from './entities/otp-verification.entity';
-import { RegisterDto, LoginDto, SendOtpDto, VerifyOtpDto, OnboardingDto } from './dto/auth.dto';
+import {
+  RegisterDto,
+  LoginDto,
+  SendOtpDto,
+  VerifyOtpDto,
+  OnboardingDto,
+  SendEmailOtpDto,
+  VerifyEmailOtpDto,
+} from './dto/auth.dto';
 import { WalletService } from '../wallet/wallet.service';
 import { MenusService } from '../menus/menus.service';
 import { AgencyService } from '../agency/agency.service';
@@ -25,6 +34,15 @@ const OTP_MAX_ATTEMPTS = 5;
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 /** Max failed login attempts before account lockout */
 const MAX_FAILED_ATTEMPTS = 5;
+/**
+ * Sentinel written to `users.password` for accounts created through an OTP flow,
+ * which never chose a password. The column is NOT NULL, so a marker is needed
+ * rather than null. It is deliberately not a valid bcrypt hash — `bcrypt.compare`
+ * returns false for any input against it, so such an account can never be
+ * password-logged-in, and `hasPassword` on the email-status lookup can tell the
+ * auth page to offer OTP instead of a password box.
+ */
+const OTP_ONLY_PASSWORD = '__otp_only__';
 /** Lockout duration in milliseconds (15 minutes) */
 const LOCKOUT_MS = 15 * 60 * 1000;
 
@@ -47,31 +65,57 @@ export class AuthService {
   // ── Registration ──────────────────────────────────────────────────────────
 
   async register(dto: RegisterDto) {
-    const existing = await this.userRepository.findOne({ where: { email: dto.email } });
+    // Normalised before the duplicate check, not just before the insert —
+    // looking up the raw address lets "John@X.com" slip past a stored
+    // "john@x.com" and fail later on the unique index as a 500.
+    const email = dto.email.trim().toLowerCase();
+
+    const existing = await this.userRepository.findOne({ where: { email } });
     if (existing) throw new ConflictException('Email already registered');
 
-    const allowedRoles = [UserRole.OWNER, UserRole.AGENT];
+    // Mirrors ALLOWED_REGISTRATION_ROLES in auth.dto.ts. BUYER is self-service
+    // now that the consolidated /auth page offers a password signup to
+    // search-only users; ADMIN stays system-only.
+    const allowedRoles = [UserRole.OWNER, UserRole.AGENT, UserRole.BUYER];
     if (dto.role && !allowedRoles.includes(dto.role as UserRole)) {
-      throw new BadRequestException('Only "owner" or "agent" roles can be self-registered');
+      throw new BadRequestException(
+        'Only "owner", "agent" or "buyer" roles can be self-registered',
+      );
     }
 
     const hashed = await bcrypt.hash(dto.password, 12); // increased to 12 rounds
     const user = this.userRepository.create({
       ...dto,
+      email,
       role: dto.role ?? UserRole.OWNER,
       password: hashed,
+      isVerified: false, // flipped by verifyEmailOtp
     });
     await this.userRepository.save(user);
     await this.walletService.createWallet(user.id);
     await this.walletService.assignDefaultPlan(user.id);
 
-    return this.buildAuthResponse(user);
+    // Registration does not hand out tokens — the address has to be proven first.
+    // The account exists but stays unverified until the emailed OTP is entered,
+    // which is what stops signups against addresses the person doesn't control.
+    const delivery = await this.dispatchEmailOtpTolerant(user.email);
+
+    return {
+      requiresVerification: true,
+      email: user.email,
+      message: 'Account created. Enter the verification code sent to your email.',
+      ...delivery,
+    };
   }
 
   // ── Login with account lockout ────────────────────────────────────────────
 
   async login(dto: LoginDto) {
-    const user = await this.userRepository.findOne({ where: { email: dto.email } });
+    // Addresses are stored lower-cased, so the lookup has to normalise too —
+    // otherwise "John@X.com" fails against its own account.
+    const user = await this.userRepository.findOne({
+      where: { email: dto.email.trim().toLowerCase() },
+    });
 
     // Always run bcrypt even if user not found to prevent timing-based user enumeration
     const dummyHash = '$2a$12$dummyhashforpreventtimingattack00000000000000000000000';
@@ -94,6 +138,25 @@ export class AuthService {
     }
 
     if (!user.isActive) throw new ForbiddenException('Account is deactivated');
+
+    // Verify-first gate for accounts registered under the email-OTP flow.
+    //
+    // Scoped to accounts that are unverified AND have never logged in. Without
+    // the `lastLoginAt` half, every pre-existing account would be caught:
+    // `isVerified` has never been enforced at login in this codebase, so
+    // established users carry it as false and would all be pushed through an
+    // OTP they never needed. With it, the only accounts affected are ones that
+    // registered and never got in — exactly the case that must not be able to
+    // skip verification by going straight to the password box.
+    if (!user.isVerified && !user.lastLoginAt) {
+      const delivery = await this.dispatchEmailOtpTolerant(user.email);
+      return {
+        requiresVerification: true,
+        email: user.email,
+        message: 'Please verify your email. A verification code has been sent.',
+        ...delivery,
+      };
+    }
 
     // Successful login — reset failure counters
     await this.userRepository.update(user.id, {
@@ -330,9 +393,34 @@ export class AuthService {
     return this.getProfile(userId);
   }
 
+  // ── Auth capability advertisement ─────────────────────────────────────────
+
+  /**
+   * What the auth UI is allowed to offer. Read by the /auth page on load so the
+   * mobile-number path is never rendered while DLT approval is outstanding —
+   * the server-side gate in `sendOtp` is the real enforcement, this just keeps
+   * the UI from advertising a door that is locked.
+   */
+  async getAuthConfig() {
+    return {
+      mobileOtpEnabled: await this.systemConfig.getBoolean('ENABLE_MOBILE_OTP', false),
+      emailOtpEnabled:  await this.systemConfig.getBoolean('ENABLE_EMAIL_OTP', true),
+      passwordEnabled:  true,
+    };
+  }
+
   // ── OTP ───────────────────────────────────────────────────────────────────
 
   async sendOtp(dto: SendOtpDto) {
+    // Mobile OTP stays dark until the DLT template registration is approved.
+    // Flip ENABLE_MOBILE_OTP in system config to switch it on — no redeploy.
+    const mobileOtpEnabled = await this.systemConfig.getBoolean('ENABLE_MOBILE_OTP', false);
+    if (!mobileOtpEnabled) {
+      throw new BadRequestException(
+        'Mobile OTP login is currently unavailable. Please continue with your email address.',
+      );
+    }
+
     // Rate-limit: block if a non-expired, non-used OTP was sent within the last 60 seconds
     const recent = await this.otpRepo.findOne({
       where: { phone: dto.phone, purpose: 'login', used: false },
@@ -350,10 +438,10 @@ export class AuthService {
     const expiresAt = new Date(Date.now() + OTP_TTL_MS);
 
     // Invalidate previous unused entries for this phone
-    await this.otpRepo.delete({ phone: dto.phone, purpose: 'login', used: false });
+    await this.otpRepo.delete({ phone: dto.phone, channel: 'sms', purpose: 'login', used: false });
 
     await this.otpRepo.save(
-      this.otpRepo.create({ phone: dto.phone, otpHash, purpose: 'login', expiresAt }),
+      this.otpRepo.create({ phone: dto.phone, channel: 'sms', otpHash, purpose: 'login', expiresAt }),
     );
 
     // Send OTP via SMS if ENABLE_OTP_SMS is toggled on in system config
@@ -375,7 +463,7 @@ export class AuthService {
 
   async verifyOtp(dto: VerifyOtpDto) {
     const entry = await this.otpRepo.findOne({
-      where: { phone: dto.phone, purpose: 'login', used: false },
+      where: { phone: dto.phone, channel: 'sms', purpose: 'login', used: false },
       order: { createdAt: 'DESC' },
     });
 
@@ -424,6 +512,216 @@ export class AuthService {
     if (!user.isActive) throw new ForbiddenException('Account is deactivated.');
 
     await this.userRepository.update(user.id, { lastLoginAt: new Date() });
+    const authResponse = await this.buildAuthResponse(user);
+    return { ...authResponse, isNewUser };
+  }
+
+  // ── Email OTP ─────────────────────────────────────────────────────────────
+
+  /**
+   * Tells the auth page which box to render next for a given address, without
+   * requiring a password guess to find out. `exists` is intentionally exposed —
+   * a signup form that rejects duplicates already reveals it, so hiding it here
+   * would buy nothing while making the flow guess wrong half the time.
+   */
+  async getEmailStatus(email: string) {
+    const normalised = email.trim().toLowerCase();
+    const user = await this.userRepository.findOne({
+      where: { email: normalised },
+      select: ['id', 'name', 'password', 'isVerified', 'isActive', 'lastLoginAt'],
+    });
+
+    if (!user) {
+      return { exists: false, hasPassword: false, isVerified: false, name: null };
+    }
+
+    return {
+      exists:      true,
+      hasPassword: user.password !== OTP_ONLY_PASSWORD,
+      // Mirrors the login gate — lets the page jump straight to the OTP step
+      // instead of asking for a password it is about to reject.
+      isVerified:  user.isVerified || !!user.lastLoginAt,
+      name:        user.name ?? null,
+    };
+  }
+
+  /**
+   * Like `dispatchEmailOtp`, but treats the 60s resend throttle as success.
+   *
+   * Used by the paths where sending a code is a side effect of another action
+   * (registering, or a password login that hits the verify-first gate) rather
+   * than something the visitor asked for. There, a cooldown must not become an
+   * error: the outstanding code is still live and still the thing they need to
+   * enter, so the caller should reach the verify screen either way. Only an
+   * explicit "resend" should ever surface the wait.
+   */
+  private async dispatchEmailOtpTolerant(email: string) {
+    try {
+      return await this.dispatchEmailOtp(email);
+    } catch (err) {
+      if (err instanceof BadRequestException) {
+        return {
+          otpSentTo: this.maskEmail(email.trim().toLowerCase()),
+          throttled: true,
+        };
+      }
+      throw err; // a real delivery failure still has to surface
+    }
+  }
+
+  /**
+   * Issues a fresh email OTP for `email`, replacing any outstanding one.
+   *
+   * Shared by registration, the verify-first login gate, and OTP-only login, so
+   * all three paths get identical throttling, storage and delivery semantics.
+   * Returns the delivery outcome for the caller to fold into its own response.
+   */
+  private async dispatchEmailOtp(email: string) {
+    const normalised = email.trim().toLowerCase();
+
+    // Rate-limit: block if a live OTP for this address was issued < 60s ago
+    const recent = await this.otpRepo.findOne({
+      where: { email: normalised, channel: 'email', purpose: 'login', used: false },
+      order: { createdAt: 'DESC' },
+    });
+    if (recent && recent.expiresAt > new Date()) {
+      const secondsSince = (Date.now() - recent.createdAt.getTime()) / 1000;
+      if (secondsSince < 60) {
+        throw new BadRequestException(
+          `Please wait ${Math.ceil(60 - secondsSince)}s before requesting a new code.`,
+        );
+      }
+    }
+
+    const plainOtp  = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
+    const otpHash   = await bcrypt.hash(plainOtp, 10);
+    const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+
+    // Invalidate previous unused entries for this address
+    await this.otpRepo.delete({ email: normalised, channel: 'email', purpose: 'login', used: false });
+
+    await this.otpRepo.save(
+      this.otpRepo.create({ email: normalised, channel: 'email', otpHash, purpose: 'login', expiresAt }),
+    );
+
+    const emailOtpEnabled = await this.systemConfig.getBoolean('ENABLE_EMAIL_OTP', true);
+    const isProd = process.env.NODE_ENV === 'production';
+
+    if (emailOtpEnabled) {
+      const result = await this.messagingService.sendOtpEmail(normalised, plainOtp);
+      // In production a failed send is a dead end for the user — email is the
+      // only channel while mobile OTP is off, so it surfaces rather than
+      // reporting a success that never arrives. Outside production the code is
+      // returned in `devOtp` below, so the flow stays testable without SMTP.
+      if (!result.success && isProd) {
+        throw new ServiceUnavailableException(
+          'We could not send your verification code right now. Please try again in a moment.',
+        );
+      }
+      if (!result.success) {
+        console.log(`[OTP EMAIL] ${normalised}  OTP: ${plainOtp}  (send failed: ${result.error})`);
+      }
+    } else {
+      console.log(`[OTP EMAIL] ${normalised}  OTP: ${plainOtp}  (email OTP disabled)`);
+    }
+
+    return {
+      otpSentTo: this.maskEmail(normalised),
+      ...(!isProd && { devOtp: plainOtp }),
+    };
+  }
+
+  /** `john.doe@example.com` → `jo****@example.com` — safe to echo back to the client */
+  private maskEmail(email: string): string {
+    const [local, domain] = email.split('@');
+    if (!domain) return email;
+    const head = local.slice(0, 2);
+    return `${head}${'*'.repeat(Math.max(local.length - 2, 1))}@${domain}`;
+  }
+
+  /** Public entry point for "email me a code" — used for OTP-only login and resends */
+  async sendEmailOtp(dto: SendEmailOtpDto) {
+    const normalised = dto.email.trim().toLowerCase();
+    const existing = await this.userRepository.findOne({ where: { email: normalised } });
+
+    if (existing && !existing.isActive) {
+      throw new ForbiddenException('Account is deactivated.');
+    }
+
+    const delivery = await this.dispatchEmailOtp(normalised);
+
+    return {
+      message: 'Verification code sent to your email',
+      isNewUser: !existing,
+      ...delivery,
+    };
+  }
+
+  async verifyEmailOtp(dto: VerifyEmailOtpDto) {
+    const normalised = dto.email.trim().toLowerCase();
+
+    const entry = await this.otpRepo.findOne({
+      where: { email: normalised, channel: 'email', purpose: 'login', used: false },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!entry) {
+      throw new BadRequestException('Code not sent or already used. Please request a new one.');
+    }
+
+    if (entry.expiresAt < new Date()) {
+      await this.otpRepo.delete(entry.id);
+      throw new BadRequestException('Code expired. Please request a new one.');
+    }
+
+    // Increment attempt counter first (prevents race condition abuse)
+    entry.attempts += 1;
+    await this.otpRepo.save(entry);
+
+    if (entry.attempts > OTP_MAX_ATTEMPTS) {
+      await this.otpRepo.delete(entry.id);
+      throw new BadRequestException('Too many attempts. Please request a new code.');
+    }
+
+    const isMatch = await bcrypt.compare(dto.otp, entry.otpHash);
+    if (!isMatch) throw new BadRequestException('Invalid code. Please try again.');
+
+    // Mark as used (soft-delete — keeps audit trail)
+    entry.used = true;
+    await this.otpRepo.save(entry);
+
+    let user = await this.userRepository.findOne({ where: { email: normalised } });
+    const isNewUser = !user;
+
+    if (!user) {
+      // OTP-only signup: no password was ever chosen, so the sentinel goes in
+      // and the account is steered through onboarding to pick a role.
+      user = this.userRepository.create({
+        email:           normalised,
+        name:            dto.name?.trim() || normalised.split('@')[0],
+        password:        OTP_ONLY_PASSWORD,
+        role:            UserRole.BUYER,
+        isVerified:      true,
+        isActive:        true,
+        needsOnboarding: true,
+      });
+      await this.userRepository.save(user);
+      await this.walletService.createWallet(user.id);
+      await this.walletService.assignDefaultPlan(user.id);
+    }
+
+    if (!user.isActive) throw new ForbiddenException('Account is deactivated.');
+
+    // A verified code clears the login gate and any lockout from earlier
+    // password guessing — the address holder has proven control of the account.
+    await this.userRepository.update(user.id, {
+      isVerified:          true,
+      lastLoginAt:         new Date(),
+      failedLoginAttempts: 0,
+      lockedUntil:         null,
+    });
+    user.isVerified = true;
+
     const authResponse = await this.buildAuthResponse(user);
     return { ...authResponse, isNewUser };
   }
