@@ -597,7 +597,7 @@ export class AdminService {
     return this.locationsService.getLocalities(params);
   }
 
-  async createLocality(data: { city: string; state: string; locality?: string; pincode?: string; latitude?: number; longitude?: number }) {
+  async createLocality(data: { cityId?: string; city?: string; state?: string; locality?: string; pincode?: string; latitude?: number; longitude?: number }) {
     return this.locationsService.createLocality(data);
   }
 

@@ -148,9 +148,13 @@ export class PropertiesController {
   }
 
   @Get(':slug')
+  @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: 'Get property by slug' })
-  findBySlug(@Param('slug') slug: string) {
-    return this.propertiesService.findBySlug(slug);
+  findBySlug(@Param('slug') slug: string, @Request() req) {
+    // OptionalAuthGuard, not AuthGuard: this is the public listing page and the
+    // ISR render is anonymous. The user is only used to decide whether a
+    // not-yet-approved listing is visible to the person asking for it.
+    return this.propertiesService.findBySlug(slug, req.user);
   }
 
   /**

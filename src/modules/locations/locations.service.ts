@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, Not, IsNull } from 'typeorm';
 import { Location } from './entities/location.entity';
@@ -94,6 +94,15 @@ export class LocationsService {
 
   // ── Cities ──────────────────────────────────────────────────────────────────
 
+  /**
+   * Cities in a state that are worth linking to from the public site.
+   *
+   * The EXISTS clause is deliberate here — a city landing page with no listings
+   * is a dead end — but it makes this the wrong source for any admin picker:
+   * with an empty catalogue it returns nothing for every state. The admin
+   * screens must use `getAllCities` (GET /admin/cities) instead, which lists the
+   * cities table as it is.
+   */
   async getCitiesByState(stateId: string, onlyActive = true) {
     const where: any = { stateId };
     if (onlyActive) where.isActive = true;
@@ -240,21 +249,91 @@ export class LocationsService {
     return { items, total, page, limit };
   }
 
+  /**
+   * Resolves a locality's city/state from a real `cities` row.
+   *
+   * `locations` stores city and state as plain strings, so the admin form used
+   * to post whatever text it had. When the city dropdown came back empty — see
+   * getCitiesByState — the only way forward was to go and create cities, which
+   * is how "Delhi Central/East/North/South/West" ended up in the cities table as
+   * peers of Delhi. Pinning to a cityId makes that impossible: the names written
+   * here are always the canonical ones, so `toSlug(city)` matches a real city
+   * slug and the SEO/URL layer can resolve the locality page it generates.
+   *
+   * The `{ city, state }` string form still works for CSV bulk import.
+   */
+  private async resolveCity(data: { cityId?: string; city?: string; state?: string }) {
+    if (data.cityId) {
+      const city = await this.cityRepository.findOne({
+        where: { id: data.cityId },
+        relations: ['state'],
+      });
+      if (!city) throw new BadRequestException('Selected city no longer exists.');
+      return { city: city.name.trim(), state: (city.state?.name ?? data.state ?? '').trim() };
+    }
+
+    const city = data.city?.trim();
+    if (!city) throw new BadRequestException('A city is required.');
+    return { city, state: (data.state ?? '').trim() };
+  }
+
   async createLocality(data: {
-    city: string;
-    state: string;
+    cityId?: string;
+    city?: string;
+    state?: string;
     locality?: string;
     pincode?: string;
     latitude?: number;
     longitude?: number;
     isActive?: boolean;
   }) {
-    const loc = this.locationRepo.create({ ...data, isActive: data.isActive ?? true });
+    const { city, state } = await this.resolveCity(data);
+    const locality = data.locality?.trim() || null;
+
+    // Adding the same locality twice is always a mistake, and a duplicate row
+    // silently doubles the locality in every SEO and typeahead list built off
+    // this table.
+    const existing = await this.locationRepo
+      .createQueryBuilder('l')
+      .where('LOWER(l.city) = LOWER(:city)', { city })
+      .andWhere(
+        locality ? 'LOWER(l.locality) = LOWER(:locality)' : "(l.locality IS NULL OR l.locality = '')",
+        locality ? { locality } : {},
+      )
+      .getOne();
+    if (existing) {
+      throw new BadRequestException(
+        locality
+          ? `"${locality}" already exists under ${city}.`
+          : `${city} already has an entry.`,
+      );
+    }
+
+    const loc = this.locationRepo.create({
+      city,
+      state,
+      locality,
+      pincode:   data.pincode?.trim() || null,
+      latitude:  data.latitude,
+      longitude: data.longitude,
+      isActive:  data.isActive ?? true,
+    });
     return this.locationRepo.save(loc);
   }
 
-  async updateLocality(id: string, data: Partial<Location>) {
-    await this.locationRepo.update(id, data);
+  async updateLocality(id: string, data: Partial<Location> & { cityId?: string }) {
+    const { cityId, ...rest } = data as any;
+    const patch: Partial<Location> = { ...rest };
+
+    // Only re-resolve when the form actually sent a city — a partial patch
+    // (toggling isActive, say) must not blank the city out.
+    if (cityId || rest.city) {
+      const resolved = await this.resolveCity({ cityId, city: rest.city, state: rest.state });
+      patch.city  = resolved.city;
+      patch.state = resolved.state;
+    }
+
+    await this.locationRepo.update(id, patch);
     return this.locationRepo.findOne({ where: { id } });
   }
 

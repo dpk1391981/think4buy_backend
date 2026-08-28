@@ -113,9 +113,13 @@ export class AuthService {
   async login(dto: LoginDto) {
     // Addresses are stored lower-cased, so the lookup has to normalise too —
     // otherwise "John@X.com" fails against its own account.
-    const user = await this.userRepository.findOne({
-      where: { email: dto.email.trim().toLowerCase() },
-    });
+    // `password` is `select: false` on the entity, so it has to be asked for
+    // explicitly — a bare findOne here would silently compare against undefined.
+    const user = await this.userRepository
+      .createQueryBuilder('user')
+      .addSelect('user.password')
+      .where('user.email = :email', { email: dto.email.trim().toLowerCase() })
+      .getOne();
 
     // Always run bcrypt even if user not found to prevent timing-based user enumeration
     const dummyHash = '$2a$12$dummyhashforpreventtimingattack00000000000000000000000';
@@ -192,9 +196,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    const user = await this.userRepository.findOne({
-      where: { id: payload.sub, isActive: true },
-    });
+    // `refreshToken` is `select: false` — opt back in for the rotation check.
+    const user = await this.userRepository
+      .createQueryBuilder('user')
+      .addSelect('user.refreshToken')
+      .where('user.id = :id', { id: payload.sub })
+      .andWhere('user.isActive = :isActive', { isActive: true })
+      .getOne();
     if (!user || !user.refreshToken) throw new UnauthorizedException('Session expired. Please login again.');
 
     // Verify the stored hash matches
@@ -526,10 +534,18 @@ export class AuthService {
    */
   async getEmailStatus(email: string) {
     const normalised = email.trim().toLowerCase();
-    const user = await this.userRepository.findOne({
-      where: { email: normalised },
-      select: ['id', 'name', 'password', 'isVerified', 'isActive', 'lastLoginAt'],
-    });
+    // QueryBuilder rather than `find({ select })`: `password` is `select: false`
+    // on the entity, and `addSelect` is the one form guaranteed to re-include it
+    // across TypeORM 0.3.x. Getting this wrong would make every existing account
+    // look password-less and push it down the OTP branch.
+    const user = await this.userRepository
+      .createQueryBuilder('user')
+      .select([
+        'user.id', 'user.name', 'user.isVerified', 'user.isActive', 'user.lastLoginAt',
+      ])
+      .addSelect('user.password')
+      .where('user.email = :email', { email: normalised })
+      .getOne();
 
     if (!user) {
       return { exists: false, hasPassword: false, isVerified: false, name: null };

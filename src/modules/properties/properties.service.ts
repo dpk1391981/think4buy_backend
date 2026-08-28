@@ -440,6 +440,36 @@ export class PropertiesService {
   // ─────────────────────────────────────────────────────────────────────────────
   // Create
   // ─────────────────────────────────────────────────────────────────────────────
+  /**
+   * The only owner fields a client-facing property payload carries — the eight
+   * the frontend actually reads, plus the tick behind the agent badge.
+   *
+   * This is a projection over the joined entity rather than a narrowed SELECT.
+   * `leftJoin` + a partial `addSelect` reads better and would save the columns
+   * at the database, but under TypeORM 0.3.x it leaves `property.owner` null
+   * instead of hydrating a partial entity — which silently strips the owner
+   * from every card. Shaping the response is the form that actually works.
+   *
+   * Deliberately drops `email` and the free-text agent bio: nothing renders
+   * them, and a public listing feed is not the place to hand out every owner's
+   * address.
+   */
+  private static publicOwner(owner: User | null | undefined) {
+    if (!owner) return null;
+    const o = owner as any;
+    return {
+      id:         o.id,
+      name:       o.name,
+      avatar:     o.avatar,
+      phone:      o.phone,
+      company:    o.company,
+      city:       o.city,
+      role:       o.role,
+      isVerified: o.isVerified,
+      agentTick:  o.agentTick,
+    };
+  }
+
   async create(dto: CreatePropertyDto, owner: User): Promise<Property> {
     // Security: Only Owner and Agent roles may create property listings
     if (owner.role === UserRole.BUYER) {
@@ -626,32 +656,22 @@ export class PropertiesService {
     }
 
     const total = await qb.getCount();
-    const rawItems = await qb
+    const raw = await qb
       .skip((page - 1) * limit)
       .take(limit)
       .getMany();
 
-    // ── Agent diversity: max 2 listings per agent in the returned page ───────────
-    // This prevents any single agent from dominating the feed.
-    const agentCount = new Map<string, number>();
-    const diverse: typeof rawItems = [];
-    const overflow: typeof rawItems = [];
-    for (const p of rawItems) {
-      const aid = p.ownerId || p.agentId || '';
-      const cnt = agentCount.get(aid) || 0;
-      if (!aid || cnt < 2) {
-        diverse.push(p);
-        agentCount.set(aid, cnt + 1);
-      } else {
-        overflow.push(p);
-      }
-    }
-    // Append overflow at the end so total count stays correct for this page
-    const raw = [...diverse, ...overflow];
+    // There used to be an "agent diversity" pass here that claimed to cap each
+    // agent at 2 listings per page. It never did: it split the page into
+    // `diverse` and `overflow` and then concatenated them straight back, so the
+    // same rows were returned in a different order. The only observable effect
+    // was that "Price: Low to High" came back out of price order. A real cap
+    // has to happen in the query (over-fetch, drop, re-page) or not at all.
 
     const now = new Date();
     const items = raw.map((p) => ({
       ...p,
+      owner: PropertiesService.publicOwner(p.owner),
       isBoosted: p.isFeatured && p.boostExpiresAt != null && new Date(p.boostExpiresAt) > now,
       boostExpiry: p.boostExpiresAt ?? null,
     }));
@@ -689,22 +709,60 @@ export class PropertiesService {
     return qb.limit(200).getMany();
   }
 
+  /**
+   * Featured strip on the homepage.
+   *
+   * Boosted listings come first, then the newest live listings top the row up to
+   * `limit`. The top-up matters: this used to require `isFeatured = true` and
+   * nothing else, so on a catalogue where nobody had bought a boost — which is
+   * every catalogue on day one — the homepage rendered an empty strip.
+   */
   async findFeatured(limit = 8): Promise<Property[]> {
-    const now = new Date();
-    return this.propertyRepo
-      .createQueryBuilder('property')
-      .leftJoinAndSelect('property.images', 'images')
-      .where('property.isFeatured = :f', { f: true })
-      .andWhere('property.status = :status', { status: PropertyStatus.ACTIVE })
-      .andWhere('property.approvalStatus = :approval', { approval: ApprovalStatus.APPROVED })
+    const now  = new Date();
+    const size = Math.max(1, Math.min(Number(limit) || 8, 24));
+
+    const live = (alias: string) => this.propertyRepo
+      .createQueryBuilder(alias)
+      .leftJoinAndSelect(`${alias}.images`, 'images')
+      .where(`${alias}.status = :status`, { status: PropertyStatus.ACTIVE })
+      .andWhere(`${alias}.approvalStatus = :approval`, { approval: ApprovalStatus.APPROVED })
+      .andWhere(`${alias}.isDraft = :isDraft`, { isDraft: false });
+
+    const featured = await live('property')
+      .andWhere('property.isFeatured = :f', { f: true })
       .andWhere('(property.boostExpiresAt IS NULL OR property.boostExpiresAt > :now)', { now })
       .orderBy('property.boostExpiresAt', 'DESC')
       .addOrderBy('property.createdAt', 'DESC')
-      .take(limit)
+      .take(size)
       .getMany();
+
+    if (featured.length >= size) return featured;
+
+    const fillers = await live('property')
+      .andWhere(
+        featured.length ? 'property.id NOT IN (:...seen)' : '1 = 1',
+        featured.length ? { seen: featured.map(p => p.id) } : {},
+      )
+      .orderBy('property.createdAt', 'DESC')
+      .take(size - featured.length)
+      .getMany();
+
+    return [...featured, ...fillers];
   }
 
-  async findBySlug(slug: string): Promise<Property> {
+  /**
+   * Public property page.
+   *
+   * `viewer` is whoever is signed in, if anyone — the route uses OptionalAuthGuard,
+   * so it is undefined for guests and for the ISR render.
+   *
+   * A listing that is not live is visible only to its owner and to admins.
+   * Previously this method filtered on nothing at all, which meant every
+   * pending, rejected and draft listing was readable by anyone holding the URL —
+   * a rejected listing stayed reachable forever at the address its owner had
+   * already shared.
+   */
+  async findBySlug(slug: string, viewer?: User): Promise<Property> {
     const property = await this.propertyRepo
       .createQueryBuilder('property')
       .leftJoinAndSelect('property.images', 'images')
@@ -714,7 +772,22 @@ export class PropertiesService {
       .orderBy('images.sortOrder', 'ASC')
       .getOne();
     if (!property) throw new NotFoundException('Property not found');
-    return property;
+
+    const shaped = {
+      ...property,
+      owner: PropertiesService.publicOwner(property.owner),
+    } as Property;
+
+    const isLive =
+      property.approvalStatus === ApprovalStatus.APPROVED && !property.isDraft;
+    if (isLive) return shaped;
+
+    const isOwner = !!viewer && property.ownerId === viewer.id;
+    if (isOwner || (viewer && this.isAdmin(viewer))) return shaped;
+
+    // Same 404 a guest gets for a slug that never existed — an unapproved
+    // listing should not be distinguishable from a missing one.
+    throw new NotFoundException('Property not found');
   }
 
   // ── Bot detection ────────────────────────────────────────────────────────────
@@ -930,15 +1003,27 @@ export class PropertiesService {
   }
 
   async getStats() {
+    // These counters are the numbers on the homepage, so they have to agree with
+    // what `findAll` will actually show. Filtering on `status` alone counted
+    // unapproved and draft listings too, which let the hero read "12 properties"
+    // over a listing page that returned four.
+    const visible = {
+      status:         PropertyStatus.ACTIVE,
+      approvalStatus: ApprovalStatus.APPROVED,
+      isDraft:        false,
+    };
+
     const [total, forSale, forRent, forPG, citiesRow] = await Promise.all([
-      this.propertyRepo.count({ where: { status: PropertyStatus.ACTIVE } }),
-      this.propertyRepo.count({ where: { status: PropertyStatus.ACTIVE, category: PropertyCategory.BUY } }),
-      this.propertyRepo.count({ where: { status: PropertyStatus.ACTIVE, category: PropertyCategory.RENT } }),
-      this.propertyRepo.count({ where: { status: PropertyStatus.ACTIVE, category: PropertyCategory.PG } }),
+      this.propertyRepo.count({ where: { ...visible } }),
+      this.propertyRepo.count({ where: { ...visible, category: PropertyCategory.BUY } }),
+      this.propertyRepo.count({ where: { ...visible, category: PropertyCategory.RENT } }),
+      this.propertyRepo.count({ where: { ...visible, category: PropertyCategory.PG } }),
       this.propertyRepo
         .createQueryBuilder('p')
         .select('COUNT(DISTINCT p.city)', 'cnt')
         .where('p.status = :status', { status: PropertyStatus.ACTIVE })
+        .andWhere('p.approvalStatus = :approvalStatus', { approvalStatus: ApprovalStatus.APPROVED })
+        .andWhere('p.isDraft = :isDraft', { isDraft: false })
         .andWhere('p.city IS NOT NULL')
         .andWhere("p.city != ''")
         .getRawOne<{ cnt: string }>(),
@@ -1515,6 +1600,20 @@ export class PropertiesService {
       if (!allowed.includes(newStatus)) {
         throw new BadRequestException(
           `Cannot transition from "${property.status}" to "${newStatus}"`,
+        );
+      }
+
+      // The transition table alone was not enough. A newly posted listing sits at
+      // INACTIVE/PENDING, and `INACTIVE → ACTIVE` is a legitimate move — it is how
+      // an owner puts a listing they had paused back on the market. But that let
+      // an owner walk a listing that had never been reviewed straight to ACTIVE,
+      // skipping moderation. The transition stays; going live now additionally
+      // requires that an admin has approved the listing at some point.
+      if (newStatus === PropertyStatus.ACTIVE && property.approvalStatus !== ApprovalStatus.APPROVED) {
+        throw new BadRequestException(
+          property.approvalStatus === ApprovalStatus.REJECTED
+            ? 'This listing was rejected and cannot be reactivated. Edit it to resubmit for review.'
+            : 'This listing is still awaiting admin approval and cannot be activated yet.',
         );
       }
     }

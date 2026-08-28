@@ -580,7 +580,12 @@ export class AdminController {
 
   @Post('localities')
   @ApiOperation({ summary: 'Create a locality entry' })
-  createLocality(@Request() req, @Body() body: { city: string; state: string; locality?: string; pincode?: string; latitude?: number; longitude?: number }) {
+  createLocality(
+    @Request() req,
+    // `cityId` is what the admin form sends; the city/state strings remain for
+    // CSV bulk import, which has only names to work with.
+    @Body() body: { cityId?: string; city?: string; state?: string; locality?: string; pincode?: string; latitude?: number; longitude?: number },
+  ) {
     this.assertAdmin(req);
     return this.adminService.createLocality(body);
   }

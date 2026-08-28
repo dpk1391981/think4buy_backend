@@ -39,7 +39,19 @@ export class User {
   @Column({ length: 15, nullable: true })
   phone: string;
 
-  @Column()
+  /**
+   * `select: false` is the real guard here, not `@Exclude()`.
+   *
+   * `@Exclude()` only takes effect under a ClassSerializerInterceptor, and this
+   * app registers none — so before this, every `leftJoinAndSelect('…owner')` in
+   * the properties, admin, analytics and wallet queries shipped the bcrypt hash
+   * straight to the browser. Keeping it out of the default SELECT means no
+   * future join can leak it by accident.
+   *
+   * The two places that legitimately need it (`login`, and the password lookup
+   * in `getEmailStatus`) opt back in with `addSelect`/an explicit `select` list.
+   */
+  @Column({ select: false })
   @Exclude()
   password: string;
 
@@ -174,8 +186,11 @@ export class User {
 
   // ── Security fields ─────────────────────────────────────────────────────────
 
-  /** Hashed refresh token stored server-side; nulled on logout */
-  @Column({ nullable: true, length: 500 })
+  /**
+   * Hashed refresh token stored server-side; nulled on logout.
+   * `select: false` for the same reason as `password` — see above.
+   */
+  @Column({ nullable: true, length: 500, select: false })
   @Exclude()
   refreshToken: string;
 
